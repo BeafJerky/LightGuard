@@ -14,6 +14,8 @@ import OverviewPage from './product/OverviewPage.vue';
 import SettingsPage from './product/SettingsPage.vue';
 import UiHost from './product/UiHost.vue';
 import ServerDesktop from './product/desktop/ServerDesktop.vue';
+import WindowFrame from './WindowFrame.vue';
+import ThemeSwitchOverlay from './ThemeSwitchOverlay.vue';
 import { findServer, restartLiveUpdates, state, stopLiveUpdates } from './product/store';
 import { navigateTo, route, startRouter } from './product/router';
 import { renderSettings } from './render/settings';
@@ -69,15 +71,18 @@ watch(
   <LgIconSprite />
   <LgRenderProvider :settings="renderSettings">
     <LgConfigProvider class="product-scope" :theme="theme" :scope="scope">
-      <ServerDesktop v-if="desktopServer" :key="desktopServer.id" :server="desktopServer" />
-      <ConsoleShell v-else>
-        <OverviewPage v-if="page === 'overview'" />
-        <ConnectionsPage v-else-if="page === 'connections'" />
-        <SettingsPage v-else />
-      </ConsoleShell>
+      <WindowFrame>
+        <ServerDesktop v-if="desktopServer" :key="desktopServer.id" :server="desktopServer" />
+        <ConsoleShell v-else>
+          <OverviewPage v-if="page === 'overview'" />
+          <ConnectionsPage v-else-if="page === 'connections'" />
+          <SettingsPage v-else />
+        </ConsoleShell>
 
-      <UiHost />
-      <AddServerWizard />
+        <ThemeSwitchOverlay />
+        <UiHost />
+        <AddServerWizard />
+      </WindowFrame>
     </LgConfigProvider>
   </LgRenderProvider>
 </template>

@@ -1,21 +1,33 @@
-import { computed, reactive, watch } from 'vue';
+import { computed, reactive } from 'vue';
 import { themeOptions } from '@lightguard/lightui';
 import type { ThemeId } from '@lightguard/lightui';
+import { resetRenderSettings } from '../render/settings';
+import { APP_VERSION, AUTH_LABELS, MAX_LOGS, round, uid } from './data';
 import {
-  APP_VERSION,
-  AUTH_LABELS,
-  MAX_LOGS,
-  buildLogs,
-  buildServers,
-  clamp,
-  defaultDisks,
-  defaultInterfaces,
-  historySeries,
-  makeServer,
-  rand,
-  round,
-  uid,
-} from './data';
+  applySnapshot,
+  fromPersisted,
+  markConnected,
+  newServer,
+  ssh,
+  toPersisted,
+  toSshError,
+  type BackendAuth,
+  type ConnectResult,
+  type ServerSnapshot,
+  type StatusEvent,
+} from './ssh';
+import {
+  LEGACY_BACKUP_KEY,
+  LEGACY_STORE_KEY,
+  activatePersistence,
+  clearLegacyAppKeys,
+  isPersistenceActive,
+  loadStoredState,
+  replaceStoredState,
+  resetStoredState,
+  writePersistence,
+  type StoredState,
+} from './persistence';
 import type {
   AppSettings,
   BackupConnection,
@@ -23,15 +35,16 @@ import type {
   BackupSummary,
   LogEntry,
   LogSource,
+  PersistedServer,
   PersistedState,
   Server,
   ServerDraft,
   ThemeChoices,
 } from './types';
 
-const STORE_KEY = 'lightguard.app.v1';
-const STORE_VERSION = 1;
-const BACKUP_SUMMARY_KEY = 'lightguard.backup.last';
+const STORE_KEY = LEGACY_STORE_KEY;
+const STORE_VERSION = 2;
+const BACKUP_SUMMARY_KEY = LEGACY_BACKUP_KEY;
 
 const THEME_IDS = new Set<string>(themeOptions.map((option) => option.id));
 
@@ -49,6 +62,8 @@ export const DEFAULT_THEMES: ThemeChoices = {
   console: 'dark',
   desktop: 'pixel',
 };
+
+export const backendAvailable = ssh.available;
 
 function readTheme(value: unknown, fallback: ThemeId): ThemeId {
   return typeof value === 'string' && THEME_IDS.has(value) ? (value as ThemeId) : fallback;
@@ -80,24 +95,8 @@ function readThemes(value: unknown): ThemeChoices {
   };
 }
 
-function readBackupSummary(fallback: unknown): BackupSummary | null {
-  try {
-    const raw = localStorage.getItem(BACKUP_SUMMARY_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as Partial<BackupSummary> | null;
-      if (
-        parsed &&
-        typeof parsed.at === 'string' &&
-        typeof parsed.hosts === 'number' &&
-        typeof parsed.encrypted === 'boolean'
-      ) {
-        return { at: parsed.at, hosts: parsed.hosts, encrypted: parsed.encrypted };
-      }
-    }
-  } catch {
-    /* fall through to the app-state snapshot */
-  }
-  const candidate = fallback as Partial<BackupSummary> | null | undefined;
+function normalizeBackup(value: unknown): BackupSummary | null {
+  const candidate = value as Partial<BackupSummary> | null | undefined;
   if (
     candidate &&
     typeof candidate.at === 'string' &&
@@ -109,37 +108,77 @@ function readBackupSummary(fallback: unknown): BackupSummary | null {
   return null;
 }
 
+function readBackupSummary(fallback: unknown): BackupSummary | null {
+  try {
+    const raw = window.localStorage.getItem(BACKUP_SUMMARY_KEY);
+    const parsed = raw ? normalizeBackup(JSON.parse(raw)) : null;
+    if (parsed) return parsed;
+  } catch {
+    /* fall through to the app-state snapshot */
+  }
+  return normalizeBackup(fallback);
+}
+
+function readServers(value: unknown): Server[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is PersistedServer => {
+      if (!item || typeof item !== 'object') return false;
+      const raw = item as Partial<PersistedServer>;
+      return typeof raw.id === 'string' && typeof raw.name === 'string' && typeof raw.ip === 'string';
+    })
+    .map(fromPersisted);
+}
+
+function readLogs(value: unknown): LogEntry[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is LogEntry => {
+      if (!item || typeof item !== 'object') return false;
+      const raw = item as Partial<LogEntry>;
+      return typeof raw.id === 'string' && typeof raw.ts === 'number' && typeof raw.action === 'string';
+    })
+    .slice(0, MAX_LOGS)
+    .map((log) => ({ ...log, port: typeof log.port === 'number' ? log.port : 22 }));
+}
+
 function seedState(): PersistedState {
-  const servers = buildServers();
   return {
     version: STORE_VERSION,
     themes: { ...DEFAULT_THEMES },
     settings: { ...DEFAULT_SETTINGS },
-    servers,
-    logs: buildLogs(servers),
-    backup: null,
+    servers: [],
+    logs: [],
+    backup: readBackupSummary(null),
   };
 }
 
 function loadState(): PersistedState | null {
   try {
-    const raw = localStorage.getItem(STORE_KEY);
+    const raw = window.localStorage.getItem(STORE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<PersistedState> | null;
-    if (!parsed || parsed.version !== STORE_VERSION) return null;
-    if (!Array.isArray(parsed.servers) || !parsed.servers.length) return null;
-    const servers = parsed.servers as Server[];
+    const parsed = JSON.parse(raw) as Record<string, unknown> | null;
+    if (!parsed) return null;
+    const version = typeof parsed.version === 'number' ? parsed.version : 0;
+    const themes = readThemes(parsed.themes);
+    const settings = readSettings(parsed.settings);
+    if (version === STORE_VERSION) {
+      return {
+        version: STORE_VERSION,
+        themes,
+        settings,
+        servers: readServers(parsed.servers),
+        logs: readLogs(parsed.logs),
+        backup: readBackupSummary(parsed.backup),
+      };
+    }
+    // v1 held generated demo hosts and random metrics; keep preferences only.
     return {
       version: STORE_VERSION,
-      themes: readThemes(parsed.themes),
-      settings: readSettings(parsed.settings),
-      servers,
-      logs:
-        Array.isArray(parsed.logs) && parsed.logs.length
-          ? (parsed.logs as LogEntry[])
-              .slice(0, MAX_LOGS)
-              .map((log) => ({ ...log, port: typeof log.port === 'number' ? log.port : 22 }))
-          : buildLogs(servers),
+      themes,
+      settings,
+      servers: [],
+      logs: [],
       backup: readBackupSummary(parsed.backup),
     };
   } catch {
@@ -155,58 +194,33 @@ export const fleet = computed(() => {
   const total = state.servers.length;
   let online = 0;
   let warning = 0;
-  let failed = 0;
+  let error = 0;
+  let offline = 0;
   let connecting = 0;
-  let cpu = 0;
-  let mem = 0;
   let down = 0;
   let up = 0;
-  let sampled = 0;
-  const points = 24;
-  const cpuSeries = new Array<number>(points).fill(0);
-  const memSeries = new Array<number>(points).fill(0);
   for (const server of state.servers) {
     if (server.status === 'online') online += 1;
     else if (server.status === 'warning') warning += 1;
+    else if (server.status === 'error') error += 1;
     else if (server.status === 'connecting') connecting += 1;
-    else failed += 1;
+    else offline += 1;
     if (server.status === 'online' || server.status === 'warning') {
-      cpu += server.metrics.cpu;
-      mem += server.metrics.mem;
       down += server.metrics.down;
       up += server.metrics.up;
-      sampled += 1;
-      const cpuTail = server.history.cpu.slice(-points);
-      const memTail = server.history.mem.slice(-points);
-      const cpuOffset = points - cpuTail.length;
-      const memOffset = points - memTail.length;
-      for (let i = 0; i < points; i += 1) {
-        cpuSeries[i] += i >= cpuOffset ? cpuTail[i - cpuOffset] ?? 0 : 0;
-        memSeries[i] += i >= memOffset ? memTail[i - memOffset] ?? 0 : 0;
-      }
-    }
-  }
-  if (sampled) {
-    for (let i = 0; i < points; i += 1) {
-      cpuSeries[i] = round(cpuSeries[i] / sampled, 1);
-      memSeries[i] = round(memSeries[i] / sampled, 1);
     }
   }
   return {
     total,
     online,
     warning,
-    failed,
+    error,
+    offline,
     connecting,
-    healthy: online,
-    attention: warning + failed,
-    avgCpu: sampled ? Math.round(cpu / sampled) : 0,
-    avgMem: sampled ? Math.round(mem / sampled) : 0,
+    attention: warning + error,
+    sampled: online + warning,
     down: round(down, 1),
     up: round(up, 1),
-    sampled,
-    cpuSeries,
-    memSeries,
   };
 });
 
@@ -214,9 +228,55 @@ export const unreadEvents = computed(
   () => state.logs.filter((log) => log.status === 'failed' || log.status === 'warning').length,
 );
 
+function hydrateStored(stored: StoredState) {
+  state.themes = readThemes(stored.themes);
+  state.settings = readSettings(stored.settings);
+  state.servers.splice(0, state.servers.length, ...readServers(stored.servers));
+  state.logs.splice(0, state.logs.length, ...readLogs(stored.logs));
+  state.backup = normalizeBackup(stored.backup);
+}
+
+export type StorageMode = 'web' | 'sqlite' | 'sqlite-migrated';
+
+export async function bootstrapStore(): Promise<StorageMode> {
+  const stored = await loadStoredState();
+  if (!stored) return 'web';
+  if (stored.initialized) {
+    hydrateStored(stored);
+    activatePersistence();
+    return 'sqlite';
+  }
+
+  const legacy = loadState() ?? seedState();
+  hydrateStored({
+    initialized: false,
+    themes: legacy.themes,
+    settings: legacy.settings,
+    servers: legacy.servers.map(toPersisted),
+    logs: legacy.logs,
+    backup: legacy.backup,
+    render: null,
+  });
+  try {
+    await replaceStoredState({
+      themes: { ...state.themes },
+      settings: { ...state.settings },
+      servers: state.servers.map(toPersisted),
+      logs: state.logs.slice(0, MAX_LOGS),
+      backup: state.backup,
+    });
+  } catch {
+    return 'web';
+  }
+  activatePersistence();
+  clearLegacyAppKeys();
+  return 'sqlite-migrated';
+}
+
 let persistTimer: number | undefined;
 
 function schedulePersist() {
+  if (isPersistenceActive()) return;
   if (persistTimer) window.clearTimeout(persistTimer);
   persistTimer = window.setTimeout(() => {
     persistTimer = undefined;
@@ -224,19 +284,15 @@ function schedulePersist() {
   }, 300);
 }
 
-export function persistNow() {
-  if (persistTimer) {
-    window.clearTimeout(persistTimer);
-    persistTimer = undefined;
-  }
+function persistLocal() {
   try {
-    localStorage.setItem(
+    window.localStorage.setItem(
       STORE_KEY,
       JSON.stringify({
         version: STORE_VERSION,
         themes: state.themes,
         settings: state.settings,
-        servers: state.servers,
+        servers: state.servers.map(toPersisted),
         logs: state.logs.slice(0, MAX_LOGS),
         backup: state.backup,
       }),
@@ -246,46 +302,39 @@ export function persistNow() {
   }
 }
 
-watch(
-  () => [state.themes, state.settings, state.servers, state.logs, state.backup],
-  schedulePersist,
-  { deep: true },
-);
-
-function jitter(value: number, delta: number, min: number, max: number) {
-  return round(clamp(value + rand(-delta, delta), min, max), 1);
-}
-
-export function tickServer(server: Server) {
-  if (server.status !== 'online' && server.status !== 'warning') return;
-  const metrics = server.metrics;
-  metrics.cpu = jitter(metrics.cpu, 4, 2, 97);
-  metrics.mem = jitter(metrics.mem, 2.4, 6, 96);
-  metrics.down = jitter(metrics.down, Math.max(0.6, metrics.down * 0.12), 0, 900);
-  metrics.up = jitter(metrics.up, Math.max(0.3, metrics.up * 0.12), 0, 400);
-  server.history.cpu.push(metrics.cpu);
-  server.history.mem.push(metrics.mem);
-  server.history.net.push(metrics.down);
-  if (server.history.cpu.length > 120) server.history.cpu.shift();
-  if (server.history.mem.length > 120) server.history.mem.shift();
-  if (server.history.net.length > 120) server.history.net.shift();
-  server.latency = Math.round(jitter(server.latency, 3, 8, 120));
-  server.load = [
-    round(clamp(server.load[0] + rand(-0.12, 0.12), 0, 99), 2),
-    round(clamp(server.load[1] + rand(-0.08, 0.08), 0, 99), 2),
-    round(clamp(server.load[2] + rand(-0.05, 0.05), 0, 99), 2),
-  ];
-  server.temp = Math.round(jitter(server.temp, 1, 28, 85));
-  server.lastSync = '刚刚';
-  if (server.status === 'online' && (metrics.cpu > 93 || metrics.mem > 95)) {
-    server.status = 'warning';
-    server.warning = `资源使用率偏高：CPU ${metrics.cpu}% · 内存 ${metrics.mem}%。`;
+export function persistNow() {
+  if (persistTimer) {
+    window.clearTimeout(persistTimer);
+    persistTimer = undefined;
   }
+  if (isPersistenceActive()) {
+    void replaceStoredState({
+      themes: { ...state.themes },
+      settings: { ...state.settings },
+      servers: state.servers.map(toPersisted),
+      logs: state.logs.slice(0, MAX_LOGS),
+      backup: state.backup,
+    }).catch(() => {
+      /* the write queue already reports the failure once */
+    });
+    return;
+  }
+  persistLocal();
 }
 
-export function tickAll() {
-  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-  for (const server of state.servers) tickServer(server);
+function persistServer(server: Server) {
+  if (isPersistenceActive()) writePersistence({ op: 'serverUpsert', server: toPersisted(server) });
+  else schedulePersist();
+}
+
+function forgetPersistedServer(id: string) {
+  if (isPersistenceActive()) writePersistence({ op: 'serverDelete', id });
+  else schedulePersist();
+}
+
+function serverMetaFingerprint(server: Server) {
+  // 连接轮询会刷新相对时间；只有元数据真正变化时才写库。
+  return JSON.stringify({ ...toPersisted(server), lastSync: '', lastSeen: '' });
 }
 
 export function addLog(
@@ -308,217 +357,485 @@ export function addLog(
     action: input.action,
     status: input.status,
     duration: input.duration ?? '—',
-    source: input.source ?? 'Web',
+    source: input.source ?? '桌面客户端',
     code: input.code ?? 'OK',
     auth: server?.authLabel ?? '—',
-    client: `LightGuard Web ${APP_VERSION} · Chrome`,
-    session: input.session ?? `lg_${Math.random().toString(36).slice(2, 12)}`,
+    client: `LightGuard Desktop ${APP_VERSION} · Tauri`,
+    session: input.session ?? server?.sessionId ?? '—',
     fingerprint: server?.fingerprint ?? '—',
     hint: input.hint ?? '',
   };
   state.logs.unshift(entry);
   if (state.logs.length > MAX_LOGS) state.logs.length = MAX_LOGS;
+  if (isPersistenceActive()) writePersistence({ op: 'logAppend', log: entry });
+  else schedulePersist();
   return entry;
 }
 
 export function clearLogs() {
   state.logs.splice(0, state.logs.length);
+  if (isPersistenceActive()) writePersistence({ op: 'logsClear' });
+  else schedulePersist();
 }
 
 export function setTheme(scope: keyof ThemeChoices, theme: ThemeId) {
-  if (!THEME_IDS.has(theme)) return;
-  state.themes[scope] = theme;
+  if (THEME_IDS.has(theme)) state.themes[scope] = theme;
+  if (isPersistenceActive()) writePersistence({ op: 'themesSet', themes: { ...state.themes } });
+  else schedulePersist();
 }
 
 export function updateSettings(patch: Partial<AppSettings>) {
   Object.assign(state.settings, patch);
+  if (isPersistenceActive()) writePersistence({ op: 'settingsSet', settings: { ...state.settings } });
+  else schedulePersist();
 }
 
 export function setBackupSummary(summary: BackupSummary | null) {
   state.backup = summary;
+  if (isPersistenceActive()) {
+    writePersistence({ op: 'backupSet', summary });
+    return;
+  }
   try {
-    if (summary) localStorage.setItem(BACKUP_SUMMARY_KEY, JSON.stringify(summary));
-    else localStorage.removeItem(BACKUP_SUMMARY_KEY);
+    if (summary) window.localStorage.setItem(BACKUP_SUMMARY_KEY, JSON.stringify(summary));
+    else window.localStorage.removeItem(BACKUP_SUMMARY_KEY);
   } catch {
     /* summary is non-critical */
   }
+  schedulePersist();
 }
 
-export function generateFingerprint() {
-  const groups: string[] = [];
-  for (let i = 0; i < 8; i += 1) {
-    groups.push(Math.random().toString(16).slice(2, 6).padEnd(4, '0'));
-  }
-  return `SHA256:${groups.join(' ')}`;
+function durationSince(started: number) {
+  return `${((Date.now() - started) / 1000).toFixed(2)}s`;
 }
 
-function draftMetrics() {
-  return {
-    cpu: Math.round(rand(14, 38)),
-    mem: Math.round(rand(28, 58)),
-    disk: Math.round(rand(16, 46)),
-    down: round(rand(1, 9), 1),
-    up: round(rand(0.4, 3.2), 1),
-  };
+function applyError(server: Server, error: ReturnType<typeof toSshError>) {
+  server.status = 'error';
+  server.needsAuth = error.code === 'AUTH_FAILED' || error.code === 'CREDENTIAL_ERROR';
+  server.error = { code: error.code, message: error.message, hint: error.hint };
 }
 
-export function addServer(draft: ServerDraft): Server {
-  const metrics = draftMetrics();
-  const server = makeServer({
-    id: uid('srv'),
-    name: draft.name.trim() || draft.ip,
-    ip: draft.ip.trim(),
+export interface ConnectOptions {
+  remember: boolean;
+  verifyHostKey: boolean;
+}
+
+export interface ConnectOutcome {
+  server: Server;
+  result: ConnectResult;
+  credentialsSaved: boolean;
+}
+
+export async function connectAndAdd(
+  draft: ServerDraft,
+  auth: BackendAuth,
+  secret: string,
+  passphrase: string,
+  options: ConnectOptions,
+): Promise<ConnectOutcome> {
+  const serverId = uid('srv');
+  const started = Date.now();
+  const result = await ssh.connect({
+    serverId,
+    host: draft.ip.trim(),
     port: draft.port,
-    user: draft.user.trim() || 'deploy',
-    auth: draft.auth,
-    role: draft.role.trim() || '通用服务器',
-    group: draft.group.trim() || '未分组',
-    tags: draft.tags.length ? draft.tags : ['自建'],
-    note: draft.note.trim(),
-    os: 'Ubuntu 24.04.2 LTS',
-    kernel: '6.8.0-45-generic',
-    cpuModel: 'AMD EPYC 7R32',
-    cpuCores: 4,
-    memTotal: 8,
-    diskTotal: 160,
-    uptime: '1 天 2 小时',
-    bootTime: '2026-10-26 09:18',
-    lastSync: '刚刚',
-    latency: Math.round(rand(14, 46)),
-    load: [0.24, 0.31, 0.28],
-    temp: 42,
-    metrics,
-    disks: defaultDisks(160, metrics.disk),
-    interfaces: defaultInterfaces(draft.ip.trim(), metrics),
-    fingerprint: generateFingerprint(),
+    user: draft.user.trim(),
+    auth,
+    secret,
+    passphrase: passphrase || undefined,
+    remember: options.remember,
+    verifyHostKey: options.verifyHostKey,
   });
-  server.status = 'online';
+  const server = newServer({ serverId, draft, auth }, result);
   state.servers.push(server);
-  addLog({ serverId: server.id, action: '连接成功', status: 'success', duration: '1.24s' });
-  return server;
+  addLog({
+    serverId: server.id,
+    action: '连接成功',
+    status: 'success',
+    duration: durationSince(started),
+    code: 'OK',
+    session: result.sessionId,
+    hint: result.hostKeyState === 'new' ? '首次连接，已记录主机指纹。' : '',
+  });
+  let credentialsSaved = false;
+  if (options.remember) {
+    try {
+      credentialsSaved = (await ssh.credentialStatus(server.id)).saved;
+    } catch {
+      credentialsSaved = false;
+    }
+  }
+  persistNow();
+  return { server, result, credentialsSaved };
 }
 
-export function removeServer(id: string) {
-  const index = state.servers.findIndex((server) => server.id === id);
-  if (index >= 0) state.servers.splice(index, 1);
+export async function refreshServer(id: string): Promise<Server | null> {
+  const server = findServer(id);
+  if (!server) return null;
+  const before = serverMetaFingerprint(server);
+  try {
+    const snapshot = await ssh.snapshot(id);
+    applySnapshot(server, snapshot);
+    if (serverMetaFingerprint(server) !== before) persistServer(server);
+    return server;
+  } catch (raw) {
+    const error = toSshError(raw);
+    if (error.code === 'SESSION_CLOSED' || error.code === 'SESSION_NOT_FOUND') {
+      if (server.status !== 'error') {
+        applyError(server, error);
+        server.sessionId = '';
+        addLog({
+          serverId: server.id,
+          action: '会话断开',
+          status: 'warning',
+          code: error.code,
+          hint: error.hint,
+        });
+      }
+    }
+    return server;
+  }
 }
-
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export async function retryServer(id: string): Promise<Server | null> {
   const server = findServer(id);
-  if (!server || server.status === 'connecting') return server ?? null;
+  if (!server) return null;
+  if (server.status === 'connecting') return server;
+  if (!ssh.available) {
+    applyError(
+      server,
+      toSshError({ code: 'UNSUPPORTED', message: '真实 SSH 仅桌面版可用', hint: '请在桌面客户端中连接。' }),
+    );
+    return server;
+  }
   server.status = 'connecting';
   server.error = null;
-  await sleep(1100 + Math.random() * 700);
-  if (server.needsAuth) {
-    server.status = 'error';
-    server.error = {
-      code: 'AUTH_FAILED',
-      message: '身份认证失败',
-      hint: '凭据可能已轮换，请更新密码或私钥后重试。',
-    };
+  const started = Date.now();
+  try {
+    const result = await ssh.reconnect({
+      serverId: id,
+      host: server.ip,
+      port: server.port,
+      user: server.user,
+      verifyHostKey: state.settings.hostKey,
+    });
+    markConnected(server, result);
+    applySnapshot(server, result.snapshot);
+    server.needsAuth = false;
     addLog({
-      serverId: server.id,
+      serverId: id,
+      action: '重新连接成功',
+      status: 'success',
+      duration: durationSince(started),
+      session: result.sessionId,
+    });
+    persistServer(server);
+    return server;
+  } catch (raw) {
+    const error = toSshError(raw);
+    applyError(server, error);
+    addLog({
+      serverId: id,
       action: '连接失败',
       status: 'failed',
-      duration: '2.36s',
-      code: 'AUTH_FAILED',
-      hint: '服务器拒绝身份认证。请更新凭据后重试。',
+      duration: durationSince(started),
+      code: error.code,
+      hint: error.hint,
     });
     return server;
   }
-  server.status = 'online';
-  server.error = null;
-  server.warning = '';
-  server.lastSync = '刚刚';
-  server.lastSeen = '刚刚';
-  server.uptime = server.uptime === '—' ? '0 天 1 小时' : server.uptime;
-  server.bootTime = server.bootTime === '—' ? '刚刚' : server.bootTime;
-  const metrics = server.metrics;
-  metrics.cpu = Math.round(rand(16, 34));
-  metrics.mem = Math.round(rand(28, 52));
-  metrics.down = round(rand(1, 8), 1);
-  metrics.up = round(rand(0.4, 3), 1);
-  server.history = {
-    cpu: historySeries(metrics.cpu, 4),
-    mem: historySeries(metrics.mem, 3),
-    net: historySeries(metrics.down, 1.4, 0.2, 90),
-  };
-  addLog({ serverId: server.id, action: '重新连接成功', status: 'success', duration: '1.08s' });
-  return server;
 }
 
-export function updateCredentials(id: string, auth: Server['auth']) {
+export async function updateCredentials(
+  id: string,
+  auth: BackendAuth,
+  secret: string,
+  passphrase = '',
+): Promise<Server | null> {
   const server = findServer(id);
   if (!server) return null;
-  server.auth = auth;
-  server.authLabel = AUTH_LABELS[auth];
-  server.needsAuth = false;
+  if (!ssh.available) {
+    applyError(
+      server,
+      toSshError({ code: 'UNSUPPORTED', message: '真实 SSH 仅桌面版可用', hint: '请在桌面客户端中连接。' }),
+    );
+    return server;
+  }
+  server.status = 'connecting';
   server.error = null;
-  server.status = 'online';
-  server.lastSync = '刚刚';
-  server.lastSeen = '刚刚';
-  server.uptime = server.uptime === '—' ? '0 天 1 小时' : server.uptime;
-  server.bootTime = server.bootTime === '—' ? '刚刚' : server.bootTime;
-  const metrics = server.metrics;
-  metrics.cpu = Math.round(rand(12, 30));
-  metrics.mem = Math.round(rand(24, 46));
-  metrics.down = round(rand(0.8, 6), 1);
-  metrics.up = round(rand(0.3, 2.4), 1);
-  server.history = {
-    cpu: historySeries(metrics.cpu, 4),
-    mem: historySeries(metrics.mem, 3),
-    net: historySeries(metrics.down, 1.2, 0.2, 90),
-  };
-  addLog({ serverId: server.id, action: '凭据已更新', status: 'success', duration: '0.42s' });
-  return server;
+  const started = Date.now();
+  try {
+    const result = await ssh.connect({
+      serverId: id,
+      host: server.ip,
+      port: server.port,
+      user: server.user,
+      auth,
+      secret,
+      passphrase: passphrase || undefined,
+      remember: true,
+      verifyHostKey: state.settings.hostKey,
+    });
+    markConnected(server, result);
+    applySnapshot(server, result.snapshot);
+    server.needsAuth = false;
+    server.auth = auth;
+    server.authLabel = AUTH_LABELS[auth];
+    addLog({
+      serverId: id,
+      action: '凭据已更新',
+      status: 'success',
+      duration: durationSince(started),
+      session: result.sessionId,
+    });
+    persistServer(server);
+    return server;
+  } catch (raw) {
+    const error = toSshError(raw);
+    applyError(server, error);
+    addLog({
+      serverId: id,
+      action: '凭据更新失败',
+      status: 'failed',
+      duration: durationSince(started),
+      code: error.code,
+      hint: error.hint,
+    });
+    return server;
+  }
 }
 
-function importedServer(connection: BackupConnection): Server {
-  const auth = connection.auth;
-  const metrics = { cpu: 0, mem: 0, disk: 0, down: 0, up: 0 };
-  const server = makeServer({
+export interface ServerEditPatch {
+  name: string;
+  ip: string;
+  port: number;
+  user: string;
+  group: string;
+  role: string;
+  tags: string[];
+  note: string;
+}
+
+export interface ServerEditResult {
+  server: Server;
+  connectionChanged: boolean;
+  reconnected: boolean;
+}
+
+export async function editServer(id: string, patch: ServerEditPatch): Promise<ServerEditResult | null> {
+  const server = findServer(id);
+  if (!server) return null;
+  const connectionChanged =
+    server.ip !== patch.ip || server.port !== patch.port || server.user !== patch.user;
+  const wasConnected = server.status === 'online' || server.status === 'warning';
+
+  server.name = patch.name;
+  server.ip = patch.ip;
+  server.port = patch.port;
+  server.user = patch.user;
+  server.group = patch.group;
+  server.role = patch.role;
+  server.tags = patch.tags;
+  server.note = patch.note;
+
+  if (!connectionChanged) {
+    addLog({ serverId: id, action: '编辑服务器', status: 'success' });
+    persistNow();
+    return { server, connectionChanged: false, reconnected: false };
+  }
+
+  if (!wasConnected) {
+    server.status = 'offline';
+    server.error = null;
+    server.needsAuth = false;
+    server.sessionId = '';
+    addLog({
+      serverId: id,
+      action: '编辑服务器',
+      status: 'success',
+      hint: '连接信息已更新，将在下次连接时生效。',
+    });
+    persistNow();
+    return { server, connectionChanged: true, reconnected: false };
+  }
+
+  if (!ssh.available) {
+    applyError(
+      server,
+      toSshError({ code: 'UNSUPPORTED', message: '真实 SSH 仅桌面版可用', hint: '请在桌面客户端中重新连接。' }),
+    );
+    persistNow();
+    return { server, connectionChanged: true, reconnected: false };
+  }
+
+  server.status = 'connecting';
+  server.error = null;
+  const started = Date.now();
+  try {
+    const result = await ssh.reconnect({
+      serverId: id,
+      host: server.ip,
+      port: server.port,
+      user: server.user,
+      verifyHostKey: state.settings.hostKey,
+    });
+    markConnected(server, result);
+    applySnapshot(server, result.snapshot);
+    server.needsAuth = false;
+    addLog({
+      serverId: id,
+      action: '连接信息已更新',
+      status: 'success',
+      duration: durationSince(started),
+      session: result.sessionId,
+    });
+    persistNow();
+    return { server, connectionChanged: true, reconnected: true };
+  } catch (raw) {
+    const error = toSshError(raw);
+    applyError(server, error);
+    addLog({
+      serverId: id,
+      action: '连接信息更新后重连失败',
+      status: 'failed',
+      duration: durationSince(started),
+      code: error.code,
+      hint: error.hint,
+    });
+    persistNow();
+    return { server, connectionChanged: true, reconnected: false };
+  }
+}
+
+export async function forgetCredentials(id: string) {
+  try {
+    await ssh.forgetCredentials(id);
+  } catch {
+    /* nothing to forget */
+  }
+}
+
+export async function disconnectServer(id: string) {
+  const server = findServer(id);
+  if (ssh.available) {
+    try {
+      await ssh.disconnect(id);
+    } catch {
+      /* session may already be gone */
+    }
+  }
+  if (!server) return;
+  server.status = 'offline';
+  server.needsAuth = false;
+  server.error = null;
+  server.sessionId = '';
+  server.startedAt = '';
+  server.hostKeyState = '';
+  server.encryption = null;
+  persistNow();
+}
+
+export async function removeServer(id: string) {
+  const index = state.servers.findIndex((server) => server.id === id);
+  if (index >= 0) state.servers.splice(index, 1);
+  forgetPersistedServer(id);
+  if (!ssh.available) return;
+  try {
+    await ssh.disconnect(id);
+  } catch {
+    /* session may already be gone */
+  }
+  try {
+    await ssh.forgetCredentials(id);
+  } catch {
+    /* credentials may not exist */
+  }
+}
+
+async function eachLimit<T>(items: T[], limit: number, task: (item: T) => Promise<void>) {
+  let index = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (index < items.length) {
+      const current = items[index];
+      index += 1;
+      await task(current);
+    }
+  });
+  await Promise.all(runners);
+}
+
+export async function tickAll() {
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+  if (!ssh.available) return;
+  const targets = state.servers.filter(
+    (server) => server.status === 'online' || server.status === 'warning',
+  );
+  await eachLimit(targets, 2, async (server) => {
+    await refreshServer(server.id);
+  });
+}
+
+function onStatusEvent(event: StatusEvent) {
+  const server = findServer(event.serverId);
+  if (!server) return;
+  if (event.state === 'closed') {
+    if (server.status !== 'error') {
+      addLog({
+        serverId: server.id,
+        action: '会话断开',
+        status: 'warning',
+        code: 'SESSION_CLOSED',
+        hint: 'SSH 会话已断开，请重新连接。',
+      });
+    }
+    server.status = 'error';
+    server.needsAuth = false;
+    server.error = {
+      code: 'SESSION_CLOSED',
+      message: 'SSH 会话已断开',
+      hint: '请重新连接该服务器。',
+    };
+    server.sessionId = '';
+  } else if (event.state === 'auth-failed') {
+    server.status = 'error';
+    server.needsAuth = true;
+    server.error = {
+      code: 'AUTH_FAILED',
+      message: '身份认证失败',
+      hint: '请更新密码或私钥后重试。',
+    };
+  }
+}
+
+ssh.onStatus(onStatusEvent);
+
+async function importedServer(connection: BackupConnection): Promise<Server> {
+  return fromPersisted({
     id: connection.id || uid('srv'),
     name: connection.name,
     role: connection.role || '通用服务器',
     ip: connection.ip,
     port: connection.port,
-    user: connection.user,
-    auth,
+    region: 'SSH 直连',
     group: connection.group || '未分组',
     tags: connection.tags?.length ? connection.tags : ['自建'],
     note: connection.note ?? '',
-    status: 'offline',
-    os: '待读取',
-    kernel: '—',
-    cpuModel: '—',
+    user: connection.user,
+    auth: connection.auth,
+    authLabel: AUTH_LABELS[connection.auth],
+    fingerprint: '—',
+    lastSync: '尚未连接',
+    lastSeen: '尚未连接',
     cpuCores: 0,
     memTotal: 0,
     diskTotal: 0,
-    uptime: '—',
-    bootTime: '—',
-    lastSync: '尚未连接',
-    lastSeen: '尚未连接',
-    latency: 0,
-    load: [0, 0, 0],
-    temp: 0,
-    metrics,
-    disks: [],
-    interfaces: [],
-    processes: [],
-    gateway: '—',
-    dns: '—',
-    publicIp: '—',
-    fingerprint: '—',
-    needsAuth: true,
+    os: '待读取',
+    kernel: '—',
+    arch: '—',
+    cpuModel: '—',
+    cpuFreq: '—',
+    timezone: '—',
   });
-  server.history = {
-    cpu: new Array(120).fill(0),
-    mem: new Array(120).fill(0),
-    net: new Array(120).fill(0),
-  };
-  return server;
 }
 
 export interface ImportResult {
@@ -527,13 +844,16 @@ export interface ImportResult {
   skipped: number;
 }
 
-export function applyBackup(
+export async function applyBackup(
   payload: BackupPayload,
   strategy: 'merge' | 'replace',
   scope: { settings: boolean; connections: boolean },
-): ImportResult {
+): Promise<ImportResult> {
   const result: ImportResult = { added: 0, updated: 0, skipped: 0 };
-  const before = strategy === 'replace' ? JSON.stringify({ servers: state.servers, settings: state.settings, themes: state.themes }) : null;
+  const before =
+    strategy === 'replace'
+      ? JSON.stringify({ servers: state.servers.map(toPersisted), settings: state.settings, themes: state.themes })
+      : null;
   try {
     if (scope.connections) {
       const next = strategy === 'replace' ? [] : state.servers.slice();
@@ -556,25 +876,29 @@ export function applyBackup(
         } else if (sameHost) {
           result.skipped += 1;
         } else {
-          next.push(importedServer(connection));
+          next.push(await importedServer(connection));
           result.added += 1;
         }
       }
       state.servers.splice(0, state.servers.length, ...next);
     }
     if (scope.settings) {
-      state.settings = strategy === 'replace' ? readSettings(payload.settings) : { ...state.settings, ...readSettings(payload.settings) };
+      state.settings =
+        strategy === 'replace'
+          ? readSettings(payload.settings)
+          : { ...state.settings, ...readSettings(payload.settings) };
       state.themes = readThemes(payload.themes);
     }
+    persistNow();
     return result;
   } catch (error) {
     if (before) {
       const snapshot = JSON.parse(before) as {
-        servers: Server[];
+        servers: PersistedServer[];
         settings: AppSettings;
         themes: ThemeChoices;
       };
-      state.servers.splice(0, state.servers.length, ...snapshot.servers);
+      state.servers.splice(0, state.servers.length, ...snapshot.servers.map(fromPersisted));
       state.settings = snapshot.settings;
       state.themes = snapshot.themes;
     }
@@ -582,19 +906,35 @@ export function applyBackup(
   }
 }
 
-export function resetDemo() {
-  const seeded = seedState();
-  state.themes = seeded.themes;
-  state.settings = seeded.settings;
-  state.servers.splice(0, state.servers.length, ...seeded.servers);
-  state.logs.splice(0, state.logs.length, ...seeded.logs);
+export async function clearLocalData() {
+  stopLiveUpdates();
+  if (ssh.available) {
+    try {
+      await ssh.resetLocalData();
+    } catch {
+      /* clear what we can */
+    }
+  }
+  state.servers.splice(0, state.servers.length);
+  state.logs.splice(0, state.logs.length);
+  state.themes = { ...DEFAULT_THEMES };
+  state.settings = { ...DEFAULT_SETTINGS };
   state.backup = null;
   try {
-    localStorage.removeItem(BACKUP_SUMMARY_KEY);
+    window.localStorage.removeItem(BACKUP_SUMMARY_KEY);
   } catch {
     /* ignore */
   }
+  if (isPersistenceActive()) {
+    try {
+      await resetStoredState();
+    } catch {
+      /* the in-memory reset still takes effect */
+    }
+  }
+  resetRenderSettings();
   persistNow();
+  restartLiveUpdates();
 }
 
 let liveTimer: number | undefined;
@@ -603,7 +943,9 @@ export function restartLiveUpdates() {
   stopLiveUpdates();
   if (!state.settings.autoRefresh) return;
   const ms = Math.max(2, state.settings.interval) * 1000;
-  liveTimer = window.setInterval(tickAll, ms);
+  liveTimer = window.setInterval(() => {
+    void tickAll();
+  }, ms);
 }
 
 export function stopLiveUpdates() {
@@ -612,3 +954,5 @@ export function stopLiveUpdates() {
     liveTimer = undefined;
   }
 }
+
+export type { BackendAuth, ConnectResult, ServerSnapshot };

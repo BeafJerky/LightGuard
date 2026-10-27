@@ -1,6 +1,90 @@
+pub mod db;
+pub mod ssh;
+
+use tauri::Manager;
+
+#[tauri::command]
+fn set_window_border_color(window: tauri::WebviewWindow, color: String) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute;
+
+        let hex = color.trim_start_matches('#');
+        if hex.len() != 6 {
+            return Err("invalid color".into());
+        }
+        let value = u32::from_str_radix(hex, 16).map_err(|_| "invalid color".to_string())?;
+        let r = value >> 16 & 0xFF;
+        let g = value >> 8 & 0xFF;
+        let b = value & 0xFF;
+        let colorref: u32 = (b << 16) | (g << 8) | r;
+        let hwnd = window.hwnd().map_err(|error| error.to_string())?;
+        let hwnd = hwnd.0 as _;
+        unsafe {
+            DwmSetWindowAttribute(hwnd, 34, &colorref as *const _ as _, 4);
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = (window, color);
+    Ok(())
+}
+
+#[cfg(windows)]
+fn tune_window(window: &tauri::WebviewWindow) {
+    use windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute;
+
+    const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
+    const DWMWA_BORDER_COLOR: u32 = 34;
+    const DWMWCP_ROUND: u32 = 2;
+
+    let Ok(hwnd) = window.hwnd() else { return };
+    let hwnd = hwnd.0 as _;
+    let corner = DWMWCP_ROUND;
+    let border: u32 = 0x0012_0B07;
+    unsafe {
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            &corner as *const _ as _,
+            4,
+        );
+        let _ = DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, &border as *const _ as _, 4);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .setup(|app| {
+            let config_dir = app.path().app_config_dir()?;
+            std::fs::create_dir_all(&config_dir)?;
+            app.manage(db::DbState::new(&config_dir));
+            app.manage(ssh::state::AppState::new(config_dir));
+            #[cfg(windows)]
+            if let Some(window) = app.get_webview_window("main") {
+                tune_window(&window);
+            }
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            ssh::commands::ssh_connect,
+            ssh::commands::ssh_reconnect,
+            ssh::commands::ssh_snapshot,
+            ssh::commands::ssh_disconnect,
+            ssh::commands::ssh_session_status,
+            ssh::commands::ssh_save_credentials,
+            ssh::commands::ssh_credential_status,
+            ssh::commands::ssh_forget_credentials,
+            ssh::commands::ssh_forget_host_key,
+            ssh::commands::ssh_terminal_open,
+            ssh::commands::ssh_terminal_write,
+            ssh::commands::ssh_terminal_resize,
+            ssh::commands::ssh_terminal_close,
+            ssh::commands::ssh_reset_local_data,
+            db::commands::db_load,
+            db::commands::db_write,
+            set_window_border_color,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running LightGuard");
 }

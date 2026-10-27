@@ -20,12 +20,12 @@ const emit = defineEmits<{
   maximize: [];
   close: [];
   move: [x: number, y: number];
+  resize: [x: number, y: number, w: number, h: number];
   disconnect: [];
 }>();
 
 const root = ref<HTMLElement | null>(null);
 const meta = computed(() => appMeta(props.win.app));
-const terminalHeight = computed(() => Math.max(260, props.win.h - 122));
 
 const windowStyle = computed(() =>
   props.win.maximized
@@ -40,6 +40,19 @@ const windowStyle = computed(() =>
 );
 
 let drag: { pointerId: number; startX: number; startY: number; originX: number; originY: number } | null = null;
+let resizeDrag: {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  originX: number;
+  originY: number;
+  originW: number;
+  originH: number;
+  direction: string;
+} | null = null;
+
+const MIN_W = 360;
+const MIN_H = 240;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), Math.max(min, max));
@@ -60,6 +73,61 @@ function stopDrag() {
   window.removeEventListener('pointermove', onPointerMove);
   window.removeEventListener('pointerup', stopDrag);
   window.removeEventListener('pointercancel', stopDrag);
+}
+
+function onResizeMove(event: PointerEvent) {
+  if (!resizeDrag) return;
+  const bounds = root.value?.parentElement?.getBoundingClientRect();
+  const width = bounds?.width ?? window.innerWidth;
+  const height = bounds?.height ?? window.innerHeight;
+  const maxHeight = height - 54;
+  const { direction, originX, originY, originW, originH, startX, startY } = resizeDrag;
+  const dx = event.clientX - startX;
+  const dy = event.clientY - startY;
+  let x = originX;
+  let y = originY;
+  let w = originW;
+  let h = originH;
+
+  if (direction.includes('e')) w = clamp(originW + dx, MIN_W, Math.max(MIN_W, width - originX));
+  if (direction.includes('s')) h = clamp(originH + dy, MIN_H, Math.max(MIN_H, maxHeight - originY));
+  if (direction.includes('w')) {
+    const right = originX + originW;
+    x = clamp(originX + dx, 0, Math.max(0, right - MIN_W));
+    w = right - x;
+  }
+  if (direction.includes('n')) {
+    const bottom = originY + originH;
+    y = clamp(originY + dy, 0, Math.max(0, bottom - MIN_H));
+    h = bottom - y;
+  }
+
+  emit('resize', Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+}
+
+function stopResize() {
+  resizeDrag = null;
+  window.removeEventListener('pointermove', onResizeMove);
+  window.removeEventListener('pointerup', stopResize);
+  window.removeEventListener('pointercancel', stopResize);
+}
+
+function startResize(event: PointerEvent, direction: string) {
+  if (event.button !== 0 || props.win.maximized) return;
+  emit('focus');
+  resizeDrag = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    originX: props.win.x,
+    originY: props.win.y,
+    originW: props.win.w,
+    originH: props.win.h,
+    direction,
+  };
+  window.addEventListener('pointermove', onResizeMove);
+  window.addEventListener('pointerup', stopResize);
+  window.addEventListener('pointercancel', stopResize);
 }
 
 function onTitlePointerDown(event: PointerEvent) {
@@ -88,7 +156,10 @@ function onWindowKeydown(event: KeyboardEvent) {
   emit('close');
 }
 
-onBeforeUnmount(stopDrag);
+onBeforeUnmount(() => {
+  stopDrag();
+  stopResize();
+});
 </script>
 
 <template>
@@ -108,6 +179,18 @@ onBeforeUnmount(stopDrag);
     @pointerdown="emit('focus')"
     @keydown="onWindowKeydown"
   >
+    <template v-if="!win.maximized">
+      <span class="lgdesk-win__resize is-n" @pointerdown.stop.prevent="startResize($event, 'n')" />
+      <span class="lgdesk-win__resize is-s" @pointerdown.stop.prevent="startResize($event, 's')" />
+      <span class="lgdesk-win__resize is-e" @pointerdown.stop.prevent="startResize($event, 'e')" />
+      <span class="lgdesk-win__resize is-w" @pointerdown.stop.prevent="startResize($event, 'w')" />
+      <span class="lgdesk-win__resize is-ne" @pointerdown.stop.prevent="startResize($event, 'ne')" />
+      <span class="lgdesk-win__resize is-nw" @pointerdown.stop.prevent="startResize($event, 'nw')" />
+      <span class="lgdesk-win__resize is-se" @pointerdown.stop.prevent="startResize($event, 'se')" />
+      <span class="lgdesk-win__resize is-sw" @pointerdown.stop.prevent="startResize($event, 'sw')" />
+      <span class="lgdesk-win__grip" aria-hidden="true" />
+    </template>
+
     <header
       class="lgdesk-win__bar"
       @pointerdown="onTitlePointerDown"
@@ -138,13 +221,12 @@ onBeforeUnmount(stopDrag);
       </div>
     </header>
 
-    <div class="lgdesk-win__body">
+    <div class="lgdesk-win__body" :class="{ 'is-terminal': win.app === 'terminal' }">
       <DesktopAppHost
         :app="win.app"
         :server="server"
         :session="session"
         :started-at="startedAt"
-        :terminal-height="terminalHeight"
         @disconnect="emit('disconnect')"
       />
     </div>
@@ -229,7 +311,96 @@ onBeforeUnmount(stopDrag);
   font-weight: 400;
 }
 
+.lgdesk-win__grip {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  z-index: 21;
+  width: 11px;
+  height: 11px;
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 3px,
+    var(--lg-border-strong) 3px 4px
+  );
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.lgdesk-win__resize {
+  position: absolute;
+  z-index: 20;
+}
+
+.lgdesk-win__resize.is-n,
+.lgdesk-win__resize.is-s {
+  right: 8px;
+  left: 8px;
+  height: 5px;
+}
+
+.lgdesk-win__resize.is-n {
+  top: 0;
+  cursor: n-resize;
+}
+
+.lgdesk-win__resize.is-s {
+  bottom: 0;
+  cursor: s-resize;
+}
+
+.lgdesk-win__resize.is-e,
+.lgdesk-win__resize.is-w {
+  top: 8px;
+  bottom: 8px;
+  width: 5px;
+}
+
+.lgdesk-win__resize.is-e {
+  right: 0;
+  cursor: e-resize;
+}
+
+.lgdesk-win__resize.is-w {
+  left: 0;
+  cursor: w-resize;
+}
+
+.lgdesk-win__resize.is-ne,
+.lgdesk-win__resize.is-nw,
+.lgdesk-win__resize.is-se,
+.lgdesk-win__resize.is-sw {
+  width: 10px;
+  height: 10px;
+}
+
+.lgdesk-win__resize.is-ne {
+  top: 0;
+  right: 0;
+  cursor: ne-resize;
+}
+
+.lgdesk-win__resize.is-nw {
+  top: 0;
+  left: 0;
+  cursor: nw-resize;
+}
+
+.lgdesk-win__resize.is-se {
+  right: 0;
+  bottom: 0;
+  cursor: se-resize;
+}
+
+.lgdesk-win__resize.is-sw {
+  bottom: 0;
+  left: 0;
+  cursor: sw-resize;
+}
+
 .lgdesk-win__controls {
+  position: relative;
+  z-index: 30;
   display: flex;
   flex: 0 0 auto;
   align-items: center;
@@ -274,6 +445,18 @@ onBeforeUnmount(stopDrag);
   min-height: 0;
   overflow: auto;
   background: var(--lg-bg);
+  container-type: inline-size;
+}
+
+.lgdesk-win__body.is-terminal {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.lgdesk-win__body.is-terminal :deep(.lgapp-terminal) {
+  flex: 1 1 auto;
+  height: auto;
 }
 
 @media (max-width: 719px) {
@@ -283,6 +466,11 @@ onBeforeUnmount(stopDrag);
     width: auto !important;
     height: auto !important;
     border-radius: var(--lg-radius-sm);
+  }
+
+  .lgdesk-win__resize,
+  .lgdesk-win__grip {
+    display: none;
   }
 }
 </style>

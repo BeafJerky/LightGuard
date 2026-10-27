@@ -1,0 +1,51 @@
+###LG:meta###
+hostname=test-host
+os=Ubuntu 22.04.4 LTS
+kernel=5.15.0-101-generic
+arch=x86_64
+timezone=CST
+now=2026-10-27T08:00:00Z
+uptime=86400.00
+boot=2026-10-26 08:00
+###LG:cpu###
+model=Intel(R) Xeon(R) CPU E5-2680 v4 @ 2.40GHz
+cores=4
+mhz=2400.000
+stat=cpu  100 0 50 850 0 0 0 0 0 0
+core=10 0 5 85 0 0 0 0 0 0
+core=20 0 5 75 0 0 0 0 0 0
+core=5 0 5 90 0 0 0 0 0 0
+core=15 0 5 80 0 0 0 0 0 0
+###LG:mem###
+MemTotal:       16384000 kB
+MemAvailable:    8192000 kB
+SwapTotal:       2097152 kB
+SwapFree:        1048576 kB
+###LG:load###
+0.52 0.48 0.41 2/300 12345
+###LG:disk###
+/dev/sda1 ext4 102400000 51200000 51200000 50% /
+/dev/sdb1 ext4 204800000 10240000 194560000 5% /data
+###LG:inode###
+/dev/sda1 ext4 6553600 655360 5898240 10% /
+/dev/sdb1 ext4 13107200 131072 12976128 1% /data
+###LG:net###
+  eth0: 1073741824 0 0 0 0 0 0 0 536870912 0 0 0 0 0 0 0
+iface=lo
+mac=00:00:00:00:00:00
+mtu=65536
+speed=
+iface=eth0
+mac=52:54:00:12:34:56
+mtu=1500
+speed=1000
+addr=2: eth0    inet 10.0.0.5/24 brd 10.0.0.255 scope global eth0
+eth0 00000000 0100000A 00000000 00000000 0 0 0 0 0 0 0 0
+nameserver 8.8.8.8
+nameserver 1.1.1.1
+###LG:proc###
+count=128
+1 root 0.0 0.1 Ss systemd
+2 root 0.0 0.0 S kthreadd
+###LG:temp###
+45000

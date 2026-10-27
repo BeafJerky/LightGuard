@@ -25,6 +25,7 @@ export interface DiskInfo {
   type: string;
   total: number;
   used: number;
+  inodePercent: number;
 }
 
 export interface InterfaceInfo {
@@ -34,6 +35,23 @@ export interface InterfaceInfo {
   speed: string;
   down: number;
   up: number;
+  rxTotal: number;
+  txTotal: number;
+}
+
+export interface EncryptionInfo {
+  cipher: string;
+  kex: string;
+  mac: string;
+}
+
+export interface ServerSample {
+  ts: number;
+  cpu: number;
+  mem: number;
+  down: number;
+  up: number;
+  processes: number;
 }
 
 export interface ProcessInfo {
@@ -54,6 +72,7 @@ export interface ServerError {
 export interface Server {
   id: string;
   name: string;
+  hostname: string;
   role: string;
   ip: string;
   port: number;
@@ -89,6 +108,10 @@ export interface Server {
   needsAuth: boolean;
   metrics: ServerMetrics;
   history: ServerHistory;
+  cpuCoresLoad: number[];
+  memAvailable: number;
+  swapTotal: number;
+  swapUsed: number;
   disks: DiskInfo[];
   interfaces: InterfaceInfo[];
   gateway: string;
@@ -96,6 +119,41 @@ export interface Server {
   publicIp: string;
   mtu: string;
   processes: ProcessInfo[];
+  processCount: number;
+  sampledAt: string;
+  sessionId: string;
+  startedAt: string;
+  hostKeyState: 'new' | 'known' | '';
+  encryption: EncryptionInfo | null;
+  samples: ServerSample[];
+}
+
+export interface PersistedServer {
+  id: string;
+  name: string;
+  hostname?: string;
+  role: string;
+  ip: string;
+  port: number;
+  region: string;
+  group: string;
+  tags: string[];
+  note: string;
+  user: string;
+  auth: AuthKind;
+  authLabel: string;
+  fingerprint: string;
+  lastSync: string;
+  lastSeen: string;
+  cpuCores: number;
+  memTotal: number;
+  diskTotal: number;
+  os: string;
+  kernel: string;
+  arch: string;
+  cpuModel: string;
+  cpuFreq: string;
+  timezone: string;
 }
 
 export interface LogEntry {

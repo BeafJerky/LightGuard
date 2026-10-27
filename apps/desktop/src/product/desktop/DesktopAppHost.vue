@@ -14,7 +14,6 @@ defineProps<{
   server: Server;
   session: string;
   startedAt: string;
-  terminalHeight: number;
 }>();
 
 const emit = defineEmits<{ disconnect: [] }>();
@@ -33,5 +32,5 @@ const emit = defineEmits<{ disconnect: [] }>();
     :started-at="startedAt"
     @disconnect="emit('disconnect')"
   />
-  <TerminalApp v-else :server="server" :height="terminalHeight" />
+  <TerminalApp v-else :server="server" />
 </template>

@@ -116,5 +116,28 @@ export function useDesktopWindows(getBounds: () => { width: number; height: numb
     win.y = y;
   }
 
-  return { windows, active, open, focus, minimize, toggleMaximize, close, toggleTaskbar, showDesktop, move };
+  function resize(key: DesktopAppKey, x: number, y: number, w: number, h: number) {
+    const win = windows.value.find((entry) => entry.app === key);
+    if (!win) return;
+    win.x = x;
+    win.y = y;
+    win.w = w;
+    win.h = h;
+    win.maximized = false;
+    win.restore = null;
+  }
+
+  return {
+    windows,
+    active,
+    open,
+    focus,
+    minimize,
+    toggleMaximize,
+    close,
+    toggleTaskbar,
+    showDesktop,
+    move,
+    resize,
+  };
 }

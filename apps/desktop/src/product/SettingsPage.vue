@@ -13,7 +13,7 @@ import type { ThemeId, ThemeTokens } from '@lightguard/lightui';
 import BackupPanel from './BackupPanel.vue';
 import RenderSettingsPanel from '../render/RenderSettingsPanel.vue';
 import { APP_BUILD, APP_VERSION } from './data';
-import { resetDemo, restartLiveUpdates, state, updateSettings } from './store';
+import { clearLocalData, restartLiveUpdates, state, updateSettings } from './store';
 import { switchScopeTheme } from './theme';
 import { confirm, toast } from './ui';
 import type { ThemeChoices } from './types';
@@ -120,15 +120,15 @@ function testNotify() {
 
 async function onReset() {
   const ok = await confirm({
-    title: '重置演示数据',
-    message: '将恢复 6 台示例服务器、11 条连接记录与默认设置，当前修改会丢失。',
-    confirmLabel: '重置',
+    title: '清空本地数据',
+    message:
+      '将断开全部会话，删除已保存的密码、私钥、主机指纹、服务器与连接记录，并恢复默认设置。此操作不可撤销。',
+    confirmLabel: '清空',
     tone: 'danger',
   });
   if (!ok) return;
-  resetDemo();
-  restartLiveUpdates();
-  toast({ title: '演示数据已重置', message: '服务器、记录与偏好已恢复默认', tone: 'success' });
+  await clearLocalData();
+  toast({ title: '本地数据已清空', message: '服务器、凭据、记录与偏好已恢复默认', tone: 'success' });
 }
 </script>
 
@@ -396,7 +396,7 @@ async function onReset() {
         <div class="setting-row">
           <div class="setting-text">
             <strong>凭据加密存储</strong>
-            <span>桌面客户端使用系统凭据库托管密码与私钥；Web 演示环境不保存凭据内容。</span>
+            <span>密码与私钥由系统凭据库派生的主密钥加密后保存在本机配置目录；Web 形态不保存凭据。</span>
           </div>
           <LgTag size="small" :bordered="false" type="success">
             <template #icon><LgIcon name="lock" :size="12" /></template>
@@ -503,16 +503,16 @@ async function onReset() {
           <div><dt>版本</dt><dd>v{{ APP_VERSION }}</dd></div>
           <div><dt>构建</dt><dd>{{ APP_BUILD }}</dd></div>
           <div><dt>形态</dt><dd>Web 控制台 + 桌面客户端</dd></div>
-          <div><dt>数据</dt><dd>本地演示数据 · 不发起真实网络请求</dd></div>
-          <div><dt>技术栈</dt><dd>Vue 3 · Tauri 2 · Rust · Axum</dd></div>
+          <div><dt>数据</dt><dd>桌面端经 SSH 只读采集 · 数据仅保存在本机</dd></div>
+          <div><dt>技术栈</dt><dd>Vue 3 · Tauri 2 · Rust · russh</dd></div>
         </dl>
 
         <div class="setting-row">
           <div class="setting-text">
-            <strong>演示数据</strong>
-            <span>恢复示例服务器、连接记录与默认设置。</span>
+            <strong>清空本地数据</strong>
+            <span>断开全部会话，删除服务器、凭据、主机指纹与连接记录。</span>
           </div>
-          <LgButton size="small" type="error" secondary @click="onReset">重置</LgButton>
+          <LgButton size="small" type="error" secondary @click="onReset">清空</LgButton>
         </div>
       </LgSurface>
 

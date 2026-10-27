@@ -1,0 +1,24 @@
+import { SshCommandError, UNSUPPORTED_HINT, UNSUPPORTED_MESSAGE, type SshBackend } from './backend';
+
+function fail(): never {
+  throw new SshCommandError('UNSUPPORTED', UNSUPPORTED_MESSAGE, UNSUPPORTED_HINT);
+}
+
+export const unsupportedBackend: SshBackend = {
+  available: false,
+  connect: async () => fail(),
+  reconnect: async () => fail(),
+  snapshot: async () => fail(),
+  sessionStatus: async () => fail(),
+  disconnect: async () => fail(),
+  saveCredentials: async () => fail(),
+  credentialStatus: async () => fail(),
+  forgetCredentials: async () => fail(),
+  forgetHostKey: async () => fail(),
+  terminalOpen: async () => fail(),
+  terminalWrite: async () => fail(),
+  terminalResize: async () => fail(),
+  terminalClose: async () => fail(),
+  resetLocalData: async () => fail(),
+  onStatus: () => () => {},
+};

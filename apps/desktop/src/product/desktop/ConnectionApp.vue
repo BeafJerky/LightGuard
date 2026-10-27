@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { LgButton, LgIcon, LgStatusPill } from '@lightguard/lightui';
+import { APP_VERSION } from '../data';
 import { statusLabel, statusTone } from './apps';
 import { toast } from '../ui';
 import type { Server } from '../types';
@@ -20,6 +21,18 @@ const sessionAge = computed(() => {
   if (minutes < 60) return `${minutes} 分钟`;
   const hours = Math.floor(minutes / 60);
   return `${hours} 小时 ${minutes % 60} 分钟`;
+});
+
+const startedTime = computed(() => {
+  const date = new Date(props.startedAt);
+  if (!Number.isFinite(date.getTime())) return props.startedAt || '—';
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+});
+
+const hostKeyText = computed(() => {
+  if (props.server.hostKeyState === 'new') return 'TOFU · 首次连接已记录';
+  if (props.server.hostKeyState === 'known') return 'TOFU · 指纹与记录一致';
+  return '—';
 });
 
 async function copy(text: string, label: string) {
@@ -52,7 +65,7 @@ async function copy(text: string, label: string) {
       <div class="lgapp-kpi">
         <span>会话时长</span>
         <strong>{{ sessionAge }}</strong>
-        <small>自 {{ startedAt.slice(11) }}</small>
+        <small>自 {{ startedTime }}</small>
       </div>
       <div class="lgapp-kpi">
         <span>认证方式</span>
@@ -68,18 +81,18 @@ async function copy(text: string, label: string) {
         <div class="lgapp-info__row"><span>目标地址</span><strong class="lgapp-mono">{{ server.ip }}:{{ server.port }}</strong></div>
         <div class="lgapp-info__row"><span>登录用户</span><strong>{{ server.user }}</strong></div>
         <div class="lgapp-info__row"><span>启动时间</span><strong>{{ startedAt }}</strong></div>
-        <div class="lgapp-info__row"><span>客户端</span><strong>LightGuard 桌面 · 本地原型</strong></div>
-        <div class="lgapp-info__row"><span>来源</span><strong>Web 控制台 · 本机</strong></div>
+        <div class="lgapp-info__row"><span>客户端</span><strong>LightGuard Desktop v{{ APP_VERSION }}</strong></div>
+        <div class="lgapp-info__row"><span>来源</span><strong>桌面客户端 · 本机直连</strong></div>
       </div>
     </div>
 
     <div class="lgapp-section">
       <h3>加密与主机密钥</h3>
       <div class="lgapp-info">
-        <div class="lgapp-info__row"><span>加密算法</span><strong class="lgapp-mono">chacha20-poly1305@openssh.com</strong></div>
-        <div class="lgapp-info__row"><span>密钥交换</span><strong class="lgapp-mono">curve25519-sha256</strong></div>
-        <div class="lgapp-info__row"><span>消息认证</span><strong class="lgapp-mono">hmac-sha2-256-etm</strong></div>
-        <div class="lgapp-info__row"><span>主机密钥校验</span><strong>TOFU · 已确认</strong></div>
+        <div class="lgapp-info__row"><span>加密算法</span><strong class="lgapp-mono">{{ server.encryption?.cipher ?? '—' }}</strong></div>
+        <div class="lgapp-info__row"><span>密钥交换</span><strong class="lgapp-mono">{{ server.encryption?.kex ?? '—' }}</strong></div>
+        <div class="lgapp-info__row"><span>消息认证</span><strong class="lgapp-mono">{{ server.encryption?.mac ?? '—' }}</strong></div>
+        <div class="lgapp-info__row"><span>主机密钥校验</span><strong>{{ hostKeyText }}</strong></div>
       </div>
       <div class="lgapp-fingerprint">
         <span>{{ server.fingerprint }}</span>

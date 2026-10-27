@@ -2,6 +2,7 @@
 import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { SearchAddon } from '@xterm/addon-search';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { usePreferredReducedMotion } from '@vueuse/core';
 import '@xterm/xterm/css/xterm.css';
@@ -12,13 +13,16 @@ import { createSimulatedShell, type SimulatedShell } from '../terminal/simulator
 
 const props = withDefaults(
   defineProps<{
-    height?: number;
+    height?: number | string;
     label?: string;
     user?: string;
     hostname?: string;
     readonly?: boolean;
+    simulated?: boolean;
+    onData?: (data: string) => void;
+    onResize?: (cols: number, rows: number) => void;
   }>(),
-  { height: 360, label: '终端', user: 'ubuntu', hostname: 'web-prod-01', readonly: false },
+  { height: 360, label: '终端', user: 'ubuntu', hostname: 'web-prod-01', readonly: false, simulated: false },
 );
 
 const backend = useRenderBackend('terminal');
@@ -32,10 +36,12 @@ const webglFailed = ref(false);
 
 let terminal: Terminal | null = null;
 let fit: FitAddon | null = null;
+let searchAddon: SearchAddon | null = null;
 let webgl: WebglAddon | null = null;
 let shell: SimulatedShell | null = null;
 let observer: ResizeObserver | null = null;
 let offData: { dispose: () => void } | null = null;
+let offResize: { dispose: () => void } | null = null;
 let frame = 0;
 
 const rendererLabel = computed(() => {
@@ -44,7 +50,7 @@ const rendererLabel = computed(() => {
 });
 
 const rootStyle = computed(() => ({
-  height: `${props.height}px`,
+  height: typeof props.height === 'number' ? `${props.height}px` : props.height,
   '--lg-terminal-bg': scope?.value.theme.color.bg ?? '#000',
 }));
 
@@ -131,18 +137,28 @@ onMounted(() => {
   });
   fit = new FitAddon();
   terminal.loadAddon(fit);
+  searchAddon = new SearchAddon();
+  terminal.loadAddon(searchAddon);
   terminal.open(host.value);
   terminal.textarea?.setAttribute('aria-label', props.label);
 
-  shell = createSimulatedShell({
-    user: props.user,
-    hostname: props.hostname,
-    write: (text) => terminal?.write(text),
-  });
-  shell.start();
+  if (props.simulated && !props.onData) {
+    shell = createSimulatedShell({
+      user: props.user,
+      hostname: props.hostname,
+      write: (text) => terminal?.write(text),
+    });
+    shell.start();
+  }
 
   offData = terminal.onData((data) => {
-    if (!props.readonly) shell?.input(data);
+    if (props.readonly) return;
+    if (props.onData) props.onData(data);
+    else shell?.input(data);
+  });
+
+  offResize = terminal.onResize(({ cols, rows }) => {
+    props.onResize?.(cols, rows);
   });
 
   terminal.textarea?.addEventListener('focus', onFocus);
@@ -163,6 +179,8 @@ onBeforeUnmount(() => {
   observer = null;
   offData?.dispose();
   offData = null;
+  offResize?.dispose();
+  offResize = null;
   terminal?.textarea?.removeEventListener('focus', onFocus);
   terminal?.textarea?.removeEventListener('blur', onBlur);
   dropWebgl();
@@ -170,6 +188,7 @@ onBeforeUnmount(() => {
   terminal = null;
   shell = null;
   fit = null;
+  searchAddon = null;
 });
 
 watch(
@@ -193,6 +212,15 @@ watch(
 defineExpose({
   focus: focusTerminal,
   write: (text: string) => terminal?.write(text),
+  search: (term: string, direction: 'next' | 'previous' = 'next') => {
+    if (!term) {
+      searchAddon?.clearDecorations();
+      return;
+    }
+    if (direction === 'previous') searchAddon?.findPrevious(term);
+    else searchAddon?.findNext(term);
+  },
+  clearSearch: () => searchAddon?.clearDecorations(),
   terminal: () => terminal,
 });
 </script>
@@ -222,6 +250,8 @@ defineExpose({
 .lg-terminal {
   display: flex;
   flex-direction: column;
+  width: 100%;
+  min-width: 0;
   overflow: hidden;
   border: var(--lg-border-width) solid var(--lg-border);
   border-radius: var(--lg-radius-md);

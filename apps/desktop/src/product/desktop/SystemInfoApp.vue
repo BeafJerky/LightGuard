@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { LgIcon, LgStatusPill } from '@lightguard/lightui';
-import { clamp, round } from '../data';
+import { round } from '../data';
 import { statusLabel, statusTone } from './apps';
 import { toast } from '../ui';
 import type { Server } from '../types';
@@ -19,20 +19,30 @@ const tabs: Array<{ key: TabKey; label: string; icon: string }> = [
   { key: 'security', label: '安全', icon: 'shield' },
 ];
 
-const cores = computed(() => {
-  const count = Math.min(Math.max(props.server.cpuCores, 1), 8);
-  return Array.from({ length: count }, (_, index) =>
-    Math.round(clamp(props.server.metrics.cpu + Math.sin(index * 1.7 + 0.6) * 11, 1, 99)),
-  );
-});
+const cores = computed(() =>
+  props.server.cpuCoresLoad.slice(0, Math.min(Math.max(props.server.cpuCores, 1), 8)).map((value) => Math.round(value)),
+);
 
 function barTone(value: number) {
   return value >= 90 ? 'is-danger' : value >= 80 ? 'is-warning' : '';
 }
 
 function memoryUsed() {
-  return round((props.server.memTotal * props.server.metrics.mem) / 100, 1);
+  if (props.server.memTotal <= 0) return 0;
+  return round(Math.max(props.server.memTotal - props.server.memAvailable, 0), 1);
 }
+
+const hostKeyText = computed(() => {
+  if (props.server.hostKeyState === 'new') return 'TOFU · 首次连接已记录';
+  if (props.server.hostKeyState === 'known') return 'TOFU · 指纹与记录一致';
+  return '尚未建立连接';
+});
+
+const encryptionText = computed(() => {
+  const encryption = props.server.encryption;
+  if (!encryption) return '—';
+  return [encryption.cipher, encryption.kex, encryption.mac].filter(Boolean).join(' · ');
+});
 
 async function copy(text: string, label: string) {
   try {
@@ -45,7 +55,7 @@ async function copy(text: string, label: string) {
 </script>
 
 <template>
-  <div class="lgapp">
+  <div class="lgapp lgapp--side">
     <div class="lgapp-nav" role="tablist" aria-label="系统信息分区">
       <button
         v-for="item in tabs"
@@ -61,6 +71,7 @@ async function copy(text: string, label: string) {
       </button>
     </div>
 
+    <div class="lgapp-main">
     <template v-if="tab === 'overview'">
       <div class="lgapp-hero">
         <span class="lgapp-hero__avatar"><LgIcon name="server" :size="22" /></span>
@@ -81,7 +92,7 @@ async function copy(text: string, label: string) {
           <div class="lgapp-spec">
             <span>内存</span>
             <strong>{{ server.memTotal }} GB</strong>
-            <small>{{ server.memType }}</small>
+            <small v-if="server.memType !== '—'">{{ server.memType }}</small>
           </div>
           <div class="lgapp-spec">
             <span>磁盘</span>
@@ -172,7 +183,7 @@ async function copy(text: string, label: string) {
           </div>
           <div class="lgapp-spec">
             <span>内存</span>
-            <strong>{{ server.memTotal }} GB {{ server.memType }}</strong>
+            <strong>{{ server.memTotal }} GB{{ server.memType === '—' ? '' : ` ${server.memType}` }}</strong>
             <small>已用 {{ memoryUsed() }} GB</small>
           </div>
           <div class="lgapp-spec">
@@ -185,7 +196,7 @@ async function copy(text: string, label: string) {
 
       <div class="lgapp-section">
         <h3>逻辑核心负载{{ server.cpuCores > 8 ? `（显示前 8 / 共 ${server.cpuCores}）` : '' }}</h3>
-        <div class="lgapp-core-grid">
+        <div v-if="cores.length" class="lgapp-core-grid">
           <div v-for="(value, index) in cores" :key="index" class="lgapp-core">
             <span>Core {{ index }} <b>{{ value }}%</b></span>
             <div class="lgapp-bar">
@@ -193,6 +204,7 @@ async function copy(text: string, label: string) {
             </div>
           </div>
         </div>
+        <p v-else class="lgapp-table__empty">暂无核心采样数据</p>
       </div>
 
       <div class="lgapp-section">
@@ -256,8 +268,8 @@ async function copy(text: string, label: string) {
         <div class="lgapp-info__row"><span>登录用户</span><strong>{{ server.user }}</strong></div>
         <div class="lgapp-info__row"><span>认证方式</span><strong>{{ server.authLabel }}</strong></div>
         <div class="lgapp-info__row"><span>SSH 端口</span><strong class="lgapp-mono">{{ server.port }}</strong></div>
-        <div class="lgapp-info__row"><span>加密算法</span><strong class="lgapp-mono">chacha20-poly1305@openssh.com</strong></div>
-        <div class="lgapp-info__row"><span>主机密钥校验</span><strong>TOFU · 首次连接已确认</strong></div>
+        <div class="lgapp-info__row"><span>加密算法</span><strong class="lgapp-mono">{{ encryptionText }}</strong></div>
+        <div class="lgapp-info__row"><span>主机密钥校验</span><strong>{{ hostKeyText }}</strong></div>
         <div class="lgapp-info__row"><span>上次同步</span><strong>{{ server.lastSync }}</strong></div>
       </div>
 
@@ -278,5 +290,80 @@ async function copy(text: string, label: string) {
         LightGuard 只读取系统信息。若主机指纹发生变化，连接会被阻断并要求人工确认，以防止中间人攻击。
       </p>
     </template>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.lgapp--side {
+  flex-direction: row;
+  gap: 0;
+  padding: 0;
+}
+
+.lgapp--side .lgapp-nav {
+  flex: 0 0 150px;
+  flex-direction: column;
+  align-self: stretch;
+  gap: 2px;
+  padding: 12px 8px;
+  border: 0;
+  border-right: var(--lg-border-width) solid var(--lg-border);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--lg-surface) 52%, transparent);
+}
+
+.lgapp--side .lgapp-nav button {
+  flex: 0 0 auto;
+  justify-content: flex-start;
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+
+.lgapp-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+}
+
+@container (max-width: 560px) {
+  .lgapp--side {
+    flex-direction: column;
+  }
+
+  .lgapp--side .lgapp-nav {
+    flex: 0 0 auto;
+    flex-direction: row;
+    border-right: 0;
+    border-bottom: var(--lg-border-width) solid var(--lg-border);
+    overflow-x: auto;
+  }
+
+  .lgapp--side .lgapp-nav button {
+    flex: 1;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 620px) {
+  .lgapp--side {
+    flex-direction: column;
+  }
+
+  .lgapp--side .lgapp-nav {
+    flex: 0 0 auto;
+    flex-direction: row;
+    border-right: 0;
+    border-bottom: var(--lg-border-width) solid var(--lg-border);
+    overflow-x: auto;
+  }
+
+  .lgapp--side .lgapp-nav button {
+    flex: 1;
+    justify-content: center;
+  }
+}
+</style>

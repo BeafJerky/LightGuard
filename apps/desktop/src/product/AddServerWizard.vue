@@ -8,18 +8,23 @@ import {
   LgModal,
   LgSelect,
 } from '@lightguard/lightui';
-import type { AuthKind, ServerDraft } from './types';
-import { addServer } from './store';
+import type { ServerDraft } from './types';
+import { backendAvailable, connectAndAdd, state } from './store';
+import { toSshError, type BackendAuth, type SshCommandError } from './ssh';
 import { openServerDesktop } from './router';
 import { toast, wizardOpen } from './ui';
 
 type ProbeState = 'idle' | 'active' | 'ok' | 'fail';
-type FailMode = 'none' | 'auth' | 'host';
 
 interface Probe {
   label: string;
   state: ProbeState;
-  ms: string;
+}
+
+interface Failure {
+  title: string;
+  desc: string;
+  code: string;
 }
 
 const HOST_RE = /^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/;
@@ -27,6 +32,26 @@ const GROUPS = ['生产', '预发', '边缘', '存储', 'CI', '未分组'].map((
   label: value,
   value,
 }));
+
+const STEP_INDEX: Record<string, number> = {
+  resolve: 0,
+  tcp: 1,
+  handshake: 2,
+  hostKey: 3,
+  auth: 4,
+  collect: 4,
+};
+
+const CODE_INDEX: Record<string, number> = {
+  INVALID_INPUT: 0,
+  HOST_UNREACHABLE: 1,
+  TIMEOUT: 1,
+  HANDSHAKE_FAILED: 2,
+  HOST_KEY_MISMATCH: 3,
+  AUTH_FAILED: 4,
+  CREDENTIAL_ERROR: 4,
+  COLLECT_FAILED: 4,
+};
 
 const step = ref<1 | 2 | 3>(1);
 const form = reactive({
@@ -39,16 +64,20 @@ const form = reactive({
   tags: '',
   note: '',
 });
-const auth = ref<AuthKind>('key');
+const auth = ref<BackendAuth>('key');
 const secret = ref('');
 const passphrase = ref('');
+const remember = ref(true);
 const showSecret = ref(false);
-const failMode = ref<FailMode>('none');
 const busy = ref(false);
 const result = ref<'ok' | 'fail' | null>(null);
-const failure = ref<{ title: string; desc: string } | null>(null);
+const failure = ref<Failure | null>(null);
 const createdId = ref('');
 const duration = ref('');
+const latency = ref(0);
+const fingerprint = ref('');
+const hostKeyState = ref<'new' | 'known' | ''>('');
+const encryption = ref('');
 const runToken = ref(0);
 
 const errors = reactive<Record<string, string>>({});
@@ -62,17 +91,14 @@ const probeLabels = computed(() => [
 ]);
 
 const probes = reactive<Probe[]>(
-  probeLabels.value.map((label) => ({ label, state: 'idle', ms: '' })),
+  probeLabels.value.map((label) => ({ label, state: 'idle' })),
 );
 
-const authLabel = computed(
-  () => ({ key: 'SSH 私钥', password: '密码', agent: 'SSH Agent' })[auth.value],
-);
+const authLabel = computed(() => (auth.value === 'key' ? 'SSH 私钥' : '密码'));
 
 const canSubmitStep2 = computed(() => {
-  if (auth.value === 'agent') return true;
   if (auth.value === 'key') return secret.value.includes('PRIVATE KEY');
-  return secret.value.length >= 6;
+  return secret.value.length > 0;
 });
 
 watch(
@@ -80,23 +106,23 @@ watch(
   (labels) => {
     labels.forEach((label, index) => {
       if (probes[index]) probes[index].label = label;
-      else probes.push({ label, state: 'idle', ms: '' });
+      else probes.push({ label, state: 'idle' });
     });
   },
 );
 
 watch(wizardOpen, (open) => {
   if (open) reset();
-  else {
-    cancelRun();
-    clearSecrets();
-  }
+  else clearSecrets();
 });
 
-onBeforeUnmount(() => cancelRun());
+onBeforeUnmount(() => {
+  runToken.value += 1;
+  clearSecrets();
+});
 
 function reset() {
-  cancelRun();
+  runToken.value += 1;
   step.value = 1;
   Object.assign(form, {
     name: '',
@@ -109,11 +135,15 @@ function reset() {
     note: '',
   });
   auth.value = 'key';
-  failMode.value = 'none';
+  remember.value = true;
   result.value = null;
   failure.value = null;
   createdId.value = '';
   duration.value = '';
+  latency.value = 0;
+  fingerprint.value = '';
+  hostKeyState.value = '';
+  encryption.value = '';
   busy.value = false;
   showSecret.value = false;
   Object.keys(errors).forEach((key) => delete errors[key]);
@@ -127,15 +157,12 @@ function clearSecrets() {
 }
 
 function resetProbes() {
-  probes.splice(0, probes.length, ...probeLabels.value.map((label) => ({ label, state: 'idle' as ProbeState, ms: '' })));
+  probes.splice(
+    0,
+    probes.length,
+    ...probeLabels.value.map((label) => ({ label, state: 'idle' as ProbeState })),
+  );
 }
-
-function cancelRun() {
-  runToken.value += 1;
-  busy.value = false;
-}
-
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 function validateStep1() {
   Object.keys(errors).forEach((key) => delete errors[key]);
@@ -152,23 +179,12 @@ function validateStep1() {
 function validateStep2() {
   Object.keys(errors).forEach((key) => delete errors[key]);
   if (auth.value === 'key' && !secret.value.includes('PRIVATE KEY')) {
-    errors.secret = '请粘贴 OpenSSH 私钥，或使用演示凭据';
+    errors.secret = '请粘贴 OpenSSH 私钥';
   }
-  if (auth.value === 'password' && secret.value.length < 6) {
-    errors.secret = '密码至少需要 6 个字符，或使用演示凭据';
+  if (auth.value === 'password' && secret.value.length === 0) {
+    errors.secret = '请输入服务器登录密码';
   }
   return Object.keys(errors).length === 0;
-}
-
-function useDemoCredentials() {
-  if (auth.value === 'password') {
-    secret.value = 'lightguard-demo';
-    return;
-  }
-  secret.value =
-    '-----BEGIN OPENSSH PRIVATE KEY-----\n' +
-    'DEMO-ONLY-NOT-A-REAL-KEY-0000000000000000000000000000\n' +
-    '-----END OPENSSH PRIVATE KEY-----';
 }
 
 function goNext() {
@@ -210,54 +226,84 @@ function draft(): ServerDraft {
   };
 }
 
+function failIndex(error: SshCommandError): number {
+  if (error.stage && error.stage in STEP_INDEX) return STEP_INDEX[error.stage];
+  return CODE_INDEX[error.code] ?? 0;
+}
+
 async function connect() {
-  if (busy.value) return;
+  if (busy.value || !backendAvailable) return;
   const token = ++runToken.value;
   busy.value = true;
   result.value = null;
   failure.value = null;
   createdId.value = '';
   duration.value = '';
+  latency.value = 0;
+  fingerprint.value = '';
+  hostKeyState.value = '';
+  encryption.value = '';
   resetProbes();
+
+  let stage = 0;
+  const advance = () => {
+    if (stage >= probes.length) return;
+    if (stage > 0 && probes[stage - 1].state !== 'fail') probes[stage - 1].state = 'ok';
+    probes[stage].state = 'active';
+    stage += 1;
+  };
+  advance();
+  const timer = window.setInterval(() => {
+    if (stage < probes.length) advance();
+  }, 420);
   const started = performance.now();
 
-  for (let index = 0; index < probes.length; index += 1) {
+  try {
+    const outcome = await connectAndAdd(draft(), auth.value, secret.value, passphrase.value, {
+      remember: remember.value,
+      verifyHostKey: state.settings.hostKey,
+    });
     if (token !== runToken.value) return;
-    probes[index].state = 'active';
-    await sleep(320 + Math.random() * 260);
-    if (token !== runToken.value) return;
-
-    const hostFailure = failMode.value === 'host' && index === 1;
-    const authFailure = failMode.value === 'auth' && index === 4;
-    if (hostFailure || authFailure) {
-      probes[index].state = 'fail';
-      probes[index].ms = `${Math.round(600 + Math.random() * 1800)}ms`;
-      busy.value = false;
-      result.value = 'fail';
-      failure.value = hostFailure
-        ? {
-            title: '目标主机不可达 · HOST_UNREACHABLE',
-            desc: 'TCP 连接在 5 秒内未完成。请确认地址、端口、安全组或 VPN / 跳板机状态，然后重试。',
-          }
-        : {
-            title: '身份认证失败 · AUTH_FAILED',
-            desc: '服务器拒绝了当前凭据。这是演示错误分支，关闭“模拟认证失败”后可重新连接。',
-          };
-      return;
+    probes.forEach((probe) => {
+      probe.state = 'ok';
+    });
+    createdId.value = outcome.server.id;
+    duration.value = `${((performance.now() - started) / 1000).toFixed(2)}s`;
+    latency.value = outcome.result.latencyMs;
+    fingerprint.value = outcome.result.fingerprint;
+    hostKeyState.value = outcome.result.hostKeyState;
+    const info = outcome.result.encryption;
+    encryption.value = info ? `${info.cipher} · ${info.kex}` : '';
+    result.value = 'ok';
+    if (remember.value && !outcome.credentialsSaved) {
+      toast({
+        title: '连接成功，但凭据未保存',
+        message: '系统凭据库不可用，重启应用后需要重新输入凭据。',
+        tone: 'warning',
+        duration: 4200,
+      });
+    } else {
+      toast({ title: '服务器已添加', message: `${outcome.server.name} 已加入工作区`, tone: 'success' });
     }
-
-    probes[index].state = 'ok';
-    probes[index].ms = `${Math.round(6 + Math.random() * 180)}ms`;
-    await sleep(90);
+  } catch (raw) {
+    if (token !== runToken.value) return;
+    const error = toSshError(raw);
+    const index = failIndex(error);
+    probes.forEach((probe, probeIndex) => {
+      probe.state = probeIndex < index ? 'ok' : probeIndex === index ? 'fail' : 'idle';
+    });
+    failure.value = {
+      title: `${error.message} · ${error.code}`,
+      desc: error.hint || '请检查连接信息后重试。',
+      code: error.code,
+    };
+    result.value = 'fail';
+  } finally {
+    if (token === runToken.value) {
+      window.clearInterval(timer);
+      busy.value = false;
+    }
   }
-
-  if (token !== runToken.value) return;
-  const server = addServer(draft());
-  createdId.value = server.id;
-  duration.value = `${((performance.now() - started) / 1000).toFixed(2)}s`;
-  busy.value = false;
-  result.value = 'ok';
-  toast({ title: '服务器已添加', message: `${server.name} 已加入工作区`, tone: 'success' });
 }
 
 function finish() {
@@ -268,7 +314,7 @@ function finish() {
 }
 
 function onShow(value: boolean) {
-  if (!value) wizardOpen.value = false;
+  if (!value && !busy.value) wizardOpen.value = false;
 }
 </script>
 
@@ -294,6 +340,11 @@ function onShow(value: boolean) {
         <span class="wizard__step-bar"><i /></span>
         <span class="wizard__step-label">{{ index + 1 }}. {{ label }}</span>
       </div>
+    </div>
+
+    <div v-if="!backendAvailable" class="wizard__note is-warning">
+      <LgIcon name="alert" :size="15" />
+      <span>真实 SSH 仅桌面版可用。请使用 LightGuard 桌面客户端连接服务器。</span>
     </div>
 
     <section v-if="step === 1" class="wizard__body">
@@ -344,7 +395,7 @@ function onShow(value: boolean) {
 
       <div class="wizard__note">
         <LgIcon name="shield" :size="15" />
-        <span>LightGuard 使用只读采集读取系统信息。演示环境不发起真实网络请求，所有数据仅保存在本浏览器。</span>
+        <span>LightGuard 通过 SSH 只读采集系统信息，不会修改服务器配置或数据。</span>
       </div>
     </section>
 
@@ -359,7 +410,6 @@ function onShow(value: boolean) {
           v-for="option in [
             { key: 'key' as const, icon: 'key', title: 'SSH 私钥', desc: '推荐 · Ed25519 / RSA' },
             { key: 'password' as const, icon: 'lock', title: '密码', desc: '兼容旧服务器' },
-            { key: 'agent' as const, icon: 'user', title: 'SSH Agent', desc: '使用本机代理' },
           ]"
           :key="option.key"
           type="button"
@@ -376,7 +426,7 @@ function onShow(value: boolean) {
         </button>
       </div>
 
-      <div v-if="auth !== 'agent'" class="field field--secret">
+      <div class="field field--secret">
         <span class="field__label">
           {{ auth === 'key' ? '私钥内容' : '登录密码' }} <em>*</em>
         </span>
@@ -402,37 +452,38 @@ function onShow(value: boolean) {
             <LgIcon :name="showSecret ? 'eye-off' : 'eye'" :size="15" />
           </button>
         </div>
-        <span v-if="auth === 'key'" class="field__hint">私钥口令可选；凭据只在当前弹窗内存中存在，关闭即清除。</span>
+        <span v-if="auth === 'key'" class="field__hint">私钥口令可选；支持 OpenSSH 与 PEM 格式。</span>
         <span v-if="errors.secret" class="field__error">{{ errors.secret }}</span>
-        <div class="field__tools">
-          <LgButton size="tiny" @click="useDemoCredentials">使用演示凭据</LgButton>
-          <span>请勿粘贴真实生产凭据。</span>
-        </div>
       </div>
 
-      <div v-else class="agent-note">
-        <LgIcon name="key" :size="16" />
-        <span>演示环境将直接通过本机 Agent 认证；真实接入由本地凭据库托管，不会进入浏览器存储。</span>
-      </div>
+      <label v-if="auth === 'key'" class="field">
+        <span class="field__label">私钥口令</span>
+        <LgInput
+          v-model:value="passphrase"
+          type="password"
+          :input-props="{ autocomplete: 'new-password' }"
+          placeholder="私钥未加密时留空"
+        />
+      </label>
+
+      <label class="field field--switch">
+        <LgCheckbox
+          :checked="remember"
+          aria-label="保存凭据到系统凭据库"
+          @update:checked="(value: boolean) => (remember = value)"
+        />
+        <span>
+          <strong>保存凭据到系统凭据库</strong>
+          <small>使用 AES-256-GCM 加密后保存在本机；不会进入备份、日志或浏览器存储。</small>
+        </span>
+      </label>
 
       <div class="wizard__note">
         <LgIcon name="lock" :size="15" />
-        <span>凭据不会写入 localStorage、URL、日志或连接记录；本页仅用于预览连接流程。</span>
-      </div>
-
-      <div class="wizard__options">
-        <label class="field field--inline">
-          <span class="field__label">演示错误分支</span>
-          <LgSelect
-            v-model:value="failMode"
-            class="wizard__fail"
-            :options="[
-              { label: '不模拟失败', value: 'none' },
-              { label: '模拟认证失败（AUTH_FAILED）', value: 'auth' },
-              { label: '模拟主机不可达（HOST_UNREACHABLE）', value: 'host' },
-            ]"
-          />
-        </label>
+        <span>
+          凭据只在连接调用期间传入后端，不写入 localStorage、URL 或连接记录。
+          {{ state.settings.hostKey ? '主机指纹校验已开启。' : '主机指纹校验已关闭，仅建议在实验环境使用。' }}
+        </span>
       </div>
     </section>
 
@@ -452,7 +503,7 @@ function onShow(value: boolean) {
             <span v-else-if="probe.state === 'active'" class="probe__spinner" />
           </span>
           <span class="probe__label">{{ probe.label }}</span>
-          <span class="probe__ms">{{ probe.state === 'ok' || probe.state === 'fail' ? probe.ms : probe.state === 'active' ? '···' : '—' }}</span>
+          <span class="probe__ms">{{ probe.state === 'active' ? '···' : probe.state === 'idle' ? '—' : '' }}</span>
         </div>
       </div>
 
@@ -460,10 +511,20 @@ function onShow(value: boolean) {
         <span class="result-card__icon"><LgIcon name="check" :size="17" /></span>
         <div>
           <strong>连接成功，已读取系统信息</strong>
-          <p>{{ form.name }} · 只读采集完成。SSH 会话已加密，服务器桌面已准备好。</p>
+          <p>{{ form.name }} · SSH 会话已加密，服务器桌面已准备好。</p>
           <div class="result-card__meta">
             <span>耗时 <strong>{{ duration || '—' }}</strong></span>
             <span>认证 <strong>{{ authLabel }}</strong></span>
+            <span>延迟 <strong>{{ latency }} ms</strong></span>
+            <span>主机密钥 <strong>{{ hostKeyState === 'new' ? '首次记录' : '已记录' }}</strong></span>
+          </div>
+          <div v-if="fingerprint" class="result-card__fingerprint">
+            <span>主机指纹</span>
+            <code>{{ fingerprint }}</code>
+          </div>
+          <div v-if="encryption" class="result-card__fingerprint">
+            <span>协商套件</span>
+            <code>{{ encryption }}</code>
           </div>
         </div>
       </div>
@@ -480,19 +541,27 @@ function onShow(value: boolean) {
 
     <template #footer>
       <div class="wizard__foot">
-        <LgButton v-if="step < 3" size="small" @click="wizardOpen = false">取消</LgButton>
-        <LgButton v-else-if="busy" size="small" @click="cancelRun">取消连接</LgButton>
+        <LgButton v-if="step < 3" size="small" :disabled="busy" @click="wizardOpen = false">取消</LgButton>
+        <LgButton v-else-if="busy" size="small" disabled>连接中</LgButton>
         <LgButton v-else size="small" @click="goBack">返回修改</LgButton>
 
         <div class="wizard__foot-right">
           <LgButton v-if="step === 2" size="small" @click="goBack">上一步</LgButton>
 
-          <LgButton v-if="step === 1" size="small" type="primary" @click="goNext">下一步</LgButton>
+          <LgButton
+            v-if="step === 1"
+            size="small"
+            type="primary"
+            :disabled="!backendAvailable"
+            @click="goNext"
+          >
+            下一步
+          </LgButton>
           <LgButton
             v-else-if="step === 2"
             size="small"
             type="primary"
-            :disabled="!canSubmitStep2"
+            :disabled="!canSubmitStep2 || busy"
             @click="goNext"
           >
             <template #icon><LgIcon name="lock" :size="14" /></template>
@@ -622,15 +691,6 @@ function onShow(value: boolean) {
   font-size: 11px;
 }
 
-.field__tools {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  color: var(--lg-text-muted);
-  font-size: 11px;
-}
-
 .wizard__note {
   display: flex;
   align-items: flex-start;
@@ -642,6 +702,11 @@ function onShow(value: boolean) {
   color: var(--lg-text-secondary);
   font-size: 11.5px;
   line-height: 1.55;
+}
+
+.wizard__note.is-warning {
+  border-color: color-mix(in srgb, var(--lg-warning) 34%, var(--lg-border));
+  background: var(--lg-warning-soft);
 }
 
 .wizard__summary {
@@ -675,7 +740,7 @@ function onShow(value: boolean) {
 
 .auth-toggle {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -744,31 +809,33 @@ function onShow(value: boolean) {
   color: var(--lg-text);
 }
 
-.agent-note {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 11px;
-  border: 1px dashed var(--lg-border-strong);
-  border-radius: var(--lg-radius-sm);
-  color: var(--lg-text-secondary);
-  font-size: 11.5px;
-  line-height: 1.55;
-}
-
-.wizard__options {
-  padding-top: 2px;
-}
-
-.field--inline {
+.field--switch {
   flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 11px;
+  border: 1px solid var(--lg-border);
+  border-radius: var(--lg-radius-sm);
+  background: var(--lg-bg-soft);
+  cursor: pointer;
 }
 
-.wizard__fail {
-  width: min(300px, 60vw);
+.field--switch > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.field--switch strong {
+  color: var(--lg-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.field--switch small {
+  color: var(--lg-text-muted);
+  font-size: 10.5px;
+  line-height: 1.45;
 }
 
 .probe {
@@ -786,7 +853,7 @@ function onShow(value: boolean) {
   grid-template-columns: 22px minmax(0, 1fr) 64px;
   align-items: center;
   gap: 8px;
-  padding: 6px 6px;
+  padding: 6px;
   border-radius: 6px;
   color: var(--lg-text-muted);
   font-size: 11.5px;
@@ -906,6 +973,23 @@ function onShow(value: boolean) {
   font-size: 11px;
 }
 
+.result-card__fingerprint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 7px;
+  color: var(--lg-text-muted);
+  font-size: 10.5px;
+}
+
+.result-card__fingerprint code {
+  color: var(--lg-text-secondary);
+  font-family: var(--lg-font-mono);
+  font-size: 10.5px;
+  overflow-wrap: anywhere;
+}
+
 .result-card__link {
   margin-top: 6px;
   padding: 0;
@@ -943,15 +1027,6 @@ function onShow(value: boolean) {
   .wizard__summary,
   .auth-toggle {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .field--inline {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .wizard__fail {
-    width: 100%;
   }
 
   .wizard__foot {

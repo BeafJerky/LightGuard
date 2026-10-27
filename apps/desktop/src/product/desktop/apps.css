@@ -345,6 +345,17 @@
   font-size: 10px;
 }
 
+.lgapp-chart__hint {
+  display: grid;
+  place-items: center;
+  margin: 0;
+  min-height: 92px;
+  border-radius: var(--lg-radius-sm);
+  background: var(--lg-bg-soft);
+  color: var(--lg-text-muted);
+  font-size: 11px;
+}
+
 .lgapp-toolbar {
   display: flex;
   align-items: center;
@@ -491,6 +502,13 @@
   font-weight: 600;
 }
 
+.lgapp-drive__name strong,
+.lgapp-drive__name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .lgapp-drive__name span {
   color: var(--lg-text-muted);
   font-size: 9.5px;
@@ -613,39 +631,133 @@
   color: var(--lg-primary);
 }
 
+.tile-about,
+.tile-performance,
+.tile-disks,
+.tile-network,
+.tile-processes,
+.tile-connection,
+.tile-terminal {
+  /* 图标底色由主题 token 派生，7 套主题与深浅模式保持一致。 */
+  border: var(--lg-border-width) solid color-mix(in srgb, var(--tile-color) 34%, var(--lg-border));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--tile-color) 36%, var(--lg-surface-2)),
+    color-mix(in srgb, var(--tile-color) 15%, var(--lg-surface))
+  );
+  color: var(--tile-color);
+  box-shadow:
+    var(--lg-shadow-sm),
+    inset 0 1px 0 color-mix(in srgb, var(--lg-surface) 28%, transparent);
+}
+
 .tile-about {
-  background: color-mix(in srgb, var(--lg-primary) 18%, var(--lg-surface));
-  color: var(--lg-primary);
+  --tile-color: var(--lg-primary);
 }
 
 .tile-performance {
-  background: color-mix(in srgb, var(--lg-success) 18%, var(--lg-surface));
-  color: var(--lg-success);
+  --tile-color: var(--lg-accent);
 }
 
 .tile-disks {
-  background: color-mix(in srgb, var(--lg-warning) 20%, var(--lg-surface));
-  color: var(--lg-warning);
+  --tile-color: var(--lg-info);
 }
 
 .tile-network {
-  background: color-mix(in srgb, var(--lg-info) 18%, var(--lg-surface));
-  color: var(--lg-info);
+  --tile-color: var(--lg-warning);
 }
 
 .tile-processes {
-  background: color-mix(in srgb, var(--lg-accent) 18%, var(--lg-surface));
-  color: var(--lg-accent);
+  --tile-color: var(--lg-danger);
 }
 
 .tile-connection {
-  background: color-mix(in srgb, var(--lg-primary) 14%, var(--lg-surface-2));
-  color: var(--lg-primary);
+  --tile-color: var(--lg-success);
 }
 
 .tile-terminal {
-  background: color-mix(in srgb, var(--lg-text) 12%, var(--lg-surface));
-  color: var(--lg-text);
+  --tile-color: var(--lg-text-secondary);
+}
+
+@container (max-width: 700px) {
+  .lgapp-head {
+    flex-wrap: wrap;
+  }
+
+  .lgapp-spec-grid,
+  .lgapp-spec-grid.is-three {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .lgapp-kpis,
+  .lgapp-drive-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .lgapp-core-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .lgapp-table__head,
+  .lgapp-table__row {
+    grid-template-columns: 62px minmax(0, 1fr) 60px 52px;
+  }
+
+  .lgapp-table__head span:nth-child(5),
+  .lgapp-table__head span:nth-child(6),
+  .lgapp-table__row span:nth-child(5),
+  .lgapp-table__row span:nth-child(6) {
+    display: none;
+  }
+
+  .lgapp-toolbar {
+    flex-wrap: wrap;
+  }
+}
+
+@container (max-width: 470px) {
+  .lgapp-spec-grid,
+  .lgapp-spec-grid.is-three,
+  .lgapp-kpis,
+  .lgapp-drive-grid,
+  .lgapp-core-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .lgapp-table__head,
+  .lgapp-table__row {
+    grid-template-columns: 58px minmax(0, 1fr) 56px;
+  }
+
+  .lgapp-table__head span:nth-child(3),
+  .lgapp-table__row span:nth-child(3) {
+    display: none;
+  }
+
+  .lgapp-hero {
+    flex-wrap: wrap;
+  }
+
+  .lgapp-info__row {
+    flex-wrap: wrap;
+  }
+
+  .lgapp-info__row strong {
+    text-align: left;
+  }
+
+  .lgapp-toolbar__search {
+    flex-basis: 100%;
+  }
+
+  .lgapp-terminal__note {
+    flex-basis: 100%;
+  }
+
+  .lgapp-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
 }
 
 @media (max-width: 760px) {

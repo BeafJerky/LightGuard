@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue';
 import { LgButton, LgIcon, LgStatusPill } from '@lightguard/lightui';
 import { round } from '../data';
-import { statusLabel } from './apps';
+import { refreshServer } from '../store';
 import { toast } from '../ui';
 import type { Server } from '../types';
 
@@ -35,6 +35,7 @@ const totals = computed(() => {
 
 function formatGB(value: number) {
   if (value >= 1000) return `${(value / 1000).toFixed(1)} TB`;
+  if (value > 0 && value < 1) return `${Math.round(value * 1024)} MB`;
   return `${Math.round(value)} GB`;
 }
 
@@ -42,13 +43,29 @@ function tone(percent: number) {
   return percent >= 90 ? 'is-danger' : percent >= 80 ? 'is-warning' : '';
 }
 
-function rescan() {
+const inodeText = computed(() => {
+  const candidates = props.server.disks.filter((disk) => disk.total > 0);
+  if (candidates.length === 0) return '—';
+  const worst = Math.max(...candidates.map((disk) => disk.inodePercent));
+  return `${worst}% · ${worst >= 90 ? '偏高' : '正常'}`;
+});
+
+async function rescan() {
   if (busy.value) return;
   busy.value = true;
-  window.setTimeout(() => {
+  try {
+    const updated = await refreshServer(props.server.id);
+    if (updated) {
+      toast({
+        title: '磁盘信息已刷新',
+        message: `已读取 ${updated.disks.length} 个挂载点，仅只读采集。`,
+        tone: 'success',
+        duration: 2200,
+      });
+    }
+  } finally {
     busy.value = false;
-    toast({ title: '磁盘信息已刷新', message: '仅重新读取挂载点，不执行写入。', tone: 'success', duration: 2200 });
-  }, 620);
+  }
 }
 </script>
 
@@ -121,11 +138,11 @@ function rescan() {
       </div>
       <div class="lgapp-info__row">
         <span>inode 使用率</span>
-        <strong>12% · 正常</strong>
+        <strong>{{ inodeText }}</strong>
       </div>
       <div class="lgapp-info__row">
-        <span>SMART 状态</span>
-        <strong>{{ statusLabel(server.status) }} · 未发现坏道</strong>
+        <span>采集方式</span>
+        <strong>只读 df · /proc/mounts</strong>
       </div>
     </div>
 

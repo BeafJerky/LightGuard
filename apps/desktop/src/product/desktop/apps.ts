@@ -90,6 +90,7 @@ export const DESKTOP_APP_KEYS = DESKTOP_APPS.map((app) => app.key);
 export const desktopIconItems = DESKTOP_APPS.map((app) => ({
   name: app.icon,
   label: app.title,
+  tile: app.tile,
 }));
 
 export function appMeta(key: DesktopAppKey): DesktopAppMeta {

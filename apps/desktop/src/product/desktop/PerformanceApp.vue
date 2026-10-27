@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { LgIcon, LgSparkline, LgStatusPill } from '@lightguard/lightui';
 import { clamp, round } from '../data';
+import { state } from '../store';
 import { statusLabel, statusTone } from './apps';
 import type { Server } from '../types';
 
@@ -19,14 +20,7 @@ const metrics: Array<{ key: MetricKey; label: string; icon: string }> = [
 
 const downSeries = computed(() => props.server.history.net.slice(-120));
 
-const upSeries = computed(() => {
-  const ratio = props.server.metrics.down > 0
-    ? props.server.metrics.up / props.server.metrics.down
-    : 0.3;
-  return downSeries.value.map((value, index) =>
-    round(clamp(value * ratio * (0.86 + Math.sin(index * 0.9) * 0.14), 0, 400), 1),
-  );
-});
+const upSeries = computed(() => props.server.samples.slice(-120).map((sample) => sample.up));
 
 const series = computed<number[]>(() => {
   if (metric.value === 'cpu') return props.server.history.cpu.slice(-120);
@@ -69,19 +63,22 @@ const summary = computed(() => {
 const coreCount = computed(() => Math.min(Math.max(props.server.cpuCores, 1), 16));
 
 const cores = computed(() =>
-  Array.from({ length: coreCount.value }, (_, index) =>
-    Math.round(
-      clamp(
-        props.server.metrics.cpu +
-          Math.sin(index * 1.37 + props.server.metrics.cpu * 0.11) * 13,
-        1,
-        99,
-      ),
-    ),
-  ),
+  props.server.cpuCoresLoad.slice(0, coreCount.value).map((value) => Math.round(value)),
 );
 
 const topProcesses = computed(() => props.server.processes.slice(0, 5));
+
+function formatTraffic(gb: number) {
+  if (!gb) return '0 GB';
+  if (gb >= 1024) return `${(gb / 1024).toFixed(2)} TB`;
+  return `${gb.toFixed(1)} GB`;
+}
+
+const trafficText = computed(() => {
+  const rx = props.server.interfaces.reduce((sum, item) => sum + item.rxTotal, 0);
+  const tx = props.server.interfaces.reduce((sum, item) => sum + item.txTotal, 0);
+  return `下行 ${formatTraffic(rx)} · 上行 ${formatTraffic(tx)}`;
+});
 
 function barTone(value: number) {
   return value >= 90 ? 'is-danger' : value >= 80 ? 'is-warning' : '';
@@ -97,7 +94,7 @@ function formatValue(value: number) {
     <div class="lgapp-head">
       <div>
         <h2>性能监视器</h2>
-        <p>{{ server.name }} · 采样间隔 5 秒 · 最近 10 分钟</p>
+        <p>{{ server.name }} · 采样间隔 {{ state.settings.interval }} 秒 · 最近 {{ server.samples.length }} 个采样点</p>
       </div>
       <LgStatusPill :label="statusLabel(server.status)" :tone="statusTone(server.status)" />
     </div>
@@ -122,7 +119,9 @@ function formatValue(value: number) {
         <strong>{{ metrics.find((item) => item.key === metric)?.label }} 使用率</strong>
         <span>{{ summary.current.toFixed(metric === 'net' ? 1 : 0) }} {{ unit }}</span>
       </div>
+      <p v-if="series.length < 2" class="lgapp-chart__hint">正在积累采样，趋势将在下个采样点后显示。</p>
       <LgSparkline
+        v-else
         :values="series"
         :height="104"
         :max="maxValue"
@@ -152,7 +151,7 @@ function formatValue(value: number) {
     <template v-if="metric === 'cpu'">
       <div class="lgapp-section">
         <h3>逻辑核心{{ coreCount > 8 ? `（显示前 8 / 共 ${coreCount}）` : '' }}</h3>
-        <div class="lgapp-core-grid">
+        <div v-if="cores.length" class="lgapp-core-grid">
           <div v-for="(value, index) in cores.slice(0, 8)" :key="index" class="lgapp-core">
             <span>Core {{ index }} <b>{{ value }}%</b></span>
             <div class="lgapp-bar">
@@ -160,6 +159,7 @@ function formatValue(value: number) {
             </div>
           </div>
         </div>
+        <p v-else class="lgapp-table__empty">暂无核心采样数据</p>
       </div>
 
       <div class="lgapp-section">
@@ -200,9 +200,12 @@ function formatValue(value: number) {
       </div>
 
       <div class="lgapp-info">
-        <div class="lgapp-info__row"><span>交换分区</span><strong>4 GB · 使用 0 MB</strong></div>
-        <div class="lgapp-info__row"><span>缓存 / 缓冲</span><strong>2.8 GB</strong></div>
-        <div class="lgapp-info__row"><span>OOM 事件</span><strong>最近 7 天 0 次</strong></div>
+        <div class="lgapp-info__row">
+          <span>交换分区</span>
+          <strong>{{ server.swapTotal.toFixed(1) }} GB · 使用 {{ server.swapUsed.toFixed(2) }} GB</strong>
+        </div>
+        <div class="lgapp-info__row"><span>可用内存</span><strong>{{ server.memAvailable.toFixed(1) }} GB</strong></div>
+        <div class="lgapp-info__row"><span>采样时间</span><strong>{{ server.sampledAt || '待采样' }}</strong></div>
       </div>
     </template>
 
@@ -245,7 +248,9 @@ function formatValue(value: number) {
           <strong>上行流量</strong>
           <span>{{ server.metrics.up.toFixed(1) }} MB/s</span>
         </div>
+        <p v-if="upSeries.length < 2" class="lgapp-chart__hint">正在积累采样，趋势将在下个采样点后显示。</p>
         <LgSparkline
+          v-else
           :values="upSeries"
           :height="80"
           color="var(--lg-warning)"
@@ -254,14 +259,17 @@ function formatValue(value: number) {
       </div>
 
       <div class="lgapp-info">
-        <div class="lgapp-info__row"><span>网卡</span><strong>{{ server.interfaces[0]?.name ?? 'eth0' }} · {{ server.interfaces[0]?.speed ?? '1 Gbps' }}</strong></div>
-        <div class="lgapp-info__row"><span>累计流量</span><strong>下行 1.42 TB · 上行 386 GB</strong></div>
+        <div class="lgapp-info__row">
+          <span>网卡</span>
+          <strong>{{ server.interfaces[0]?.name ?? '—' }} · {{ server.interfaces[0]?.speed ?? '未知速率' }}</strong>
+        </div>
+        <div class="lgapp-info__row"><span>累计流量</span><strong>{{ trafficText }}</strong></div>
       </div>
     </template>
 
     <p class="lgapp-note">
       <LgIcon name="info" :size="13" />
-      性能数据由本地原型模拟。接入真实 SSH 后，采样命令为只读的 /proc 与 ss，不修改服务器状态。
+      性能数据来自只读的 /proc 与 ss 采样，间隔由「设置 · 采集间隔」控制，不修改服务器状态。
     </p>
   </div>
 </template>

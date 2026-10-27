@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import { usePreferredDark, usePreferredReducedMotion } from '@vueuse/core';
+import { useElementSize, usePreferredDark, usePreferredReducedMotion } from '@vueuse/core';
 import {
   LgButton,
   LgDesktopEffects,
   LgIcon,
+  LgInput,
   LgStatusPill,
   resolveTheme,
   themeOptions,
@@ -21,11 +22,12 @@ import {
   type DesktopAppKey,
 } from './apps';
 import { useDesktopWindows } from './useDesktopWindows';
-import { addLog, retryServer, state } from '../store';
+import { addLog, disconnectServer, retryServer, state } from '../store';
 import { navigateTo } from '../router';
 import { switchScopeTheme } from '../theme';
 import { confirm, toast } from '../ui';
 import { renderSettings } from '../../render/settings';
+import { isFullscreen, toggleFullscreen } from '../../windowState';
 import type { Server } from '../types';
 import './apps.css';
 
@@ -35,6 +37,11 @@ const reduced = usePreferredReducedMotion();
 const prefersDark = usePreferredDark();
 
 const shell = ref<HTMLElement | null>(null);
+const { height: shellHeight } = useElementSize(shell);
+const iconRows = computed(() => {
+  const height = shellHeight.value || (typeof window === 'undefined' ? 900 : window.innerHeight);
+  return Math.max(1, Math.floor((height - 138) / 92));
+});
 
 function bounds() {
   const rect = shell.value?.getBoundingClientRect();
@@ -52,18 +59,29 @@ const {
   toggleTaskbar,
   showDesktop,
   move,
+  resize,
 } = useDesktopWindows(bounds);
 
 const selectedIcon = ref(-1);
 const startOpen = ref(false);
 const trayOpen = ref(false);
+const startQuery = ref('');
 
-const session = `lg_${Math.random().toString(36).slice(2, 12)}`;
-const startedAt = (() => {
-  const now = new Date();
+const startApps = computed(() => {
+  const keyword = startQuery.value.trim().toLowerCase();
+  if (!keyword) return DESKTOP_APPS;
+  return DESKTOP_APPS.filter((app) =>
+    `${app.title} ${app.description}`.toLowerCase().includes(keyword),
+  );
+});
+
+const session = computed(() => props.server.sessionId || '未连接');
+const startedAt = computed(() => {
+  const date = new Date(props.server.startedAt);
+  if (!props.server.startedAt || !Number.isFinite(date.getTime())) return '—';
   const pad = (value: number) => String(value).padStart(2, '0');
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
-})();
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+});
 
 const booting = ref(true);
 const bootStage = ref(0);
@@ -149,13 +167,25 @@ function onGlobalKey(event: KeyboardEvent) {
 function openApp(key: DesktopAppKey) {
   open(key);
   startOpen.value = false;
+  startQuery.value = '';
+  trayOpen.value = false;
+}
+
+function isOpen(key: DesktopAppKey) {
+  return windows.value.some((win) => win.app === key);
+}
+
+function isMinimized(key: DesktopAppKey) {
+  return windows.value.find((win) => win.app === key)?.minimized ?? false;
+}
+
+function openSearch() {
+  startOpen.value = true;
   trayOpen.value = false;
 }
 
 function onIconSelect(index: number) {
   selectedIcon.value = index;
-  const app = DESKTOP_APPS[index];
-  if (app) open(app.key);
 }
 
 function onIconActivate(index: number) {
@@ -176,6 +206,7 @@ function pickTheme(id: ThemeId) {
 function toggleStart() {
   trayOpen.value = false;
   startOpen.value = !startOpen.value;
+  if (!startOpen.value) startQuery.value = '';
 }
 
 function toggleTray() {
@@ -192,16 +223,8 @@ function onShowDesktop() {
 function goConsole() {
   startOpen.value = false;
   trayOpen.value = false;
-  addLog({
-    serverId: props.server.id,
-    action: '会话断开',
-    status: 'success',
-    duration: '0.00s',
-    source: '桌面客户端',
-    session,
-  });
   navigateTo('overview');
-  toast({ title: '已返回控制台', message: `${props.server.name} 的桌面会话已关闭`, tone: 'info', duration: 2400 });
+  toast({ title: '已返回控制台', message: `${props.server.name} 的会话保持连接，后台继续只读采样`, tone: 'info', duration: 2400 });
 }
 
 async function onDisconnect() {
@@ -212,13 +235,14 @@ async function onDisconnect() {
     tone: 'danger',
   });
   if (!ok) return;
+  await disconnectServer(props.server.id);
   addLog({
     serverId: props.server.id,
     action: '会话断开',
     status: 'success',
     duration: '0.00s',
     source: '桌面客户端',
-    session,
+    session: session.value,
   });
   navigateTo('overview');
   toast({ title: '会话已断开', message: `${props.server.name} 已退出服务器桌面`, tone: 'success' });
@@ -245,40 +269,45 @@ async function onRetry() {
   <div ref="shell" class="serverdesk">
     <div class="desk-wallpaper" aria-hidden="true" @click="onWallpaperClick" />
 
-    <header class="desk-bar">
-      <button type="button" class="desk-bar__back" @click="goConsole">
-        <LgIcon name="chevron-left" :size="14" />
-        控制台
+    <header class="conn-bar" aria-label="SSH 会话状态">
+      <button type="button" class="conn-bar__back" aria-label="返回控制台" @click="goConsole">
+        <LgIcon name="chevron-left" :size="13" />
       </button>
-      <div class="desk-bar__id">
-        <span class="desk-bar__mark"><LgIcon name="shield" :size="16" /></span>
-        <div>
-          <strong>{{ server.name }}</strong>
-          <small>{{ server.user }}@{{ server.ip }}:{{ server.port }}</small>
-        </div>
-      </div>
-      <div class="desk-bar__meta">
-        <LgStatusPill :label="statusLabel(server.status)" :tone="statusTone(server.status)" />
-        <span class="desk-bar__mono">{{ server.latency }} ms</span>
-        <span class="desk-bar__mono desk-bar__session">{{ session }}</span>
-        <button type="button" class="desk-bar__power" aria-label="断开连接" @click="onDisconnect">
-          <LgIcon name="power" :size="14" />
-        </button>
-      </div>
+      <span class="conn-bar__dot" :data-status="server.status" aria-hidden="true" />
+      <span class="conn-bar__mode">SSH</span>
+      <strong class="conn-bar__name">{{ server.name }}</strong>
+      <span class="conn-bar__addr">{{ server.user }}@{{ server.ip }}:{{ server.port }}</span>
+      <span class="conn-bar__meta">
+        <LgIcon name="wifi" :size="11" />
+        {{ server.latency }} ms
+      </span>
+      <span v-if="server.encryption" class="conn-bar__meta">
+        <LgIcon name="lock" :size="11" />
+        已加密
+      </span>
+      <span class="conn-bar__meta conn-bar__uptime">
+        <LgIcon name="clock" :size="11" />
+        {{ server.uptime }}
+      </span>
+      <button type="button" class="conn-bar__power" @click="onDisconnect">断开</button>
     </header>
+
+    <LgIcon name="shield" :size="300" class="desk-watermark" aria-hidden="true" />
+    <span class="desk-signature" aria-hidden="true">LightGuard Server Desktop</span>
 
     <DesktopIconLayer
       class="desk-icons"
       :items="desktopIconItems"
       :selected-index="selectedIcon"
+      :rows="iconRows"
       aria-label="服务器桌面图标"
       @select="onIconSelect"
       @activate="onIconActivate"
     />
 
-    <div v-if="windows.length === 0" class="desk-hint">
-      <LgIcon name="grid" :size="18" />
-      <span>单击或双击桌面图标打开应用，也可以从「开始」菜单启动。</span>
+    <div class="desk-hint">
+      <LgIcon name="info" :size="14" />
+      <span>双击图标打开 · 拖动标题栏移动窗口</span>
     </div>
 
     <DesktopWindow
@@ -294,6 +323,7 @@ async function onRetry() {
       @maximize="toggleMaximize(win.app)"
       @close="close(win.app)"
       @move="(x, y) => move(win.app, x, y)"
+      @resize="(x, y, w, h) => resize(win.app, x, y, w, h)"
       @disconnect="onDisconnect"
     />
 
@@ -308,11 +338,17 @@ async function onRetry() {
         <LgStatusPill :label="statusLabel(server.status)" :tone="statusTone(server.status)" />
       </header>
 
+      <div class="desk-start__search">
+        <LgInput v-model:value="startQuery" size="small" placeholder="搜索应用" clearable>
+          <template #prefix><LgIcon name="search" :size="13" /></template>
+        </LgInput>
+      </div>
+
       <div class="desk-start__section">
         <h3>应用</h3>
-        <div class="desk-start__apps">
+        <div v-if="startApps.length" class="desk-start__apps">
           <button
-            v-for="app in DESKTOP_APPS"
+            v-for="app in startApps"
             :key="app.key"
             type="button"
             class="desk-start__app"
@@ -325,6 +361,7 @@ async function onRetry() {
             </span>
           </button>
         </div>
+        <p v-else class="desk-start__empty">没有匹配的应用</p>
       </div>
 
       <div class="desk-start__section">
@@ -355,7 +392,7 @@ async function onRetry() {
           <LgIcon name="power" :size="13" />
           断开连接
         </button>
-        <span>本地演示 · 不发起真实网络请求</span>
+        <span>{{ server.encryption ? `会话加密 · ${server.encryption.cipher}` : 'SSH 直连 · 只读采集' }}</span>
       </footer>
     </section>
 
@@ -365,10 +402,10 @@ async function onRetry() {
         <span class="desk-tray__mark"><LgIcon name="shield" :size="15" /></span>
         <div>
           <strong>LightGuard</strong>
-          <small>本地演示 · 会话加密</small>
+          <small>{{ server.encryption ? 'SSH 直连 · 会话加密' : 'SSH 直连 · 只读采集' }}</small>
         </div>
       </header>
-      <div class="desk-tray__row"><span>会话</span><strong class="desk-bar__mono">{{ session }}</strong></div>
+      <div class="desk-tray__row"><span>会话</span><strong class="desk-tray__mono">{{ session }}</strong></div>
       <div class="desk-tray__row"><span>主题</span><strong>{{ currentTheme.label }}</strong></div>
       <div class="desk-tray__swatches" role="group" aria-label="快速切换桌面主题">
         <button
@@ -390,36 +427,53 @@ async function onRetry() {
     </section>
 
     <footer class="desk-taskbar">
-      <button
-        type="button"
-        class="desk-taskbar__start"
-        :class="{ 'is-open': startOpen }"
-        :aria-expanded="startOpen"
-        @click="toggleStart"
-      >
-        <LgIcon name="grid" :size="15" />
-        开始
-      </button>
-
-      <div class="desk-taskbar__apps">
+      <div class="desk-taskbar__left">
         <button
-          v-for="win in windows"
-          :key="win.app"
+          type="button"
+          class="desk-taskbar__start"
+          :class="{ 'is-open': startOpen }"
+          :aria-expanded="startOpen"
+          aria-label="开始菜单"
+          @click="toggleStart"
+        >
+          <LgIcon name="grid" :size="19" />
+        </button>
+        <button type="button" class="desk-taskbar__search" @click="openSearch">
+          <LgIcon name="search" :size="13" />
+          搜索应用
+        </button>
+      </div>
+
+      <div class="desk-taskbar__center" aria-label="固定应用">
+        <button
+          v-for="app in DESKTOP_APPS"
+          :key="app.key"
           type="button"
           class="desk-taskbar__app"
-          :class="{ 'is-active': active === win.app && !win.minimized, 'is-min': win.minimized }"
-          :aria-label="`${appMeta(win.app).title}${win.minimized ? '（已最小化）' : ''}`"
-          @click="toggleTaskbar(win.app)"
+          :class="{
+            'is-open': isOpen(app.key),
+            'is-active': active === app.key && !isMinimized(app.key),
+            'is-min': isMinimized(app.key),
+          }"
+          :aria-label="`${app.title}${isOpen(app.key) ? (isMinimized(app.key) ? '（已最小化）' : '（运行中）') : ''}`"
+          :title="app.title"
+          @click="toggleTaskbar(app.key)"
         >
-          <span class="desk-taskbar__tile" :class="appMeta(win.app).tile">
-            <LgIcon :name="appMeta(win.app).icon" :size="12" />
-          </span>
-          <span class="desk-taskbar__label">{{ appMeta(win.app).title }}</span>
+          <span class="desk-taskbar__tile" :class="app.tile"><LgIcon :name="app.icon" :size="15" /></span>
         </button>
-        <span v-if="windows.length === 0" class="desk-taskbar__empty">双击桌面图标打开应用</span>
       </div>
 
       <div class="desk-taskbar__right">
+        <button
+          v-if="isFullscreen"
+          type="button"
+          class="desk-taskbar__icon"
+          aria-label="退出全屏"
+          title="退出全屏 (F11)"
+          @click="toggleFullscreen"
+        >
+          <LgIcon name="monitor" :size="14" />
+        </button>
         <button type="button" class="desk-taskbar__icon" aria-label="显示桌面" title="显示桌面" @click="onShowDesktop">
           <LgIcon name="monitor" :size="14" />
         </button>
@@ -505,138 +559,189 @@ async function onRetry() {
   background-size: cover;
 }
 
-.desk-bar {
-  position: relative;
+.conn-bar {
+  position: absolute;
+  top: 12px;
+  left: 50%;
   z-index: 220;
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 42px;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--lg-border);
-  background: color-mix(in srgb, var(--lg-surface) 76%, transparent);
-  backdrop-filter: blur(14px);
-}
-
-.desk-bar__back {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 4px 8px;
-  border: 1px solid var(--lg-border);
-  border-radius: var(--lg-radius-sm);
-  background: var(--lg-surface);
+  gap: 7px;
+  height: 34px;
+  max-width: calc(100% - 24px);
+  padding: 0 6px;
+  transform: translateX(-50%);
+  border: var(--lg-border-width) solid var(--lg-border-strong);
+  border-radius: var(--lg-radius-full);
+  background: color-mix(in srgb, var(--lg-surface) 78%, transparent);
+  box-shadow: var(--lg-shadow-sm);
+  backdrop-filter: blur(var(--lg-panel-blur));
   color: var(--lg-text-secondary);
   font-size: 10.5px;
-  cursor: pointer;
-}
-
-.desk-bar__back:hover {
-  border-color: var(--lg-primary);
-  color: var(--lg-primary);
-}
-
-.desk-bar__id {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.desk-bar__mark {
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
-  background: var(--lg-primary-soft);
-  color: var(--lg-primary);
-}
-
-.desk-bar__id div {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.desk-bar__id strong {
-  overflow: hidden;
-  font-size: 11.5px;
-  font-weight: 650;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.desk-bar__id small {
-  overflow: hidden;
-  color: var(--lg-desktop-text-muted, var(--lg-text-muted));
-  font-family: var(--lg-font-mono);
-  font-size: 9.5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.desk-bar__meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-left: auto;
-  color: var(--lg-desktop-text-muted, var(--lg-text-muted));
-  font-size: 10px;
-}
-
-.desk-bar__mono {
-  font-family: var(--lg-font-mono);
-}
-
-.desk-bar__session {
-  max-width: 150px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.desk-bar__power {
+.conn-bar__back {
   display: grid;
   place-items: center;
-  width: 26px;
+  width: 24px;
   height: 24px;
   padding: 0;
-  border: 1px solid var(--lg-border);
-  border-radius: 6px;
-  background: var(--lg-surface);
+  border: 0;
+  border-radius: var(--lg-radius-full);
+  background: transparent;
   color: var(--lg-text-muted);
   cursor: pointer;
 }
 
-.desk-bar__power:hover {
+.conn-bar__back:hover {
+  background: var(--lg-hover);
+  color: var(--lg-text);
+}
+
+.conn-bar__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--lg-success);
+  box-shadow: 0 0 0 3px var(--lg-success-soft);
+}
+
+.conn-bar__dot[data-status='warning'] {
+  background: var(--lg-warning);
+  box-shadow: 0 0 0 3px var(--lg-warning-soft);
+}
+
+.conn-bar__dot[data-status='error'] {
+  background: var(--lg-danger);
+  box-shadow: 0 0 0 3px var(--lg-danger-soft);
+}
+
+.conn-bar__dot[data-status='offline'] {
+  background: var(--lg-text-muted);
+  box-shadow: 0 0 0 3px var(--lg-hover);
+}
+
+.conn-bar__dot[data-status='connecting'] {
+  background: var(--lg-info);
+  box-shadow: 0 0 0 3px var(--lg-info-soft);
+}
+
+.conn-bar__mode {
+  padding: 1px 6px;
+  border: var(--lg-border-width) solid var(--lg-border);
+  border-radius: var(--lg-radius-full);
+  color: var(--lg-text-muted);
+  font-family: var(--lg-font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+}
+
+.conn-bar__name {
+  overflow: hidden;
+  max-width: 180px;
+  color: var(--lg-text);
+  font-size: 11.5px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+}
+
+.conn-bar__addr {
+  overflow: hidden;
+  max-width: 190px;
+  color: var(--lg-text-muted);
+  font-family: var(--lg-font-mono);
+  font-size: 9.5px;
+  text-overflow: ellipsis;
+}
+
+.conn-bar__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--lg-text-muted);
+  font-family: var(--lg-font-mono);
+  font-size: 9.5px;
+}
+
+.conn-bar__power {
+  height: 24px;
+  padding: 0 9px;
+  border: var(--lg-border-width) solid var(--lg-border);
+  border-radius: var(--lg-radius-full);
+  background: var(--lg-surface);
+  color: var(--lg-text-muted);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.conn-bar__power:hover {
   border-color: var(--lg-danger);
   color: var(--lg-danger);
 }
 
+.desk-watermark {
+  position: absolute;
+  right: 4.5%;
+  bottom: 15%;
+  z-index: 1;
+  color: var(--lg-desktop-text, #e8eff9);
+  opacity: 0.055;
+  pointer-events: none;
+}
+
+.desk-signature {
+  position: absolute;
+  right: 26px;
+  bottom: 76px;
+  z-index: 2;
+  color: var(--lg-desktop-text-muted, var(--lg-text-muted));
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  opacity: 0.65;
+  pointer-events: none;
+}
+
 .desk-icons {
   position: absolute;
-  top: 56px;
+  top: 62px;
   left: 14px;
   z-index: 3;
 }
 
 .desk-hint {
   position: absolute;
-  right: 16px;
-  bottom: 62px;
+  left: 18px;
+  bottom: 68px;
   z-index: 2;
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 8px 11px;
-  border: 1px dashed color-mix(in srgb, var(--lg-desktop-text) 24%, transparent);
+  padding: 5px 9px;
   border-radius: var(--lg-radius-sm);
-  background: color-mix(in srgb, var(--lg-surface) 58%, transparent);
+  background: color-mix(in srgb, var(--lg-surface) 42%, transparent);
+  backdrop-filter: blur(var(--lg-panel-blur));
   color: var(--lg-desktop-text-muted, var(--lg-text-muted));
-  font-size: 10.5px;
+  font-size: 10px;
   pointer-events: none;
+  animation: desk-hint-fade 9s var(--lg-ease) forwards;
+}
+
+@keyframes desk-hint-fade {
+  0%,
+  72% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .desk-hint {
+    animation: none;
+  }
 }
 
 .desk-scrim {
@@ -698,6 +803,17 @@ async function onRetry() {
   border-radius: 10px;
   background: var(--lg-primary-soft);
   color: var(--lg-primary);
+}
+
+.desk-start__search {
+  padding-top: 10px;
+}
+
+.desk-start__empty {
+  margin: 4px 0;
+  color: var(--lg-text-muted);
+  font-size: 11px;
+  text-align: center;
 }
 
 .desk-start__section {
@@ -902,6 +1018,11 @@ async function onRetry() {
   font-size: 10px;
 }
 
+.desk-tray__mono {
+  font-family: var(--lg-font-mono);
+  font-size: 10px;
+}
+
 .desk-tray__row strong {
   overflow: hidden;
   color: var(--lg-text-secondary);
@@ -961,125 +1082,126 @@ async function onRetry() {
 .desk-taskbar {
   position: relative;
   z-index: 260;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  height: 54px;
+  margin-top: auto;
+  padding: 0 10px;
+  border-top: var(--lg-border-width) solid var(--lg-border);
+  background: color-mix(in srgb, var(--lg-surface) 82%, transparent);
+  backdrop-filter: blur(var(--lg-panel-blur));
+}
+
+.desk-taskbar__left,
+.desk-taskbar__center,
+.desk-taskbar__right {
   display: flex;
   align-items: center;
-  gap: 6px;
-  height: 46px;
-  margin-top: auto;
-  padding: 0 8px;
-  border-top: 1px solid var(--lg-border);
-  background: color-mix(in srgb, var(--lg-surface) 82%, transparent);
-  backdrop-filter: blur(16px);
+  gap: 3px;
+  min-width: 0;
+}
+
+.desk-taskbar__center {
+  justify-content: center;
+}
+
+.desk-taskbar__right {
+  justify-content: flex-end;
 }
 
 .desk-taskbar__start {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 5px;
-  height: 32px;
-  padding: 0 11px;
-  border: 1px solid transparent;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 0;
   border-radius: var(--lg-radius-sm);
   background: transparent;
   color: var(--lg-text-secondary);
-  font-size: 11px;
   cursor: pointer;
 }
 
 .desk-taskbar__start:hover,
 .desk-taskbar__start.is-open {
-  border-color: var(--lg-border);
-  background: var(--lg-surface);
+  background: var(--lg-surface-2);
   color: var(--lg-primary);
 }
 
-.desk-taskbar__apps {
+.desk-taskbar__search {
   display: flex;
-  flex: 1;
-  gap: 3px;
-  min-width: 0;
-  overflow: hidden;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 12px 0 10px;
+  border: var(--lg-border-width) solid var(--lg-border);
+  border-radius: var(--lg-radius-full);
+  background: var(--lg-surface-2);
+  color: var(--lg-text-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.desk-taskbar__search:hover {
+  border-color: var(--lg-border-strong);
+  color: var(--lg-text-secondary);
 }
 
 .desk-taskbar__app {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 170px;
-  height: 32px;
-  padding: 0 9px;
-  border: 1px solid transparent;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 0;
   border-radius: var(--lg-radius-sm);
   background: transparent;
-  color: var(--lg-text-muted);
-  font-size: 10.5px;
   cursor: pointer;
 }
 
 .desk-taskbar__app:hover {
-  background: var(--lg-hover);
-  color: var(--lg-text);
+  background: var(--lg-surface-2);
 }
 
 .desk-taskbar__app.is-active {
-  border-color: var(--lg-border);
-  background: var(--lg-surface);
-  color: var(--lg-text);
-  box-shadow: inset 0 -2px 0 var(--lg-primary);
+  background: var(--lg-surface-2);
 }
 
 .desk-taskbar__app.is-min {
-  opacity: 0.6;
+  opacity: 0.72;
+}
+
+.desk-taskbar__app.is-open::after {
+  content: '';
+  position: absolute;
+  bottom: 1px;
+  left: 50%;
+  width: 14px;
+  height: 2px;
+  transform: translateX(-50%);
+  border-radius: 2px;
+  background: var(--lg-primary);
+}
+
+.desk-taskbar__app.is-min::after {
+  width: 6px;
+  opacity: 0.55;
 }
 
 .desk-taskbar__tile {
   display: grid;
-  flex: 0 0 auto;
   place-items: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 5px;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--lg-radius-sm);
 }
 
-.desk-taskbar__label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
+.desk-taskbar__label,
 .desk-taskbar__empty {
-  align-self: center;
-  padding-left: 6px;
-  color: var(--lg-desktop-text-muted, var(--lg-text-muted));
-  font-size: 10px;
-}
-
-.desk-taskbar__right {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 3px;
-}
-
-.desk-taskbar__icon {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--lg-text-muted);
-  cursor: pointer;
-}
-
-.desk-taskbar__icon:hover,
-.desk-taskbar__icon.is-open {
-  border-color: var(--lg-border);
-  background: var(--lg-surface);
-  color: var(--lg-primary);
+  display: none;
 }
 
 .desk-clock {
@@ -1289,39 +1411,73 @@ async function onRetry() {
 }
 
 @media (max-width: 900px) {
-  .desk-bar__session {
+  .conn-bar__addr {
     display: none;
   }
 }
 
 @media (max-width: 719px) {
-  .desk-bar {
-    height: 38px;
-    padding: 0 8px;
+  .conn-bar {
+    top: 8px;
+    height: 32px;
+    gap: 5px;
   }
 
-  .desk-bar__id small,
-  .desk-bar__meta .lg-pill,
-  .desk-bar__mono {
+  .conn-bar__mode,
+  .conn-bar__uptime,
+  .conn-bar__meta {
     display: none;
+  }
+
+  .conn-bar__name {
+    max-width: 110px;
   }
 
   .desk-icons {
-    top: 48px;
+    top: 50px;
     left: 6px;
-    transform: scale(0.92);
-    transform-origin: top left;
   }
 
-  .desk-taskbar__label {
+  .desk-taskbar {
+    height: 50px;
+    gap: 4px;
+    padding: 0 6px;
+  }
+
+  .desk-taskbar__search {
     display: none;
   }
 
-  .desk-taskbar__app {
-    padding: 0 7px;
+  .desk-taskbar__center {
+    gap: 0;
   }
 
-  .desk-taskbar__empty {
+  .desk-taskbar__app {
+    width: 32px;
+    height: 32px;
+  }
+
+  .desk-taskbar__tile {
+    width: 24px;
+    height: 24px;
+  }
+
+  .desk-taskbar__right .desk-taskbar__icon:first-child {
+    display: none;
+  }
+
+  .desk-clock small {
+    display: none;
+  }
+
+  .desk-watermark {
+    right: -2%;
+    bottom: 12%;
+    width: 40vw;
+    height: auto;
+  }
+
+  .desk-signature {
     display: none;
   }
 

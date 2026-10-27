@@ -11,12 +11,11 @@ const series = computed(() => props.server.history.net.slice(-120));
 const primary = computed(() => props.server.interfaces[0] ?? null);
 
 const totalTraffic = computed(() => {
-  const values = series.value;
-  const avg = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
-  return {
-    down: (avg * 0.36).toFixed(2),
-    up: ((avg * 0.36 * props.server.metrics.up) / Math.max(0.1, props.server.metrics.down)).toFixed(2),
-  };
+  const samples = props.server.samples;
+  if (!samples.length) return { down: '0.00', up: '0.00' };
+  const down = samples.reduce((sum, sample) => sum + sample.down, 0) / samples.length;
+  const up = samples.reduce((sum, sample) => sum + sample.up, 0) / samples.length;
+  return { down: down.toFixed(2), up: up.toFixed(2) };
 });
 </script>
 
@@ -25,7 +24,7 @@ const totalTraffic = computed(() => {
     <div class="lgapp-head">
       <div>
         <h2>网络</h2>
-        <p>{{ server.name }} · {{ primary?.name ?? 'eth0' }} · {{ primary?.speed ?? '—' }}</p>
+        <p>{{ server.name }} · {{ primary?.name ?? '—' }} · {{ primary?.speed ?? '—' }}</p>
       </div>
       <LgStatusPill :label="statusLabel(server.status)" :tone="statusTone(server.status)" />
     </div>
@@ -34,12 +33,12 @@ const totalTraffic = computed(() => {
       <div class="lgapp-kpi">
         <span>下行</span>
         <strong>{{ server.metrics.down.toFixed(1) }} <small>MB/s</small></strong>
-        <small>最近 10 分钟均值 {{ totalTraffic.down }}</small>
+        <small>历史均值 {{ totalTraffic.down }} MB/s</small>
       </div>
       <div class="lgapp-kpi">
         <span>上行</span>
         <strong>{{ server.metrics.up.toFixed(1) }} <small>MB/s</small></strong>
-        <small>最近 10 分钟均值 {{ totalTraffic.up }}</small>
+        <small>历史均值 {{ totalTraffic.up }} MB/s</small>
       </div>
       <div class="lgapp-kpi">
         <span>SSH 延迟</span>
@@ -53,7 +52,8 @@ const totalTraffic = computed(() => {
         <strong>下行流量</strong>
         <span>{{ server.metrics.down.toFixed(1) }} MB/s</span>
       </div>
-      <LgSparkline :values="series" :height="92" color="var(--lg-info)" label="网络下行趋势" />
+      <p v-if="series.length < 2" class="lgapp-chart__hint">正在积累采样，趋势将在下个采样点后显示。</p>
+      <LgSparkline v-else :values="series" :height="92" color="var(--lg-info)" label="网络下行趋势" />
     </div>
 
     <div class="lgapp-section">
@@ -70,7 +70,10 @@ const totalTraffic = computed(() => {
               <strong>{{ iface.name }}</strong>
               <span>{{ iface.speed }}</span>
             </div>
-            <LgStatusPill :label="iface.name === primary?.name ? '主用' : '回环'" :tone="iface.name === primary?.name ? 'online' : 'muted'" />
+            <LgStatusPill
+              :label="iface.name === primary?.name ? '主用' : iface.name === 'lo' ? '回环' : '备用'"
+              :tone="iface.name === primary?.name ? 'online' : 'muted'"
+            />
           </div>
           <div class="lgapp-info">
             <div class="lgapp-info__row"><span>IPv4</span><strong class="lgapp-mono">{{ iface.ip }}</strong></div>
@@ -89,7 +92,7 @@ const totalTraffic = computed(() => {
       <div class="lgapp-info">
         <div class="lgapp-info__row"><span>默认网关</span><strong class="lgapp-mono">{{ server.gateway }}</strong></div>
         <div class="lgapp-info__row"><span>DNS</span><strong class="lgapp-mono">{{ server.dns }}</strong></div>
-        <div class="lgapp-info__row"><span>公网地址</span><strong class="lgapp-mono">{{ server.publicIp }}</strong></div>
+        <div class="lgapp-info__row"><span>本机地址</span><strong class="lgapp-mono">{{ server.publicIp }}</strong></div>
         <div class="lgapp-info__row"><span>MTU</span><strong class="lgapp-mono">{{ server.mtu }}</strong></div>
         <div class="lgapp-info__row"><span>SSH 端口</span><strong class="lgapp-mono">{{ server.port }}</strong></div>
       </div>

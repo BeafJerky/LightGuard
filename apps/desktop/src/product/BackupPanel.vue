@@ -211,7 +211,7 @@ async function applyImport() {
   }
   applying.value = true;
   try {
-    const result = applyBackup(current.payload, strategy.value, scope);
+    const result = await applyBackup(current.payload, strategy.value, scope);
     previewOpen.value = false;
     toast({
       title: '恢复完成',
@@ -276,7 +276,7 @@ function closePreview() {
       <div class="backup-row">
         <div class="backup-row__text">
           <strong>包含凭据</strong>
-          <span>当前环境没有系统凭据库，包含凭据不可用；不会提供明文回退。</span>
+          <span>凭据不会写入配置文件备份；导入后需重新输入或重新认证。</span>
         </div>
         <div class="backup-row__control">
           <LgSwitch :value="false" disabled aria-label="包含凭据（不可用）" />

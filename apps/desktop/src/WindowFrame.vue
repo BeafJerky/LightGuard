@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { LgIcon, LG_SCOPE_KEY } from '@lightguard/lightui';
-import { findServer } from './product/store';
+import { findServer, state, updateSettings } from './product/store';
 import { route } from './product/router';
+import { promptClose } from './product/ui';
 import { isTauriRuntime } from './product/ssh/tauri';
 import { isFullscreen, registerFullscreenToggler } from './windowState';
 
 interface AppWindow {
   minimize: () => Promise<void>;
   toggleMaximize: () => Promise<void>;
-  close: () => Promise<void>;
+  hide: () => Promise<void>;
   isMaximized: () => Promise<boolean>;
   isFullscreen: () => Promise<boolean>;
   setFullscreen: (value: boolean) => Promise<void>;
@@ -22,6 +23,8 @@ const scope = inject(LG_SCOPE_KEY, null);
 const maximized = ref(false);
 let appWindow: AppWindow | null = null;
 let unlisten: (() => void) | null = null;
+let unlistenClose: (() => void) | null = null;
+let closing = false;
 
 const pageLabel = computed(() => {
   if (route.value.name === 'desktop') {
@@ -93,9 +96,37 @@ async function toggleFullscreen() {
   await syncState();
 }
 
-async function closeWindow() {
+async function hideToTray() {
   const win = await loadWindow();
-  await win?.close().catch(() => undefined);
+  await win?.hide().catch(() => undefined);
+}
+
+async function quitApp() {
+  const { invoke } = await import('@tauri-apps/api/core');
+  await invoke('app_quit').catch(() => undefined);
+}
+
+async function requestClose() {
+  if (!framed || closing) return;
+  closing = true;
+  try {
+    const behavior = state.settings.closeBehavior;
+    if (behavior === 'tray') {
+      await hideToTray();
+      return;
+    }
+    if (behavior === 'quit') {
+      await quitApp();
+      return;
+    }
+    const result = await promptClose();
+    if (!result) return;
+    if (result.remember) updateSettings({ closeBehavior: result.action });
+    if (result.action === 'tray') await hideToTray();
+    else await quitApp();
+  } finally {
+    closing = false;
+  }
 }
 
 function onKeyDown(event: KeyboardEvent) {
@@ -124,6 +155,14 @@ onMounted(async () => {
   unlisten = await win.onResized(() => {
     void syncState();
   });
+  try {
+    const { listen } = await import('@tauri-apps/api/event');
+    unlistenClose = await listen('lightguard://close-requested', () => {
+      void requestClose();
+    });
+  } catch {
+    /* 系统关闭请求仍会被 Rust 拦截，监听失败时只能从标题栏关闭。 */
+  }
 });
 
 onBeforeUnmount(() => {
@@ -131,6 +170,8 @@ onBeforeUnmount(() => {
   registerFullscreenToggler(null);
   unlisten?.();
   unlisten = null;
+  unlistenClose?.();
+  unlistenClose = null;
   if (framed) document.documentElement.classList.remove('lg-tauri-framed');
 });
 </script>
@@ -167,7 +208,7 @@ onBeforeUnmount(() => {
           class="window-bar__control is-close"
           aria-label="关闭"
           title="关闭"
-          @click="closeWindow"
+          @click="requestClose"
         >
           <LgIcon name="x" :size="12" />
         </button>

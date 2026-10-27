@@ -163,6 +163,38 @@ describe('server editing', () => {
   });
 });
 
+describe('window close behavior', () => {
+  it('defaults to asking on every close', async () => {
+    const store = await loadStore();
+    expect(store.state.settings.closeBehavior).toBe('ask');
+  });
+
+  it('restores a remembered behavior and rejects unknown values', async () => {
+    window.localStorage.setItem(
+      STORE_KEY,
+      JSON.stringify({ version: 2, settings: { closeBehavior: 'tray' }, servers: [], logs: [] }),
+    );
+    let store = await loadStore();
+    expect(store.state.settings.closeBehavior).toBe('tray');
+
+    window.localStorage.setItem(
+      STORE_KEY,
+      JSON.stringify({ version: 2, settings: { closeBehavior: 'always' }, servers: [], logs: [] }),
+    );
+    store = await loadStore();
+    expect(store.state.settings.closeBehavior).toBe('ask');
+  });
+
+  it('persists a newly chosen behavior for the next launch', async () => {
+    const store = await loadStore();
+    store.updateSettings({ closeBehavior: 'quit' });
+    store.persistNow();
+
+    const parsed = JSON.parse(window.localStorage.getItem(STORE_KEY) as string);
+    expect(parsed.settings.closeBehavior).toBe('quit');
+  });
+});
+
 describe('persistence', () => {
   it('persists only whitelisted metadata', async () => {
     const store = await loadStore();

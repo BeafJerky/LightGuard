@@ -1,4 +1,5 @@
 import { reactive, ref } from 'vue';
+import type { CloseAction } from './types';
 
 export type ToastTone = 'success' | 'info' | 'warning' | 'error';
 
@@ -67,6 +68,31 @@ export function resolveConfirm(value: boolean) {
   const current = confirmState.value;
   if (!current) return;
   confirmState.value = null;
+  current.resolve(value);
+}
+
+export interface ClosePromptResult {
+  action: CloseAction;
+  remember: boolean;
+}
+
+interface ClosePromptState {
+  resolve: (value: ClosePromptResult | null) => void;
+}
+
+export const closePromptState = ref<ClosePromptState | null>(null);
+
+export function promptClose(): Promise<ClosePromptResult | null> {
+  if (closePromptState.value) closePromptState.value.resolve(null);
+  return new Promise((resolve) => {
+    closePromptState.value = { resolve };
+  });
+}
+
+export function resolveClosePrompt(value: ClosePromptResult | null) {
+  const current = closePromptState.value;
+  if (!current) return;
+  closePromptState.value = null;
   current.resolve(value);
 }
 

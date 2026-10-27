@@ -1,6 +1,6 @@
 import type { AuthKind, ServerStatus } from './types';
 
-export const APP_VERSION = '0.8.0';
+export const APP_VERSION = '0.9.0';
 export const APP_BUILD = '2026.10.27';
 export const HISTORY_POINTS = 120;
 export const MAX_LOGS = 80;

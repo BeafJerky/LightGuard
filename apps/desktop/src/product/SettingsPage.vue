@@ -16,7 +16,7 @@ import { APP_BUILD, APP_VERSION } from './data';
 import { clearLocalData, restartLiveUpdates, state, updateSettings } from './store';
 import { switchScopeTheme } from './theme';
 import { confirm, toast } from './ui';
-import type { ThemeChoices } from './types';
+import type { CloseBehavior, ThemeChoices } from './types';
 
 const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 
@@ -97,6 +97,28 @@ function setInterval(value: number) {
 function setIdle(value: number) {
   updateSettings({ idleLock: value });
   toast({ title: '空闲锁定已更新', message: `${value} 分钟无操作后锁定`, tone: 'info', duration: 2200 });
+}
+
+const closeOptions: Array<{ value: CloseBehavior; label: string }> = [
+  { value: 'ask', label: '每次询问' },
+  { value: 'tray', label: '最小化到托盘' },
+  { value: 'quit', label: '退出应用' },
+];
+
+const closeMessages: Record<CloseBehavior, string> = {
+  ask: '点击关闭时会询问去向',
+  tray: '关闭窗口后驻留托盘，SSH 会话保持连接',
+  quit: '关闭窗口即退出应用并断开全部会话',
+};
+
+function setCloseBehavior(value: CloseBehavior) {
+  updateSettings({ closeBehavior: value });
+  toast({
+    title: '关闭行为已更新',
+    message: closeMessages[value],
+    tone: 'info',
+    duration: 2400,
+  });
 }
 
 function toggleSetting(key: 'hostKey' | 'clipboardClear' | 'notifyFailure' | 'notifyThreshold', value: boolean) {
@@ -369,6 +391,35 @@ async function onReset() {
             <span>性能监视器展示最近 60 秒的采样</span>
           </div>
           <LgTag size="small" :bordered="false" type="info">60 秒</LgTag>
+        </div>
+      </LgSurface>
+
+      <LgSurface tone="solid" padding="lg" class="settings-card">
+        <header class="settings-card__head">
+          <span class="settings-card__icon"><LgIcon name="monitor" :size="17" /></span>
+          <div class="settings-card__title">
+            <h2>窗口与后台</h2>
+            <p>关闭窗口后的去向与托盘驻留</p>
+          </div>
+        </header>
+
+        <div class="setting-row">
+          <div class="setting-text">
+            <strong>关闭窗口时</strong>
+            <span>驻留托盘期间 SSH 会话保持连接；退出应用会断开全部会话。</span>
+          </div>
+          <div class="settings-segment" role="group" aria-label="关闭窗口时">
+            <button
+              v-for="option in closeOptions"
+              :key="option.value"
+              type="button"
+              :class="{ 'is-active': state.settings.closeBehavior === option.value }"
+              :aria-pressed="state.settings.closeBehavior === option.value"
+              @click="setCloseBehavior(option.value)"
+            >
+              {{ option.label }}
+            </button>
+          </div>
         </div>
       </LgSurface>
 

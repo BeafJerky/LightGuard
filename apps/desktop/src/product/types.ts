@@ -187,6 +187,10 @@ export interface ServerDraft {
   note: string;
 }
 
+export type CloseBehavior = 'ask' | 'tray' | 'quit';
+
+export type CloseAction = Exclude<CloseBehavior, 'ask'>;
+
 export interface AppSettings {
   interval: number;
   autoRefresh: boolean;
@@ -195,6 +199,7 @@ export interface AppSettings {
   notifyFailure: boolean;
   notifyThreshold: boolean;
   idleLock: number;
+  closeBehavior: CloseBehavior;
 }
 
 export interface ThemeChoices {

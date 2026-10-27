@@ -1,12 +1,30 @@
 <script setup lang="ts">
-import { LgButton, LgIcon, LgModal } from '@lightguard/lightui';
+import { ref, watch } from 'vue';
+import { LgButton, LgCheckbox, LgIcon, LgModal } from '@lightguard/lightui';
+import type { CloseAction } from './types';
 import {
+  closePromptState,
   confirmState,
   dismissToast,
+  resolveClosePrompt,
   resolveConfirm,
   toasts,
   type ToastTone,
 } from './ui';
+
+const closeRemember = ref(false);
+
+watch(closePromptState, (value) => {
+  if (value) closeRemember.value = false;
+});
+
+function chooseClose(action: CloseAction) {
+  resolveClosePrompt({ action, remember: closeRemember.value });
+}
+
+function onCloseShow(value: boolean) {
+  if (!value) resolveClosePrompt(null);
+}
 
 const icons: Record<ToastTone, string> = {
   success: 'check',
@@ -71,6 +89,38 @@ function onShow(value: boolean) {
         >
           {{ confirmState?.confirmLabel ?? '确定' }}
         </LgButton>
+      </div>
+    </template>
+  </LgModal>
+
+  <LgModal
+    :show="Boolean(closePromptState)"
+    preset="card"
+    class="ui-confirm"
+    :mask-closable="false"
+    :bordered="false"
+    :close-on-esc="true"
+    title="关闭 LightGuard"
+    @update:show="onCloseShow"
+  >
+    <div class="ui-confirm__body">
+      <span class="ui-confirm__mark">
+        <LgIcon name="monitor" :size="18" />
+      </span>
+      <p>最小化到托盘后 SSH 会话会保持连接；退出应用将断开全部会话。</p>
+    </div>
+    <LgCheckbox
+      class="ui-close__remember"
+      :checked="closeRemember"
+      @update:checked="(value: boolean) => (closeRemember = value)"
+    >
+      记住我的选择，下次不再询问
+    </LgCheckbox>
+    <template #footer>
+      <div class="ui-confirm__actions">
+        <LgButton size="small" @click="resolveClosePrompt(null)">取消</LgButton>
+        <LgButton size="small" secondary @click="chooseClose('tray')">最小化到托盘</LgButton>
+        <LgButton size="small" type="error" secondary @click="chooseClose('quit')">退出应用</LgButton>
       </div>
     </template>
   </LgModal>
@@ -225,8 +275,13 @@ function onShow(value: boolean) {
 
 .ui-confirm__actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.ui-close__remember {
+  margin-top: 14px;
 }
 
 @media (prefers-reduced-motion: reduce) {

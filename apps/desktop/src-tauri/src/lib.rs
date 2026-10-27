@@ -1,7 +1,49 @@
 pub mod db;
 pub mod ssh;
 
-use tauri::Manager;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{TrayIconBuilder, TrayIconEvent};
+use tauri::{Emitter, Manager};
+
+#[tauri::command]
+fn app_quit(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
+fn show_main_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+fn setup_tray<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
+    let show_item = MenuItem::with_id(app, "tray-show", "显示主窗口", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "tray-quit", "退出 LightGuard", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+
+    let mut tray = TrayIconBuilder::with_id("lightguard-tray")
+        .tooltip("LightGuard · 轻守卫")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "tray-show" => show_main_window(app),
+            "tray-quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::DoubleClick { .. } = event {
+                show_main_window(tray.app_handle());
+            }
+        });
+
+    if let Some(icon) = app.default_window_icon() {
+        tray = tray.icon(icon.clone());
+    }
+    tray.build(app)?;
+    Ok(())
+}
 
 #[tauri::command]
 fn set_window_border_color(window: tauri::WebviewWindow, color: String) -> Result<(), String> {
@@ -64,7 +106,14 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 tune_window(&window);
             }
+            setup_tray(app.handle())?;
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.emit("lightguard://close-requested", ());
+            }
         })
         .invoke_handler(tauri::generate_handler![
             ssh::commands::ssh_connect,
@@ -83,6 +132,7 @@ pub fn run() {
             ssh::commands::ssh_reset_local_data,
             db::commands::db_load,
             db::commands::db_write,
+            app_quit,
             set_window_border_color,
         ])
         .run(tauri::generate_context!())

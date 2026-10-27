@@ -56,6 +56,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   notifyFailure: true,
   notifyThreshold: true,
   idleLock: 30,
+  closeBehavior: 'ask',
 };
 
 export const DEFAULT_THEMES: ThemeChoices = {
@@ -84,6 +85,10 @@ function readSettings(value: unknown): AppSettings {
         ? raw.notifyThreshold
         : DEFAULT_SETTINGS.notifyThreshold,
     idleLock: typeof raw.idleLock === 'number' ? raw.idleLock : DEFAULT_SETTINGS.idleLock,
+    closeBehavior:
+      raw.closeBehavior === 'tray' || raw.closeBehavior === 'quit'
+        ? raw.closeBehavior
+        : DEFAULT_SETTINGS.closeBehavior,
   };
 }
 

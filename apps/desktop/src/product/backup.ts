@@ -144,6 +144,10 @@ function normalizeSettings(value: unknown): AppSettings {
     notifyFailure: readBool(value, 'notifyFailure', true),
     notifyThreshold: readBool(value, 'notifyThreshold', true),
     idleLock: Number.isFinite(idleLock) && idleLock >= 0 && idleLock <= 240 ? Math.round(idleLock) : 30,
+    closeBehavior:
+      value.closeBehavior === 'tray' || value.closeBehavior === 'quit'
+        ? value.closeBehavior
+        : 'ask',
   };
 }
 

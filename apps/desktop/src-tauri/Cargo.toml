@@ -1,0 +1,19 @@
+[package]
+name = "lightguard"
+version = "0.6.0"
+description = "LightGuard - lightweight SSH server guard"
+authors = ["LightGuard"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "lightguard_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

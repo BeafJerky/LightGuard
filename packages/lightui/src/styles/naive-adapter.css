@@ -1,0 +1,107 @@
+/*
+ * Naive UI 适配层。
+ * 能通过 themeOverrides 表达的部分一律不写在这里；
+ * 这里只处理 Naive 内部写死的圆角、边框宽度、阴影和字体。
+ * 每个选择器都应能在 7 主题实验页中找到对应的验证场景。
+ */
+
+/* ---------- display font ---------- */
+[data-lg-pack="claude"] :is(.n-card-header__main, .n-dialog__title, .n-modal-card-head__title, .n-tabs-tab, .n-data-table-th) {
+  font-family: var(--lg-font-display);
+  letter-spacing: -0.01em;
+}
+
+[data-lg-pack="pixel"] :is(.n-card-header__main, .n-dialog__title, .n-modal-card-head__title, .n-tabs-tab, .n-data-table-th, .n-button__content) {
+  font-family: var(--lg-font-display);
+}
+
+[data-lg-pack="nes"] :is(.n-card-header__main, .n-dialog__title, .n-modal-card-head__title, .n-tabs-tab, .n-data-table-th, .n-button__content) {
+  font-family: var(--lg-font-display);
+}
+
+/* 像素字体最小 12px：小号按钮保留无衬线，避免字形压缩 */
+:is([data-lg-pack="pixel"], [data-lg-pack="nes"]) :is(.n-button--small-type, .n-button--tiny-type) .n-button__content {
+  font-family: var(--lg-font-sans);
+}
+
+/* ---------- square geometry ---------- */
+:is([data-lg-pack="pixel"], [data-lg-pack="nes"]) :is(
+  .n-button,
+  .n-input,
+  .n-base-selection,
+  .n-base-selection-label,
+  .n-card,
+  .n-modal,
+  .n-dialog,
+  .n-popover,
+  .n-tooltip,
+  .n-dropdown-menu,
+  .n-tag,
+  .n-alert,
+  .n-data-table,
+  .n-tabs,
+  .n-tabs-tab,
+  .n-switch__rail,
+  .n-switch__button,
+  .n-progress-graph-line-rail,
+  .n-progress-graph-line-fill,
+  .n-checkbox-box,
+  .n-radio__dot
+) {
+  border-radius: 0 !important;
+}
+
+/* ---------- pixel / NES borders and hard shadows ---------- */
+:is([data-lg-pack="pixel"], [data-lg-pack="nes"]) :is(.n-button, .n-input, .n-base-selection, .n-card, .n-tag, .n-alert, .n-data-table) {
+  border-width: var(--lg-border-width) !important;
+}
+
+:is([data-lg-pack="pixel"], [data-lg-pack="nes"]) .n-button {
+  box-shadow: var(--lg-shadow-hard) !important;
+}
+
+:is([data-lg-pack="pixel"], [data-lg-pack="nes"]) .n-button:active:not(.n-button--disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 var(--lg-shadow-color) !important;
+}
+
+:is([data-lg-pack="pixel"], [data-lg-pack="nes"]) .n-card {
+  box-shadow: var(--lg-shadow-hard);
+}
+
+:is([data-lg-pack="pixel"], [data-lg-pack="nes"]) .n-data-table-th,
+:is([data-lg-pack="pixel"], [data-lg-pack="nes"]) .n-data-table-td {
+  border-color: var(--lg-border-strong);
+}
+
+/* Naive 的 card 型 Modal 默认 width:100%，会铺满整个视口；给一个可覆盖的默认宽度 */
+.lg-scope .n-modal.n-card {
+  width: var(--lg-modal-width, min(560px, calc(100vw - 32px)));
+  max-width: calc(100vw - 32px);
+}
+
+/* ---------- claude paper texture ---------- */
+[data-lg-pack="claude"] :is(.n-card, .n-modal, .n-dialog) {
+  background-image: var(--lg-surface-texture);
+  background-size: var(--lg-surface-texture-size);
+}
+
+/* ---------- tech glow ---------- */
+[data-lg-pack="tech"] .n-button--primary-type:hover:not(.n-button--disabled) {
+  box-shadow: 0 0 18px color-mix(in srgb, var(--lg-primary) 32%, transparent);
+}
+
+[data-lg-pack="tech"] .n-button--primary-type:active:not(.n-button--disabled) {
+  box-shadow: none;
+}
+
+/* ---------- focus ---------- */
+.lg-scope :focus-visible {
+  outline: 2px solid var(--lg-focus);
+  outline-offset: 2px;
+}
+
+/* Naive 自己处理焦点环，避免双环 */
+.lg-scope :is(.n-button, .n-input, .n-base-selection, .n-switch, .n-checkbox, .n-radio):focus-visible {
+  outline: none;
+}

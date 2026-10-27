@@ -1,0 +1,12 @@
+{
+  "name": "lightguard",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.12.0",
+  "scripts": {
+    "dev": "pnpm --filter @lightguard/desktop dev",
+    "build": "pnpm --filter @lightguard/desktop build",
+    "typecheck": "pnpm --filter @lightguard/desktop typecheck",
+    "test": "pnpm --filter @lightguard/lightui test"
+  }
+}

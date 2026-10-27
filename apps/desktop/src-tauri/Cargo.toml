@@ -1,6 +1,6 @@
 [package]
 name = "lightguard"
-version = "0.9.0"
+version = "0.9.1"
 description = "LightGuard - lightweight SSH server guard"
 authors = ["LightGuard"]
 edition = "2021"

@@ -1,13 +1,22 @@
 pub mod db;
 pub mod ssh;
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager};
 
+// 前端注册好关闭监听后才拦截系统关闭，避免启动早期请求被吞掉。
+static CLOSE_BRIDGE_READY: AtomicBool = AtomicBool::new(false);
+
 #[tauri::command]
 fn app_quit(app: tauri::AppHandle) {
     app.exit(0);
+}
+
+#[tauri::command]
+fn app_close_ready() {
+    CLOSE_BRIDGE_READY.store(true, Ordering::SeqCst);
 }
 
 fn show_main_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
@@ -111,8 +120,10 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.emit("lightguard://close-requested", ());
+                if CLOSE_BRIDGE_READY.load(Ordering::SeqCst) {
+                    api.prevent_close();
+                    let _ = window.emit("lightguard://close-requested", ());
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -133,6 +144,7 @@ pub fn run() {
             db::commands::db_load,
             db::commands::db_write,
             app_quit,
+            app_close_ready,
             set_window_border_color,
         ])
         .run(tauri::generate_context!())

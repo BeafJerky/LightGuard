@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { LgIcon, LG_SCOPE_KEY } from '@lightguard/lightui';
-import { findServer, state, updateSettings } from './product/store';
+import { findServer, flushSettings, state, updateSettings } from './product/store';
 import { route } from './product/router';
 import { promptClose } from './product/ui';
 import { isTauriRuntime } from './product/ssh/tauri';
@@ -106,6 +106,19 @@ async function quitApp() {
   await invoke('app_quit').catch(() => undefined);
 }
 
+async function registerCloseBridge() {
+  try {
+    const { listen } = await import('@tauri-apps/api/event');
+    unlistenClose = await listen('lightguard://close-requested', () => {
+      void requestClose();
+    });
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('app_close_ready');
+  } catch (error) {
+    console.warn('[lightguard] 关闭事件监听不可用，系统关闭将直接退出应用', error);
+  }
+}
+
 async function requestClose() {
   if (!framed || closing) return;
   closing = true;
@@ -121,7 +134,10 @@ async function requestClose() {
     }
     const result = await promptClose();
     if (!result) return;
-    if (result.remember) updateSettings({ closeBehavior: result.action });
+    if (result.remember) {
+      updateSettings({ closeBehavior: result.action });
+      if (result.action === 'quit') await flushSettings();
+    }
     if (result.action === 'tray') await hideToTray();
     else await quitApp();
   } finally {
@@ -144,6 +160,7 @@ watch(
 
 onMounted(async () => {
   if (!framed) return;
+  void registerCloseBridge();
   await applyWindowBackground();
   await syncState();
   registerFullscreenToggler(() => {
@@ -155,14 +172,6 @@ onMounted(async () => {
   unlisten = await win.onResized(() => {
     void syncState();
   });
-  try {
-    const { listen } = await import('@tauri-apps/api/event');
-    unlistenClose = await listen('lightguard://close-requested', () => {
-      void requestClose();
-    });
-  } catch {
-    /* 系统关闭请求仍会被 Rust 拦截，监听失败时只能从标题栏关闭。 */
-  }
 });
 
 onBeforeUnmount(() => {

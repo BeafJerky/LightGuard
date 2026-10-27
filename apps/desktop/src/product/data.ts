@@ -1,6 +1,6 @@
-import type { AuthKind, ServerStatus } from './types';
+import type { AuthKind, CloseBehavior, ServerStatus } from './types';
 
-export const APP_VERSION = '0.9.0';
+export const APP_VERSION = '0.9.1';
 export const APP_BUILD = '2026.10.27';
 export const HISTORY_POINTS = 120;
 export const MAX_LOGS = 80;
@@ -18,6 +18,9 @@ export const AUTH_LABELS: Record<AuthKind, string> = {
   password: '密码',
   agent: 'SSH Agent',
 };
+
+export const isCloseBehavior = (value: unknown): value is CloseBehavior =>
+  value === 'ask' || value === 'tray' || value === 'quit';
 
 export const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 export const round = (value: number, digits = 0) => {

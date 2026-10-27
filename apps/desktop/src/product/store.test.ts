@@ -193,6 +193,15 @@ describe('window close behavior', () => {
     const parsed = JSON.parse(window.localStorage.getItem(STORE_KEY) as string);
     expect(parsed.settings.closeBehavior).toBe('quit');
   });
+
+  it('flushes the remembered behavior before quitting', async () => {
+    const store = await loadStore();
+    store.updateSettings({ closeBehavior: 'tray' });
+    await store.flushSettings();
+
+    const parsed = JSON.parse(window.localStorage.getItem(STORE_KEY) as string);
+    expect(parsed.settings.closeBehavior).toBe('tray');
+  });
 });
 
 describe('persistence', () => {

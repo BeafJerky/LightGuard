@@ -2,7 +2,7 @@ import { computed, reactive } from 'vue';
 import { themeOptions } from '@lightguard/lightui';
 import type { ThemeId } from '@lightguard/lightui';
 import { resetRenderSettings } from '../render/settings';
-import { APP_VERSION, AUTH_LABELS, MAX_LOGS, round, uid } from './data';
+import { APP_VERSION, AUTH_LABELS, MAX_LOGS, isCloseBehavior, round, uid } from './data';
 import {
   applySnapshot,
   fromPersisted,
@@ -26,6 +26,7 @@ import {
   replaceStoredState,
   resetStoredState,
   writePersistence,
+  writePersistenceNow,
   type StoredState,
 } from './persistence';
 import type {
@@ -85,10 +86,9 @@ function readSettings(value: unknown): AppSettings {
         ? raw.notifyThreshold
         : DEFAULT_SETTINGS.notifyThreshold,
     idleLock: typeof raw.idleLock === 'number' ? raw.idleLock : DEFAULT_SETTINGS.idleLock,
-    closeBehavior:
-      raw.closeBehavior === 'tray' || raw.closeBehavior === 'quit'
-        ? raw.closeBehavior
-        : DEFAULT_SETTINGS.closeBehavior,
+    closeBehavior: isCloseBehavior(raw.closeBehavior)
+      ? raw.closeBehavior
+      : DEFAULT_SETTINGS.closeBehavior,
   };
 }
 
@@ -393,6 +393,16 @@ export function updateSettings(patch: Partial<AppSettings>) {
   Object.assign(state.settings, patch);
   if (isPersistenceActive()) writePersistence({ op: 'settingsSet', settings: { ...state.settings } });
   else schedulePersist();
+}
+
+export async function flushSettings() {
+  if (!isPersistenceActive()) {
+    persistLocal();
+    return;
+  }
+  await writePersistenceNow({ op: 'settingsSet', settings: { ...state.settings } }).catch(() => {
+    /* the write queue already reports the failure once */
+  });
 }
 
 export function setBackupSummary(summary: BackupSummary | null) {

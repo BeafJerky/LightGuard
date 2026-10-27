@@ -8,12 +8,12 @@ export interface IconCell {
 }
 
 const METRICS: Record<IconLayerVariant, { width: number; height: number; gapX: number; gapY: number; rows: number }> = {
-  grid: { width: 64, height: 58, gapX: 10, gapY: 6, rows: 3 },
+  grid: { width: 88, height: 92, gapX: 6, gapY: 2, rows: 3 },
   dock: { width: 36, height: 36, gapX: 6, gapY: 0, rows: 1 },
 };
 
-export function iconCells(count: number, variant: IconLayerVariant): IconCell[] {
-  const metric = METRICS[variant];
+export function iconCells(count: number, variant: IconLayerVariant, rows = METRICS[variant].rows): IconCell[] {
+  const metric = { ...METRICS[variant], rows: Math.max(1, rows) };
   return Array.from({ length: count }, (_, index) => {
     const col = Math.floor(index / metric.rows);
     const row = index % metric.rows;
@@ -26,8 +26,8 @@ export function iconCells(count: number, variant: IconLayerVariant): IconCell[] 
   });
 }
 
-export function iconLayerSize(count: number, variant: IconLayerVariant) {
-  const metric = METRICS[variant];
+export function iconLayerSize(count: number, variant: IconLayerVariant, rowsLimit = METRICS[variant].rows) {
+  const metric = { ...METRICS[variant], rows: Math.max(1, rowsLimit) };
   const rows = Math.min(count, metric.rows) || 1;
   const cols = Math.max(1, Math.ceil(count / metric.rows));
   return {

@@ -110,5 +110,24 @@ export const LgPopconfirm = createWrapper('LgPopconfirm', NPopconfirm, { telepor
 export const LgSpin = createWrapper('LgSpin', NSpin);
 export const LgSkeleton = createWrapper('LgSkeleton', NSkeleton);
 export const LgPagination = createWrapper('LgPagination', NPagination);
-export const LgEmpty = createWrapper('LgEmpty', NEmpty);
+/**
+ * NEmpty 在存在默认插槽时会忽略 description 属性，把默认插槽渲染到描述区。
+ * 这里统一把 description 映射为描述文案，默认插槽降级为底部的操作区。
+ */
+export const LgEmpty = defineComponent({
+  name: 'LgEmpty',
+  inheritAttrs: false,
+  setup(_, { attrs, slots }) {
+    return () => {
+      const { description, ...rest } = attrs;
+      const hasDescription = typeof description === 'string' && description.length > 0;
+      if (!hasDescription) return h(NEmpty, rest, slots);
+      return h(NEmpty, rest, {
+        default: () => description,
+        extra: slots.default ?? slots.extra,
+        icon: slots.icon,
+      });
+    };
+  },
+});
 export const LgDivider = createWrapper('LgDivider', NDivider);

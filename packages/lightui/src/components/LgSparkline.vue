@@ -114,6 +114,7 @@ const stroke = computed(() => props.color ?? 'var(--lg-primary)');
   <svg
     v-else
     class="lg-sparkline"
+    :style="{ height: `${height}px` }"
     :viewBox="`0 0 ${width} ${height}`"
     preserveAspectRatio="none"
     role="img"

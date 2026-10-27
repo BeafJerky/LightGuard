@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import {
   LgButton,
   LgEmpty,
@@ -7,23 +7,25 @@ import {
   LgInput,
   LgKpi,
   LgSelect,
-  LgSparkline,
   LgSurface,
 } from '@lightguard/lightui';
 import CredentialsDialog from './CredentialsDialog.vue';
 import ServerCard from './ServerCard.vue';
+import ServerEditDialog from './ServerEditDialog.vue';
 import { openServerDesktop } from './router';
-import { fleet, removeServer, retryServer, state, tickAll, updateCredentials } from './store';
+import { backendAvailable, fleet, removeServer, retryServer, state } from './store';
 import { confirm, openWizard, toast } from './ui';
-import type { AuthKind, Server, ServerStatus } from './types';
+import type { Server, ServerStatus } from './types';
 
 type FilterStatus = 'all' | 'online' | 'attention' | 'offline';
 type SortKey = 'status' | 'name' | 'cpu' | 'latency';
 
 const query = ref('');
 const filter = ref<FilterStatus>('all');
+const group = ref('all');
 const sort = ref<SortKey>('status');
 const credentialsFor = ref<Server | null>(null);
+const editing = ref<Server | null>(null);
 const retrying = ref<string[]>([]);
 
 const STATUS_PRIORITY: Record<ServerStatus, number> = {
@@ -33,6 +35,70 @@ const STATUS_PRIORITY: Record<ServerStatus, number> = {
   connecting: 3,
   online: 4,
 };
+
+const health = computed(() => {
+  const total = Math.max(1, fleet.value.total);
+  return {
+    online: (fleet.value.online / total) * 100,
+    attention: (fleet.value.attention / total) * 100,
+    offline: (fleet.value.offline / total) * 100,
+    connecting: (fleet.value.connecting / total) * 100,
+  };
+});
+
+const coverage = computed(() => ({
+  groups: new Set(state.servers.map((server) => server.group)).size,
+  regions: new Set(state.servers.map((server) => server.region)).size,
+}));
+
+const groupOf = (server: Server) => server.group || '未分组';
+
+const groupOptions = computed(() => {
+  const counts = new Map<string, number>();
+  for (const server of state.servers) {
+    const name = groupOf(server);
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  const names = [...counts.keys()].sort((a, b) => {
+    if (a === '未分组') return 1;
+    if (b === '未分组') return -1;
+    return a.localeCompare(b, 'zh-Hans-CN');
+  });
+  return [
+    { label: `全部分组 (${state.servers.length})`, value: 'all' },
+    ...names.map((name) => ({ label: `${name} (${counts.get(name)})`, value: name })),
+  ];
+});
+
+watch(
+  () => state.servers.map(groupOf).join('\u0000'),
+  () => {
+    if (group.value !== 'all' && !state.servers.some((server) => groupOf(server) === group.value)) {
+      group.value = 'all';
+    }
+  },
+);
+
+const availability = computed(() =>
+  fleet.value.total ? Math.round((fleet.value.online / fleet.value.total) * 100) : 0,
+);
+
+const onlineHint = computed(() => {
+  const base = `${availability.value}% 可用率`;
+  return fleet.value.connecting ? `${base} · ${fleet.value.connecting} 台连接中` : base;
+});
+
+const attentionSummary = computed(() => {
+  const parts: string[] = [];
+  if (fleet.value.warning) parts.push(`${fleet.value.warning} 台资源偏高`);
+  if (fleet.value.error) parts.push(`${fleet.value.error} 台连接失败`);
+  return parts.join(' · ');
+});
+
+const offlineHint = computed(() => {
+  if (fleet.value.connecting) return `${fleet.value.connecting} 台正在重连`;
+  return fleet.value.offline ? '等待重新连接' : '无离线主机';
+});
 
 const counts = computed(() => ({
   all: state.servers.length,
@@ -60,6 +126,7 @@ const sortOptions = [
 const visible = computed(() => {
   const keyword = query.value.trim().toLowerCase();
   const list = state.servers.filter((server) => {
+    if (group.value !== 'all' && groupOf(server) !== group.value) return false;
     if (filter.value === 'online' && server.status !== 'online') return false;
     if (filter.value === 'attention' && server.status !== 'warning' && server.status !== 'error') {
       return false;
@@ -84,11 +151,14 @@ const visible = computed(() => {
   });
 });
 
-const hasFilters = computed(() => Boolean(query.value.trim()) || filter.value !== 'all');
+const hasFilters = computed(
+  () => Boolean(query.value.trim()) || filter.value !== 'all' || group.value !== 'all',
+);
 
 function resetFilters() {
   query.value = '';
   filter.value = 'all';
+  group.value = 'all';
 }
 
 function onOpen(server: Server) {
@@ -124,10 +194,23 @@ function onCredentials(server: Server) {
   credentialsFor.value = server;
 }
 
-function saveCredentials(auth: AuthKind) {
+function onEdit(server: Server) {
+  editing.value = server;
+}
+
+function onServerSaved(server: Server) {
+  editing.value = null;
+  toast({ title: '服务器已更新', message: `${server.name} 的配置已保存`, tone: 'success' });
+}
+
+function onEditCredentials(server: Server) {
+  editing.value = null;
+  credentialsFor.value = server;
+}
+
+function saveCredentials() {
   const server = credentialsFor.value;
   if (!server) return;
-  updateCredentials(server.id, auth);
   credentialsFor.value = null;
   toast({ title: '凭据已更新', message: `${server.name} 已重新连接`, tone: 'success' });
 }
@@ -140,19 +223,9 @@ async function onRemove(server: Server) {
     tone: 'danger',
   });
   if (!ok) return;
-  removeServer(server.id);
+  await removeServer(server.id);
   if (credentialsFor.value?.id === server.id) credentialsFor.value = null;
   toast({ title: '已移除服务器', message: server.name, tone: 'success' });
-}
-
-function refreshAll() {
-  tickAll();
-  toast({
-    title: '实时数据已刷新',
-    message: `${fleet.value.sampled} 台在线主机已更新`,
-    tone: 'success',
-    duration: 2200,
-  });
 }
 
 function applyAttention() {
@@ -164,55 +237,64 @@ function applyAttention() {
   <div class="overview">
     <section class="overview-stats" aria-label="运行概览">
       <LgSurface tone="solid" padding="sm" class="overview-stat">
+        <span class="overview-stat__icon"><LgIcon name="server" :size="15" /></span>
         <LgKpi
           label="主机总数"
           :value="fleet.total"
           unit="台"
-          :hint="`在线 ${fleet.online} · 需关注 ${fleet.attention}`"
+          :hint="
+            fleet.total
+              ? `${coverage.groups} 个分组 · ${coverage.regions} 个区域`
+              : '尚未添加服务器'
+          "
         />
+        <span v-if="fleet.total > 0" class="overview-stat__meter" aria-hidden="true">
+          <i class="is-online" :style="{ width: `${health.online}%` }" />
+          <i class="is-warning" :style="{ width: `${health.attention}%` }" />
+          <i class="is-offline" :style="{ width: `${health.offline}%` }" />
+          <i class="is-connecting" :style="{ width: `${health.connecting}%` }" />
+        </span>
       </LgSurface>
 
       <LgSurface tone="solid" padding="sm" class="overview-stat">
+        <span class="overview-stat__icon is-success"><LgIcon name="wifi" :size="15" /></span>
         <LgKpi
-          label="平均 CPU"
-          :value="fleet.avgCpu"
-          unit="%"
-          tone="primary"
-          :hint="`${fleet.sampled} 台在线主机采样`"
+          label="当前在线"
+          :value="fleet.online"
+          :unit="`/ ${fleet.total} 台`"
+          :tone="fleet.online > 0 ? 'success' : 'default'"
+          :hint="onlineHint"
         />
-        <LgSparkline
-          :values="fleet.cpuSeries"
-          :height="30"
-          :max="100"
-          color="var(--lg-primary)"
-          label="全部主机 CPU 平均趋势"
-        />
+        <span class="overview-stat__meter" aria-hidden="true">
+          <i class="is-online" :style="{ width: `${health.online}%` }" />
+        </span>
       </LgSurface>
 
       <LgSurface tone="solid" padding="sm" class="overview-stat">
+        <span class="overview-stat__icon is-warning"><LgIcon name="alert" :size="15" /></span>
         <LgKpi
-          label="平均内存"
-          :value="fleet.avgMem"
-          unit="%"
-          :hint="`${fleet.sampled} 台在线主机采样`"
+          label="需要关注"
+          :value="fleet.attention"
+          unit="台"
+          :tone="fleet.attention > 0 ? 'warning' : 'default'"
+          :hint="attentionSummary || '暂无异常'"
         />
-        <LgSparkline
-          :values="fleet.memSeries"
-          :height="30"
-          :max="100"
-          color="var(--lg-accent)"
-          label="全部主机内存平均趋势"
-        />
+        <span class="overview-stat__meter" aria-hidden="true">
+          <i class="is-warning" :style="{ width: `${health.attention}%` }" />
+        </span>
       </LgSurface>
 
       <LgSurface tone="solid" padding="sm" class="overview-stat">
+        <span class="overview-stat__icon"><LgIcon name="power" :size="15" /></span>
         <LgKpi
-          label="实时下行流量"
-          :value="fleet.down"
-          unit="MB/s"
-          :tone="fleet.attention > 0 ? 'warning' : 'success'"
-          :hint="`上行 ${fleet.up} MB/s · ${fleet.sampled} 台采样`"
+          label="当前离线"
+          :value="fleet.offline"
+          unit="台"
+          :hint="offlineHint"
         />
+        <span class="overview-stat__meter" aria-hidden="true">
+          <i class="is-offline" :style="{ width: `${health.offline}%` }" />
+        </span>
       </LgSurface>
     </section>
 
@@ -222,11 +304,7 @@ function applyAttention() {
       </span>
       <div class="overview-alert__body">
         <strong>{{ fleet.attention }} 台主机需要关注</strong>
-        <span>
-          {{ fleet.warning ? `${fleet.warning} 台资源偏高` : '' }}
-          {{ fleet.warning && fleet.failed ? ' · ' : '' }}
-          {{ fleet.failed ? `${fleet.failed} 台连接失败或离线` : '' }}
-        </span>
+        <span>{{ attentionSummary }}</span>
       </div>
       <LgButton size="small" @click="applyAttention">只看需关注</LgButton>
     </section>
@@ -254,11 +332,14 @@ function applyAttention() {
       </div>
 
       <div class="overview-toolbar__right">
+        <LgSelect
+          v-model:value="group"
+          size="small"
+          :options="groupOptions"
+          class="overview-group"
+          aria-label="按分组筛选"
+        />
         <LgSelect v-model:value="sort" size="small" :options="sortOptions" class="overview-sort" aria-label="排序方式" />
-        <button type="button" class="overview-refresh" @click="refreshAll">
-          <LgIcon name="refresh" :size="14" />
-          刷新
-        </button>
       </div>
     </section>
 
@@ -284,6 +365,7 @@ function applyAttention() {
         :key="server.id"
         :server="server"
         @open="onOpen"
+        @edit="onEdit"
         @retry="onRetry"
         @credentials="onCredentials"
         @remove="onRemove"
@@ -292,13 +374,24 @@ function applyAttention() {
 
     <footer class="overview-foot">
       <span>显示 {{ visible.length }} / {{ state.servers.length }} 台主机</span>
-      <span>演示数据 · 所有操作仅在本浏览器生效</span>
+      <span v-if="fleet.sampled" class="overview-foot__net">
+        <LgIcon name="network" :size="11" />
+        全部已连接主机实时吞吐：下行 {{ fleet.down }} MB/s · 上行 {{ fleet.up }} MB/s
+      </span>
+      <span>{{ backendAvailable ? '桌面直连 · 只读采集' : '真实 SSH 仅桌面版可用' }}</span>
     </footer>
 
     <CredentialsDialog
       :server="credentialsFor"
       @close="credentialsFor = null"
-      @save="saveCredentials"
+      @saved="saveCredentials"
+    />
+
+    <ServerEditDialog
+      :server="editing"
+      @close="editing = null"
+      @saved="onServerSaved"
+      @credentials="onEditCredentials"
     />
   </div>
 </template>
@@ -313,14 +406,85 @@ function applyAttention() {
 .overview-stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  gap: 14px;
 }
 
 .overview-stat {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
   min-width: 0;
+  min-height: 132px;
+  overflow: hidden;
+}
+
+.overview-stat::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--lg-text) 3%, transparent), transparent 46%);
+  pointer-events: none;
+}
+
+.overview-stat__icon {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--lg-radius-sm);
+  background: var(--lg-surface-2);
+  color: var(--lg-text-secondary);
+}
+
+.overview-stat__icon.is-success {
+  background: var(--lg-success-soft);
+  color: var(--lg-success);
+}
+
+.overview-stat__icon.is-warning {
+  background: var(--lg-warning-soft);
+  color: var(--lg-warning);
+}
+
+.overview-stat__meter {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 1;
+  display: flex;
+  gap: 2px;
+  width: 96px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--lg-radius-full);
+  background: var(--lg-surface-2);
+}
+
+.overview-stat__meter i {
+  display: block;
+  height: 100%;
+  border-radius: var(--lg-radius-full);
+}
+
+.overview-stat__meter i.is-online {
+  background: var(--lg-success);
+}
+
+.overview-stat__meter i.is-warning {
+  background: var(--lg-warning);
+}
+
+.overview-stat__meter i.is-offline {
+  background: var(--lg-danger);
+}
+
+.overview-stat__meter i.is-connecting {
+  background: var(--lg-text-muted);
 }
 
 .overview-alert {
@@ -430,6 +594,10 @@ function applyAttention() {
   margin-left: auto;
 }
 
+.overview-group {
+  width: 132px;
+}
+
 .overview-sort {
   width: 118px;
 }
@@ -467,10 +635,19 @@ function applyAttention() {
 
 .overview-foot {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   color: var(--lg-text-muted);
   font-size: 10.5px;
+}
+
+.overview-foot__net {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--lg-text-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
 @media (max-width: 1200px) {

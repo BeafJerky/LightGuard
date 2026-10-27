@@ -14,6 +14,7 @@ import { iconCells, iconLayerSize, type IconLayerVariant } from './iconLayout';
 interface DesktopIconItem {
   name: string;
   label: string;
+  tile?: string;
 }
 
 const props = withDefaults(
@@ -22,8 +23,9 @@ const props = withDefaults(
     variant?: IconLayerVariant;
     ariaLabel?: string;
     selectedIndex?: number;
+    rows?: number;
   }>(),
-  { variant: 'grid', ariaLabel: '桌面图标', selectedIndex: -1 },
+  { variant: 'grid', ariaLabel: '桌面图标', selectedIndex: -1, rows: 3 },
 );
 
 const emit = defineEmits<{
@@ -33,8 +35,8 @@ const emit = defineEmits<{
 
 const backend = useRenderBackend('desktop.icons');
 const canvas = computed(() => backend.value === 'canvas');
-const cells = computed(() => iconCells(props.items.length, props.variant));
-const size = computed(() => iconLayerSize(props.items.length, props.variant));
+const cells = computed(() => iconCells(props.items.length, props.variant, props.rows));
+const size = computed(() => iconLayerSize(props.items.length, props.variant, props.rows));
 
 function px(value: string, fallback: number) {
   const parsed = Number.parseFloat(value);
@@ -56,35 +58,53 @@ function roundRect(
 function draw(ctx: CanvasRenderingContext2D, frame: CanvasFrame) {
   const { theme } = frame;
   const dock = props.variant === 'dock';
-  const tile = dock ? 34 : 36;
+  const tile = dock ? 34 : 46;
+  const tileColors: Record<string, string> = {
+    'tile-about': theme.color.primary,
+    'tile-performance': theme.color.accent,
+    'tile-disks': theme.color.info,
+    'tile-network': theme.color.warning,
+    'tile-processes': theme.color.danger,
+    'tile-connection': theme.color.success,
+    'tile-terminal': theme.color.textSecondary,
+  };
 
   cells.value.forEach((cell, index) => {
     const item = props.items[index];
     if (!item) return;
     const x = cell.x + (cell.width - tile) / 2;
     const y = cell.y + (dock ? (cell.height - tile) / 2 : 4);
-    const radius = px(theme.radius.sm, 5);
+    const radius = dock ? px(theme.radius.sm, 5) : 12;
+    const tint = item.tile ? tileColors[item.tile] : null;
 
     ctx.beginPath();
     roundRect(ctx, x, y, tile, tile, radius);
-    ctx.fillStyle = withAlpha(theme.color.surface, dock ? 0.82 : 0.55);
-    ctx.fill();
-    ctx.strokeStyle = theme.color.border;
+    if (tint) {
+      ctx.fillStyle = theme.color.surface2;
+      ctx.fill();
+      ctx.fillStyle = withAlpha(tint, 0.34);
+      ctx.fill();
+      ctx.strokeStyle = withAlpha(tint, 0.42);
+    } else {
+      ctx.fillStyle = withAlpha(theme.color.surface, dock ? 0.82 : 0.55);
+      ctx.fill();
+      ctx.strokeStyle = theme.color.border;
+    }
     ctx.lineWidth = px(theme.color.borderWidth, 1);
     ctx.stroke();
 
-    ctx.strokeStyle = theme.color.primary;
+    ctx.strokeStyle = tint ?? theme.color.primary;
     ctx.lineWidth = px(theme.icon.stroke, 1.7);
     ctx.lineCap = theme.icon.linecap as CanvasLineCap;
     ctx.lineJoin = theme.icon.linejoin as CanvasLineJoin;
-    drawIconGlyph(ctx, item.name, x + tile / 2, y + tile / 2, dock ? 18 : 20);
+    drawIconGlyph(ctx, item.name, x + tile / 2, y + tile / 2, dock ? 18 : 24);
 
     if (!dock) {
       ctx.fillStyle = theme.desktop.text;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.font = `10.5px ${theme.font.sans}`;
-      ctx.fillText(item.label, cell.x + cell.width / 2, y + tile + 12, cell.width);
+      ctx.font = `11px ${theme.font.sans}`;
+      ctx.fillText(item.label, cell.x + cell.width / 2, y + tile + 13, cell.width);
     }
   });
 }
@@ -140,13 +160,14 @@ function cellStyle(index: number) {
           :style="cellStyle(index)"
           :aria-label="item.label"
           :aria-pressed="selectedIndex === index"
+          :title="item.label"
           @click="emit('select', index)"
           @dblclick="emit('activate', index)"
           @keydown.enter.prevent="emit('activate', index)"
           @keydown.space.prevent="emit('activate', index)"
         >
           <template v-if="!canvas">
-            <span class="desktop-icon-layer__glyph"><LgIcon :name="item.name" :size="22" /></span>
+            <span class="desktop-icon-layer__glyph" :class="item.tile"><LgIcon :name="item.name" :size="24" /></span>
             <span class="desktop-icon-layer__label">{{ item.label }}</span>
           </template>
           <span v-else class="desktop-icon-layer__sr">{{ item.label }}</span>
@@ -179,16 +200,18 @@ function cellStyle(index: number) {
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  gap: 4px;
-  padding: 6px 2px;
+  gap: 7px;
+  padding: 6px 4px;
   border: 1px solid transparent;
   border-radius: var(--lg-radius-sm);
   background: transparent;
   color: var(--lg-desktop-text, var(--lg-text));
   font: inherit;
-  font-size: 10px;
+  font-size: 11px;
+  line-height: 1.3;
   cursor: pointer;
   pointer-events: auto;
+  text-align: center;
   text-shadow: var(--lg-desktop-text-shadow, none);
 }
 
@@ -240,16 +263,21 @@ function cellStyle(index: number) {
 .desktop-icon-layer__glyph {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
-  border: var(--lg-border-width) solid var(--lg-border);
-  border-radius: var(--lg-radius-sm);
-  background: color-mix(in srgb, var(--lg-surface) 55%, transparent);
+  width: 46px;
+  height: 46px;
+  border: 0;
+  border-radius: var(--lg-radius-md);
+  background: color-mix(in srgb, var(--lg-surface) 60%, transparent);
   color: var(--lg-primary);
 }
 
 .desktop-icon-layer__label {
-  line-height: 1.2;
+  display: -webkit-box;
+  max-width: 82px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  word-break: break-word;
 }
 
 .desktop-icon-layer__sr {

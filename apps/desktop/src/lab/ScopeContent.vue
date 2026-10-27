@@ -500,7 +500,7 @@ const desktopIcons = [
             <h2><LgIcon name="terminal" :size="16" /> 终端</h2>
             <span class="panel-note">xterm.js · 本地模拟流 · 切换渲染器不重建会话</span>
           </div>
-          <LgTerminal :height="340" label="web-prod-01 · 模拟 Shell" />
+          <LgTerminal :height="340" label="web-prod-01 · 模拟 Shell" simulated />
         </LgSurface>
 
         <LgSurface tone="glass" padding="lg" class="panel">
@@ -573,7 +573,7 @@ const desktopIcons = [
                 />
               </LgTabPane>
               <LgTabPane name="terminal" tab="终端">
-                <LgTerminal :height="220" label="模拟 Shell" />
+                <LgTerminal :height="220" label="模拟 Shell" simulated />
               </LgTabPane>
             </LgTabs>
           </div>

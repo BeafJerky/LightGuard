@@ -8,6 +8,7 @@ const props = defineProps<{ server: Server }>();
 
 const emit = defineEmits<{
   open: [server: Server];
+  edit: [server: Server];
   retry: [server: Server];
   credentials: [server: Server];
   remove: [server: Server];
@@ -40,6 +41,7 @@ const level = (value: number, warnAt = 72, dangerAt = 88) =>
 const menuOptions = computed(() => {
   const options: Array<{ key: string; label: string }> = [
     { key: 'open', label: '进入桌面' },
+    { key: 'edit', label: '编辑服务器' },
     { key: 'copy', label: '复制地址' },
     { key: 'retry', label: '重试连接' },
   ];
@@ -50,6 +52,7 @@ const menuOptions = computed(() => {
 
 function onMenu(key: string) {
   if (key === 'open') emit('open', props.server);
+  else if (key === 'edit') emit('edit', props.server);
   else if (key === 'retry') emit('retry', props.server);
   else if (key === 'credentials') emit('credentials', props.server);
   else if (key === 'remove') emit('remove', props.server);
@@ -84,11 +87,22 @@ async function copyAddress() {
         <p>{{ server.role }} · {{ server.region }}</p>
       </div>
 
-      <LgDropdown trigger="click" placement="bottom-end" :options="menuOptions" @select="onMenu">
-        <button type="button" class="server-card__more" :aria-label="`${server.name} 更多操作`">
-          <LgIcon name="more" :size="17" />
+      <div class="server-card__actions">
+        <button
+          type="button"
+          class="server-card__icon"
+          :aria-label="`编辑 ${server.name}`"
+          :title="`编辑 ${server.name}`"
+          @click="emit('edit', server)"
+        >
+          <LgIcon name="edit" :size="15" />
         </button>
-      </LgDropdown>
+        <LgDropdown trigger="click" placement="bottom-end" :options="menuOptions" @select="onMenu">
+          <button type="button" class="server-card__icon" :aria-label="`${server.name} 更多操作`">
+            <LgIcon name="more" :size="17" />
+          </button>
+        </LgDropdown>
+      </div>
     </header>
 
     <div class="server-card__address">
@@ -291,9 +305,14 @@ async function copyAddress() {
   font-size: 11px;
 }
 
-.server-card__more {
-  display: grid;
+.server-card__actions {
+  display: flex;
   flex: 0 0 auto;
+  gap: 2px;
+}
+
+.server-card__icon {
+  display: grid;
   place-items: center;
   width: 28px;
   height: 28px;
@@ -305,7 +324,7 @@ async function copyAddress() {
   cursor: pointer;
 }
 
-.server-card__more:hover {
+.server-card__icon:hover {
   border-color: var(--lg-border);
   background: var(--lg-hover);
   color: var(--lg-text);

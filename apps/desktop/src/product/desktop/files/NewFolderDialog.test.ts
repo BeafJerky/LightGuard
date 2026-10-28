@@ -45,9 +45,9 @@ function permission(): Record<string, unknown> {
   };
 }
 
-function mountDialog(serverId = 'srv_1') {
+function mountDialog(serverId = 'srv_1', serverName = 'web-01') {
   return mount(NewFolderDialog, {
-    props: { open: true, serverId, dir: '/data' },
+    props: { open: true, serverId, serverName, dir: '/data' },
     attachTo: document.body,
     // LgModal 会 Teleport 到 body：测试里还原成内联渲染，才能用 wrapper 查询内容。
     global: { stubs: { teleport: true } },
@@ -68,6 +68,7 @@ beforeEach(() => {
 
 afterEach(() => {
   document.body.innerHTML = '';
+  vi.useRealTimers();
 });
 
 describe('new folder dialog', () => {
@@ -263,6 +264,122 @@ describe('new folder dialog', () => {
     await flushPromises();
     expect(wrapper.emitted('close')).toHaveLength(1);
     expect(guardState.preview).toBeNull();
+    wrapper.unmount();
+  });
+
+  it('names the host on the confirmation but calls the store with the server id', async () => {
+    mocks.writePreview.mockResolvedValueOnce(preview());
+    mocks.writeExecute.mockResolvedValueOnce({ auditId: 12, path: '/data/reports' });
+    const wrapper = mountDialog('srv_1', 'web-01');
+
+    expect(wrapper.get('.new-folder__target').text()).toContain('web-01');
+    await previewName(wrapper, 'reports');
+    // 弹层浮在整个桌面上：目标一节必须写清是哪台主机，路径本身不足以定位。
+    expect(wrapper.findAll('.new-folder__section dd')[1].text()).toBe('web-01 · /data/reports');
+
+    await wrapper.get('[data-action="confirm"]').trigger('click');
+    await flushPromises();
+
+    // 展示名只用于展示：发给后端的始终是 server id。
+    expect(mocks.writePreview).toHaveBeenCalledWith({
+      serverId: 'srv_1',
+      dir: '/data',
+      name: 'reports',
+    });
+    expect(mocks.writeExecute).toHaveBeenCalledWith('p1');
+    const calls = [
+      ...mocks.writePreview.mock.calls,
+      ...mocks.writeExecute.mock.calls,
+      ...mocks.permitStatus.mock.calls,
+    ];
+    expect(JSON.stringify(calls)).not.toContain('web-01');
+    wrapper.unmount();
+  });
+
+  it('turns a PREVIEW_EXPIRED execute failure into a re-preview action', async () => {
+    mocks.writePreview.mockResolvedValueOnce(preview());
+    mocks.writeExecute.mockRejectedValueOnce(
+      Object.assign(new Error('预览已过期，请重新预览。'), {
+        code: 'PREVIEW_EXPIRED',
+        hint: '重新预览后再确认。',
+      }),
+    );
+    const wrapper = mountDialog();
+
+    await previewName(wrapper, 'reports');
+    await wrapper.get('[data-action="confirm"]').trigger('click');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('预览已过期');
+    expect(wrapper.text()).toContain('预览已过期，请重新预览。');
+    expect(wrapper.find('[data-action="confirm"]').exists()).toBe(false);
+    expect(wrapper.get('[data-action="preview"]').text()).toContain('重新预览');
+    // 什么都没执行，没有可查看的审计。
+    expect(wrapper.find('[data-action="view-audit"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('rechecks the clock on confirm so a stale countdown cannot execute', async () => {
+    mocks.writePreview.mockResolvedValueOnce(preview());
+    const wrapper = mountDialog();
+
+    await previewName(wrapper, 'reports');
+    expect(wrapper.find('[data-action="confirm"]').exists()).toBe(true);
+
+    // 倒计时每秒才跳一次：把系统时间推过有效期，本地 nowMs 仍是旧值。
+    vi.setSystemTime(Date.now() + 60_500);
+    await wrapper.get('[data-action="confirm"]').trigger('click');
+    await flushPromises();
+
+    expect(mocks.writeExecute).not.toHaveBeenCalled();
+    expect(wrapper.find('[data-action="confirm"]').exists()).toBe(false);
+    expect(wrapper.get('[data-action="repreview"]').text()).toContain('重新预览');
+    wrapper.unmount();
+  });
+
+  it('executes exactly once when confirm is pressed twice', async () => {
+    mocks.writePreview.mockResolvedValueOnce(preview());
+    let finish: ((value: unknown) => void) | undefined;
+    mocks.writeExecute.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const wrapper = mountDialog();
+
+    await previewName(wrapper, 'reports');
+    await wrapper.get('[data-action="confirm"]').trigger('click');
+    // 执行中再点一次、再按一次 Enter，都只能落到同一条预览上。
+    await wrapper.get('[data-action="confirm"]').trigger('click');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await flushPromises();
+    expect(mocks.writeExecute).toHaveBeenCalledTimes(1);
+
+    finish?.({ auditId: 13, path: '/data/reports' });
+    await flushPromises();
+    expect(wrapper.emitted('created')).toHaveLength(1);
+    wrapper.unmount();
+  });
+
+  it('drops the preview when the target directory changes', async () => {
+    mocks.writePreview.mockResolvedValueOnce(preview());
+    const wrapper = mountDialog();
+
+    await previewName(wrapper, 'reports');
+    expect(wrapper.find('[data-action="confirm"]').exists()).toBe(true);
+
+    await wrapper.setProps({ dir: '/data/other' });
+    await flushPromises();
+    expect(guardState.preview).toBeNull();
+    expect(wrapper.find('[data-action="confirm"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('never confirms a preview for a different target', () => {
+    guardState.preview = preview({ target: '/data/other' }) as never;
+    guardState.previewServerId = 'srv_1';
+    const wrapper = mountDialog('srv_1');
+    expect(wrapper.find('[data-action="confirm"]').exists()).toBe(false);
     wrapper.unmount();
   });
 

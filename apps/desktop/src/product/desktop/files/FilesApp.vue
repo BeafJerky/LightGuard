@@ -472,6 +472,7 @@ watch(
     <NewFolderDialog
       :open="newFolderOpen"
       :server-id="server.id"
+      :server-name="server.name || server.id"
       :dir="files.currentPath.value"
       @close="closeNewFolder"
       @created="onFolderCreated"

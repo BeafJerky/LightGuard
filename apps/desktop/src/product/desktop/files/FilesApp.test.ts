@@ -65,6 +65,7 @@ vi.mock('../../ssh', async (importOriginal) => {
 function server(overrides: Partial<Server> = {}): Server {
   return {
     id: 'srv_1',
+    name: 'web-01',
     sessionId: '',
     status: 'offline',
     disks: [],
@@ -300,6 +301,8 @@ describe('FilesApp', () => {
 
     await button.trigger('click');
     await flushPromises();
+    // 对话框自己带主机名：弹层浮在整个桌面上，确认页必须能定位到哪台服务器。
+    expect(wrapper.find('.new-folder').text()).toContain('web-01');
     await wrapper.get('input[aria-label="文件夹名称"]').setValue('reports');
     await wrapper.get('[data-action="preview"]').trigger('click');
     await flushPromises();
@@ -308,6 +311,7 @@ describe('FilesApp', () => {
       dir: '/home/test',
       name: 'reports',
     });
+    expect(wrapper.find('.new-folder').text()).toContain('web-01 · /home/test/reports');
 
     const listingsBefore = backend.sftpList.mock.calls.length;
     await wrapper.get('[data-action="confirm"]').trigger('click');

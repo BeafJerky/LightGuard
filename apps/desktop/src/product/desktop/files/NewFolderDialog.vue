@@ -11,10 +11,14 @@ import {
   refreshPermit,
 } from '../../guard/store';
 import { validateFolderName } from './folderName';
+import { joinRemote } from './remotePath';
 
 const props = defineProps<{
   open: boolean;
   serverId: string;
+  // 弹层浮在整个桌面上：必须由对话框自己说明这是哪台主机，
+  // 否则两窗口并排时用户无法从确认页判断文件夹建在哪里。
+  serverName: string;
   dir: string;
 }>();
 
@@ -25,7 +29,7 @@ const emit = defineEmits<{
   viewAudit: [];
 }>();
 
-type FailureKind = 'preview' | 'execute' | 'lost-audit' | 'busy' | 'permit';
+type FailureKind = 'preview' | 'execute' | 'expired' | 'lost-audit' | 'busy' | 'permit';
 
 interface Failure {
   kind: FailureKind;
@@ -45,9 +49,16 @@ const nowMs = ref(Date.now());
 
 // 预览不携带服务器身份，所以只认本对话框自己发起的那一条，
 // 绝不把别的服务器（或别的目录）的预览拿来确认。
-const preview = computed(() =>
-  guardState.preview && guardState.previewServerId === props.serverId ? guardState.preview : null,
-);
+// 目标同样要逐字对上：将来出现第二种写操作时，kind/target 不匹配的预览不会被当成本次确认。
+const expectedTarget = computed(() => joinRemote(props.dir, name.value.trim()));
+const preview = computed(() => {
+  const pending = guardState.preview;
+  if (!pending) return null;
+  if (guardState.previewServerId !== props.serverId) return null;
+  if (pending.kind !== 'mkdir') return null;
+  if (pending.target !== expectedTarget.value) return null;
+  return pending;
+});
 const writeActive = computed(() => isWriteActive(props.serverId));
 const expired = computed(() => Boolean(preview.value) && preview.value!.expiresAtMs <= nowMs.value);
 const remaining = computed(() =>
@@ -65,6 +76,8 @@ const failureTitle = computed(() => {
       return '写许可已失效';
     case 'preview':
       return '预览失败';
+    case 'expired':
+      return '预览已过期';
     default:
       return '创建失败';
   }
@@ -177,17 +190,21 @@ async function failExecute() {
     await refreshPermit(props.serverId);
   }
   const kind: FailureKind =
-    code === 'WRITE_BUSY'
-      ? 'busy'
-      : code === 'PERMIT_REQUIRED'
-        ? 'permit'
-        : code === 'WRITE_FAILED' && MAY_HAVE_RUN.test(`${message}${hint}`)
-          ? 'lost-audit'
-          : 'execute';
+    code === 'PREVIEW_EXPIRED'
+      ? 'expired'
+      : code === 'WRITE_BUSY'
+        ? 'busy'
+        : code === 'PERMIT_REQUIRED'
+          ? 'permit'
+          : code === 'WRITE_FAILED' && MAY_HAVE_RUN.test(`${message}${hint}`)
+            ? 'lost-audit'
+            : 'execute';
   failure.value = { kind, message, hint };
 }
 
 async function onExecute() {
+  // 倒计时每秒才跳一次，确认时可能已经越过 60 秒：先刷新本地时间再判断，避免拿过期预览去执行。
+  nowMs.value = Date.now();
   if (!preview.value || running.value || writeActive.value || expired.value) return;
   const createdName = name.value.trim();
   running.value = true;
@@ -240,7 +257,7 @@ onBeforeUnmount(() => {
       <template v-if="!preview">
         <p class="new-folder__target">
           <LgIcon name="folder" :size="15" />
-          <span>将在 {{ dir }} 下创建</span>
+          <span>将在 {{ serverName }} 的 {{ dir }} 下创建</span>
         </p>
         <label class="new-folder__field">
           <span>文件夹名称</span>
@@ -253,7 +270,7 @@ onBeforeUnmount(() => {
           />
         </label>
         <p v-if="error" class="new-folder__error" role="alert">{{ error }}</p>
-        <p class="new-folder__note">名称不能包含 / \ 或 NUL，且不能使用 . 或 ..；最长 255 字节。</p>
+        <p class="new-folder__note">名称不能包含 / \、NUL 或控制字符，且不能使用 . 或 ..；最长 255 字节。</p>
       </template>
 
       <template v-else>
@@ -264,7 +281,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="new-folder__section">
             <dt>目标</dt>
-            <dd>{{ preview.target }}</dd>
+            <dd>{{ serverName }} · {{ preview.target }}</dd>
           </div>
           <div class="new-folder__section">
             <dt>影响</dt>
@@ -301,7 +318,12 @@ onBeforeUnmount(() => {
           >
             去解锁
           </button>
-          <button type="button" data-action="view-audit" @click="emit('viewAudit')">
+          <button
+            v-if="failure.kind !== 'expired'"
+            type="button"
+            data-action="view-audit"
+            @click="emit('viewAudit')"
+          >
             查看审计
           </button>
         </div>
@@ -441,7 +463,8 @@ onBeforeUnmount(() => {
 /* 「可能已完成」既不是成功也不是干净的失败：用警告色，并把结论写在标题里。 */
 .new-folder__failure.is-lost-audit,
 .new-folder__failure.is-busy,
-.new-folder__failure.is-permit {
+.new-folder__failure.is-permit,
+.new-folder__failure.is-expired {
   border-color: color-mix(in srgb, var(--lg-warning) 36%, var(--lg-border));
   background: var(--lg-warning-soft);
   color: var(--lg-warning);

@@ -75,11 +75,6 @@ pub fn mode_text(kind: FileKind, mode: u32) -> String {
 }
 
 pub fn sanitize_local_name(name: &str, fallback: &str) -> String {
-    const RESERVED: [&str; 22] = [
-        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6",
-        "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6",
-        "LPT7", "LPT8", "LPT9",
-    ];
     let filtered: String = name
         .chars()
         .filter(|character| {
@@ -91,15 +86,28 @@ pub fn sanitize_local_name(name: &str, fallback: &str) -> String {
     if cleaned.is_empty() {
         cleaned = fallback.to_string();
     }
-    let stem = cleaned
+    let truncated = truncate_name(&cleaned, 120);
+    if has_reserved_stem(&truncated) {
+        // Windows 从第一个点之前的片段解析设备名（`CON.txt`、`NUL.tar.gz` 都是设备），
+        // 所以必须在 stem 前加前缀，且必须发生在截断之后，否则截断会把后缀吃掉。
+        return truncate_name(&format!("_{}", truncated), 120);
+    }
+    truncated
+}
+
+/// 判断第一个点之前的片段是否为 Windows 保留设备名（大小写不敏感）。
+fn has_reserved_stem(name: &str) -> bool {
+    const RESERVED: [&str; 22] = [
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6",
+        "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6",
+        "LPT7", "LPT8", "LPT9",
+    ];
+    let stem = name
         .split('.')
         .next()
-        .unwrap_or(&cleaned)
+        .unwrap_or(name)
         .to_ascii_uppercase();
-    if RESERVED.contains(&stem.as_str()) {
-        cleaned.push('_');
-    }
-    truncate_name(&cleaned, 120)
+    RESERVED.contains(&stem.as_str())
 }
 
 fn truncate_name(name: &str, max: usize) -> String {
@@ -151,11 +159,27 @@ mod tests {
 
     #[test]
     fn sanitizes_windows_names() {
-        assert_eq!(sanitize_local_name("CON.txt", "download"), "CON.txt_");
+        assert_eq!(sanitize_local_name("CON.txt", "download"), "_CON.txt");
+        assert_eq!(sanitize_local_name("NUL", "download"), "_NUL");
+        assert_eq!(sanitize_local_name("NUL.tar.gz", "download"), "_NUL.tar.gz");
+        assert_eq!(sanitize_local_name("nul.tar.gz", "download"), "_nul.tar.gz");
         assert_eq!(sanitize_local_name("a:b*c?.log", "download"), "abc.log");
         assert_eq!(sanitize_local_name("name.  ", "download"), "name");
         assert_eq!(sanitize_local_name("...", "download"), "download");
         assert_eq!(sanitize_local_name("", "download"), "download");
+    }
+
+    #[test]
+    fn keeps_reserved_names_after_truncation() {
+        let long = format!("CON.{}.txt", "a".repeat(115));
+        let cleaned = sanitize_local_name(&long, "download");
+        assert_eq!(cleaned, format!("_CON.{}.txt", "a".repeat(111)));
+        assert!(cleaned.chars().count() <= 120);
+
+        let no_extension = format!("NUL.tar.{}", "b".repeat(200));
+        let cleaned = sanitize_local_name(&no_extension, "download");
+        assert!(cleaned.starts_with("_NUL."));
+        assert!(cleaned.chars().count() <= 120);
     }
 
     #[test]

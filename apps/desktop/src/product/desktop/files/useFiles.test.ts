@@ -164,6 +164,22 @@ describe('useFiles', () => {
     expect(files.preview.loading).toBe(false);
   });
 
+  it('drops an open whose symlink probe finishes after another selection', async () => {
+    const pending = deferred<FileEntry>();
+    const sftpStat = vi.fn(() => pending.promise);
+    const files = useFiles(server(), backend({ sftpStat }));
+    const link: FileEntry = { ...entry('link.txt'), kind: 'symlink', targetKind: 'file' };
+
+    const opening = files.open(link);
+    files.select(entry('b.txt'));
+    pending.resolve({ ...entry('link.txt'), kind: 'file', targetKind: 'file' });
+    await opening;
+
+    expect(files.preview.entry?.name).toBe('b.txt');
+    expect(files.preview.text).toBeNull();
+    expect(files.previewOpen.value).toBe(false);
+  });
+
   it('disables up at the filesystem root', async () => {
     const sftpList = vi.fn(
       async (_serverId: string, path: string): Promise<FileListing> =>

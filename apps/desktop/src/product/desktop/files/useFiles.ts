@@ -120,6 +120,7 @@ export function useFiles(server: Server, client: SshBackend = ssh) {
   let cache = new TreeCache((path) => loadEntries(path));
   let navToken = 0;
   let previewToken = 0;
+  let openToken = 0;
 
   const offline = computed(() => server.status === 'offline' || server.status === 'error');
   const usable = computed(() => client.available && Boolean(server.sessionId));
@@ -166,6 +167,7 @@ export function useFiles(server: Server, client: SshBackend = ssh) {
   async function navigate(path: string, push = true): Promise<boolean> {
     if (!usable.value) return false;
     const token = ++navToken;
+    openToken += 1;
     loading.value = true;
     error.value = null;
     try {
@@ -271,6 +273,7 @@ export function useFiles(server: Server, client: SshBackend = ssh) {
   function select(entry: FileEntry): void {
     selectedPath.value = entry.path;
     previewToken += 1;
+    openToken += 1;
     preview.entry = entry;
     preview.text = null;
     preview.image = null;
@@ -287,13 +290,16 @@ export function useFiles(server: Server, client: SshBackend = ssh) {
 
   async function open(entry: FileEntry): Promise<void> {
     select(entry);
+    const token = openToken;
     let kind: FileKind;
     try {
       kind = await resolveKind(entry);
     } catch (caught) {
+      if (token !== openToken) return;
       error.value = toSshError(caught);
       return;
     }
+    if (token !== openToken) return;
     if (kind === 'dir') {
       const ok = await navigate(entry.path);
       if (ok) {

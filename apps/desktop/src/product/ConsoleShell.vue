@@ -5,14 +5,16 @@ import type { ThemeId } from '@lightguard/lightui';
 import { APP_VERSION } from './data';
 import { route } from './router';
 import { backendAvailable, fleet, setTheme, state, tickAll, unreadEvents } from './store';
+import { alertsState, loadAlerts, subscribeAlerts } from './alerts/store';
 import { openWizard, toast } from './ui';
 import { isFullscreen, toggleFullscreen } from '../windowState';
 
 const navItems = [
   { name: 'overview' as const, label: '服务器总览', icon: 'dashboard', href: '#/overview' },
+  { name: 'alerts' as const, label: '告警', icon: 'bell', href: '#/alerts' },
   { name: 'connections' as const, label: '连接记录', icon: 'activity', href: '#/connections' },
   { name: 'settings' as const, label: '设置', icon: 'sliders', href: '#/settings' },
-];
+].filter((item) => item.name !== 'alerts' || backendAvailable);
 
 const refreshing = ref(false);
 const sideOpen = ref(false);
@@ -41,8 +43,13 @@ const currentTheme = computed(
 const themeTrigger = ref<HTMLElement | null>(null);
 const themeMenuWidth = ref(208);
 let themeObserver: ResizeObserver | null = null;
+let stopAlerts: () => void = () => {};
 
 onMounted(() => {
+  void loadAlerts('open');
+  stopAlerts = subscribeAlerts(() => {
+    if (route.value.name === 'alerts') void loadAlerts();
+  });
   const trigger = themeTrigger.value;
   if (!trigger) return;
   const sync = () => {
@@ -56,6 +63,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  stopAlerts();
   themeObserver?.disconnect();
   themeObserver = null;
 });
@@ -117,6 +125,13 @@ function renderThemeLabel(option: { key: string | number; label: string }) {
 }
 
 const pageMeta = computed(() => {
+  if (route.value.name === 'alerts') {
+    return {
+      eyebrow: 'WORKSPACE / ALERTS',
+      title: '告警中心',
+      subtitle: `${alertsState.activeCount} 条未处理 · 阈值规则、静音与操作审计`,
+    };
+  }
   if (route.value.name === 'connections') {
     return {
       eyebrow: 'WORKSPACE / AUDIT LOG',
@@ -207,6 +222,13 @@ function onThemeSelect(key: string) {
             :aria-label="`${fleet.attention} 台主机需要关注`"
           >
             {{ fleet.attention > 99 ? '99+' : fleet.attention }}
+          </span>
+          <span
+            v-else-if="item.name === 'alerts' && alertsState.activeCount > 0"
+            class="console-nav__badge is-danger"
+            :aria-label="`${alertsState.activeCount} 条未处理告警`"
+          >
+            {{ alertsState.activeCount > 99 ? '99+' : alertsState.activeCount }}
           </span>
           <span
             v-else-if="item.name === 'connections' && unreadEvents > 0"
@@ -461,6 +483,11 @@ function onThemeSelect(key: string) {
 .console-nav__badge.is-warning {
   background: var(--lg-warning-soft);
   color: var(--lg-warning);
+}
+
+.console-nav__badge.is-danger {
+  background: var(--lg-danger);
+  color: var(--lg-bg);
 }
 
 .console-side__foot {

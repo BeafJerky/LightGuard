@@ -272,6 +272,7 @@ export type RouteName = 'overview' | 'connections' | 'settings' | 'desktop' | 'a
 export interface Route {
   name: RouteName;
   id?: string;
+  tab?: 'alerts' | 'audit';
 }
 
 export interface BackupConnection {

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import FilesApp from './FilesApp.vue';
 import type { Server } from '../../types';
+import { applyPermit, guardState, resetGuard } from '../../guard/store';
 
 const { backend } = vi.hoisted(() => {
   const entry = (name: string, kind: string) => ({
@@ -22,6 +23,8 @@ const { backend } = vi.hoisted(() => {
       entry('docs', 'dir'),
       entry('a.txt', 'file'),
       entry('logs', 'symlink'),
+      // 新建成功后的刷新要能看到新目录，才能验证「创建后选中它」。
+      entry('reports', 'dir'),
     ],
     '/home/test/docs': [entry('b.txt', 'file')],
   };
@@ -48,6 +51,8 @@ const { backend } = vi.hoisted(() => {
       bytes: 1,
     })),
     sftpTransferCancel: vi.fn(async () => {}),
+    writePreview: vi.fn(),
+    writeExecute: vi.fn(),
   };
   return { backend };
 });
@@ -72,7 +77,12 @@ function online(): Server {
 }
 
 async function mountOnline() {
-  const wrapper = mount(FilesApp, { props: { server: online() }, attachTo: document.body });
+  const wrapper = mount(FilesApp, {
+    props: { server: online() },
+    attachTo: document.body,
+    // LgModal 会 Teleport 到 body；测试里还原成内联渲染，才能从 wrapper 里查对话框。
+    global: { stubs: { teleport: true } },
+  });
   await flushPromises();
   await flushPromises();
   return wrapper;
@@ -91,6 +101,7 @@ async function openContextDownload(wrapper: Awaited<ReturnType<typeof mountOnlin
 describe('FilesApp', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetGuard();
     window.localStorage.removeItem('lg.files.view');
   });
 
@@ -244,6 +255,72 @@ describe('FilesApp', () => {
     expect(wrapper.find('.lgfiles-list__head').exists()).toBe(true);
     expect(window.localStorage.getItem('lg.files.view')).toBe('details');
 
+    wrapper.unmount();
+  });
+
+  it('routes the locked new-folder button to the permit panel', async () => {
+    const wrapper = await mountOnline();
+    const button = wrapper.get('[data-action="new-folder"]');
+    // 锁定态只做 aria-disabled：按钮必须仍然可聚焦，用户才能发现原因。
+    expect(button.attributes('aria-disabled')).toBe('true');
+    expect(button.attributes('disabled')).toBeUndefined();
+
+    await button.trigger('click');
+    await flushPromises();
+    expect(guardState.permitPanelOpen).toBe(true);
+    expect(wrapper.find('.new-folder').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('creates a folder from the toolbar, refreshes the list and restores focus', async () => {
+    applyPermit({
+      serverId: 'srv_1',
+      locked: false,
+      minutes: 15,
+      expiresAtMs: Date.now() + 15 * 60_000,
+      writeActive: false,
+    });
+    backend.writePreview.mockResolvedValueOnce({
+      previewId: 'p1',
+      kind: 'mkdir',
+      path: '/home/test/reports',
+      operation: '新建文件夹',
+      target: '/home/test/reports',
+      impact: '将在 /home/test/reports 创建文件夹',
+      rollback: '执行后可在审计中回退（仅删除空目录）',
+      irreversible: false,
+      expiresAtMs: Date.now() + 60_000,
+    });
+    backend.writeExecute.mockResolvedValueOnce({ auditId: 1, path: '/home/test/reports' });
+
+    const wrapper = await mountOnline();
+    const button = wrapper.get('[data-action="new-folder"]');
+    expect(button.attributes('aria-disabled')).toBeUndefined();
+    (button.element as HTMLButtonElement).focus();
+
+    await button.trigger('click');
+    await flushPromises();
+    await wrapper.get('input[aria-label="文件夹名称"]').setValue('reports');
+    await wrapper.get('[data-action="preview"]').trigger('click');
+    await flushPromises();
+    expect(backend.writePreview).toHaveBeenCalledWith({
+      serverId: 'srv_1',
+      dir: '/home/test',
+      name: 'reports',
+    });
+
+    const listingsBefore = backend.sftpList.mock.calls.length;
+    await wrapper.get('[data-action="confirm"]').trigger('click');
+    await flushPromises();
+    await flushPromises();
+
+    expect(backend.writeExecute).toHaveBeenCalledWith('p1');
+    // 刷新复用的是文件应用既有的列目录路径。
+    expect(backend.sftpList.mock.calls.length).toBeGreaterThan(listingsBefore);
+    expect(wrapper.find('.new-folder').exists()).toBe(false);
+    expect(wrapper.find('[data-path="/home/test/reports"]').classes()).toContain('is-selected');
+    // 关闭后焦点回到触发按钮。
+    expect(document.activeElement).toBe(button.element);
     wrapper.unmount();
   });
 });

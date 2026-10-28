@@ -762,6 +762,15 @@
   display: none;
 }
 
+/* 新建文件夹：锁定态只做视觉降级，按钮仍可聚焦并触发许可面板。 */
+.lgfiles-new-folder {
+  color: var(--lg-text-secondary);
+}
+
+.lgfiles-new-folder.is-locked {
+  opacity: 0.55;
+}
+
 @keyframes lgfiles-spin {
   to { transform: rotate(360deg); }
 }
@@ -807,6 +816,10 @@
 
   .lgfiles-only-narrow {
     display: grid;
+  }
+
+  .lgfiles-new-folder {
+    display: none;
   }
 }
 

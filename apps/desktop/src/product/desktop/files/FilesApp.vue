@@ -1,12 +1,16 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { LgIcon } from '@lightguard/lightui';
 import type { Server } from '../../types';
 import type { FileEntry, FileKind } from '../../ssh/backend';
 import { toSshError } from '../../ssh';
+import { openPermitPanel, permitOf } from '../../guard/store';
+import { openAudit } from '../../router';
+import { toast } from '../../ui';
 import FileList from './FileList.vue';
 import FilePreview from './FilePreview.vue';
 import FileTree from './FileTree.vue';
+import NewFolderDialog from './NewFolderDialog.vue';
 import { useFiles } from './useFiles';
 import './files.css';
 
@@ -20,6 +24,9 @@ const context = ref<{ entry: FileEntry; x: number; y: number } | null>(null);
 const pendingDownload = ref<FileEntry | null>(null);
 const addressInput = ref<HTMLInputElement | null>(null);
 const rootRef = ref<HTMLElement | null>(null);
+const newFolderOpen = ref(false);
+const newFolderButton = ref<HTMLButtonElement | null>(null);
+const permit = computed(() => permitOf(props.server.id));
 
 const viewOptions = [
   { mode: 'grid' as const, label: '小图标' },
@@ -140,6 +147,43 @@ function dismissDownload(): void {
   pendingDownload.value = null;
 }
 
+// 「新建文件夹」是 v1 唯一的写入口：锁定时只负责把用户送到许可面板，解锁后才开对话框。
+// 工具栏按钮保持可聚焦（用 aria-disabled 而不是 disabled），否则「为什么点不动」无从发现。
+function onNewFolder() {
+  if (permit.value.locked) {
+    openPermitPanel();
+    return;
+  }
+  newFolderOpen.value = true;
+}
+
+function closeNewFolder() {
+  newFolderOpen.value = false;
+  // 对话框关闭后焦点回到工具栏按钮，键盘用户不会掉到 body 上。
+  void nextTick(() => {
+    if (newFolderButton.value?.isConnected) newFolderButton.value.focus();
+  });
+}
+
+async function onFolderCreated(name: string) {
+  closeNewFolder();
+  toast({ title: '已创建文件夹', message: name, tone: 'success' });
+  // 复用文件应用既有的刷新路径，不在这里另写一遍列目录。
+  await files.refresh();
+  const entry = files.entries.value.find((item) => item.name === name && item.kind === 'dir');
+  if (entry) files.select(entry);
+}
+
+function onNewFolderNeedPermit() {
+  closeNewFolder();
+  openPermitPanel();
+}
+
+function onViewAudit() {
+  closeNewFolder();
+  openAudit();
+}
+
 async function contextAction(action: 'open' | 'preview' | 'download' | 'copy' | 'meta') {
   const entry = context.value?.entry;
   context.value = null;
@@ -174,6 +218,8 @@ function onGlobalKey(event: KeyboardEvent) {
     event.preventDefault();
     void files.go(1);
   } else if (event.key === 'Escape') {
+    // 对话框开着时 Esc 交给它自己（LgModal 的 close-on-esc），不要顺手清掉背后的面板。
+    if (newFolderOpen.value) return;
     context.value = null;
     menuOpen.value = '';
     dismissDownload();
@@ -229,6 +275,19 @@ watch(
         </button>
         <button type="button" class="lgfiles-icon-btn" aria-label="刷新" @click="files.refresh()">
           <LgIcon name="refresh" :size="15" />
+        </button>
+        <button
+          ref="newFolderButton"
+          type="button"
+          class="lgfiles-icon-btn lgfiles-new-folder"
+          :class="{ 'is-locked': permit.locked }"
+          data-action="new-folder"
+          aria-label="新建文件夹"
+          :aria-disabled="permit.locked ? 'true' : undefined"
+          :title="permit.locked ? '需先解锁写操作' : '新建文件夹'"
+          @click="onNewFolder"
+        >
+          <LgIcon name="folder-plus" :size="15" />
         </button>
         <form class="lgfiles-address" @submit.prevent="submitAddress">
           <input
@@ -409,5 +468,15 @@ watch(
 
       <p v-if="files.notice.value" class="lgfiles-notice">{{ files.notice.value }}</p>
     </template>
+
+    <NewFolderDialog
+      :open="newFolderOpen"
+      :server-id="server.id"
+      :dir="files.currentPath.value"
+      @close="closeNewFolder"
+      @created="onFolderCreated"
+      @need-permit="onNewFolderNeedPermit"
+      @view-audit="onViewAudit"
+    />
   </div>
 </template>

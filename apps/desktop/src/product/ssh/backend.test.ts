@@ -22,4 +22,19 @@ describe('file error mapping', () => {
       'transfer',
     );
   });
+
+  it('keeps guard and alert codes with hints', () => {
+    for (const code of [
+      'PERMIT_REQUIRED',
+      'WRITE_BUSY',
+      'PREVIEW_EXPIRED',
+      'PREVIEW_FAILED',
+      'WRITE_FAILED',
+      'DB_UNAVAILABLE',
+    ] as const) {
+      const error = toSshError({ code, message: 'x', hint: 'y' });
+      expect(error.code).toBe(code);
+      expect(error.hint).toBe('y');
+    }
+  });
 });

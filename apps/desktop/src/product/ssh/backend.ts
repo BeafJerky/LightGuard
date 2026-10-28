@@ -191,6 +191,100 @@ export interface DownloadInput {
   onEvent: (event: TransferProgress) => void;
 }
 
+export interface PermitStatus {
+  serverId: string;
+  locked: boolean;
+  minutes: number;
+  expiresAtMs: number;
+  writeActive: boolean;
+}
+
+export interface PermitEvent {
+  serverId: string;
+  locked: boolean;
+  minutes: number;
+  expiresAtMs: number;
+}
+
+export interface WriteEvent {
+  serverId: string;
+  active: boolean;
+}
+
+export interface WritePreviewInput {
+  serverId: string;
+  dir: string;
+  name: string;
+}
+
+export interface WritePreview {
+  previewId: string;
+  kind: 'mkdir';
+  path: string;
+  operation: string;
+  target: string;
+  impact: string;
+  rollback: string;
+  irreversible: boolean;
+  expiresAtMs: number;
+}
+
+export interface WriteResult {
+  auditId: number;
+  path: string;
+}
+
+export type AuditResult = 'success' | 'failed' | 'unknown';
+
+export interface AuditEntry {
+  id: number;
+  atMs: number;
+  serverId: string;
+  serverName: string;
+  op: string;
+  params: string;
+  result: AuditResult;
+  durationMs: number;
+  permitSource: string;
+  rollbackOf: number | null;
+}
+
+export type AlertSeverity = 'critical' | 'warning' | 'info';
+export type AlertStatus = 'active' | 'resolved' | 'ignored';
+export type AlertFilterName = 'open' | 'handled' | 'all';
+
+export interface AlertItem {
+  id: number;
+  serverId: string;
+  serverName: string;
+  ruleId: string;
+  severity: AlertSeverity;
+  status: AlertStatus;
+  title: string;
+  detail: string;
+  firstSeenAt: number;
+  lastSeenAt: number;
+  resolvedAt: number | null;
+  ignoreReason: string;
+  ignoredUntil: number | null;
+}
+
+export interface LoginMonitor {
+  serverId: string;
+  available: boolean;
+  reason: string;
+}
+
+export interface AlertsListResult {
+  items: AlertItem[];
+  activeCount: number;
+  loginMonitor: LoginMonitor[];
+}
+
+export interface AlertsChangedEvent {
+  activeCount: number;
+}
+
 export type CommandErrorCode =
   | 'INVALID_INPUT'
   | 'HOST_UNREACHABLE'
@@ -211,7 +305,13 @@ export type CommandErrorCode =
   | 'PERMISSION_DENIED'
   | 'FILE_TOO_LARGE'
   | 'FILE_BINARY'
-  | 'TRANSFER_FAILED';
+  | 'TRANSFER_FAILED'
+  | 'PERMIT_REQUIRED'
+  | 'WRITE_BUSY'
+  | 'PREVIEW_EXPIRED'
+  | 'PREVIEW_FAILED'
+  | 'WRITE_FAILED'
+  | 'DB_UNAVAILABLE';
 
 export type ConnectStage = 'resolve' | 'tcp' | 'handshake' | 'hostKey' | 'auth' | 'collect';
 
@@ -252,6 +352,12 @@ const CODES = new Set<string>([
   'FILE_TOO_LARGE',
   'FILE_BINARY',
   'TRANSFER_FAILED',
+  'PERMIT_REQUIRED',
+  'WRITE_BUSY',
+  'PREVIEW_EXPIRED',
+  'PREVIEW_FAILED',
+  'WRITE_FAILED',
+  'DB_UNAVAILABLE',
 ]);
 
 const STAGES = new Set<string>([
@@ -308,5 +414,19 @@ export interface SshBackend {
   sftpDownload(input: DownloadInput): Promise<DownloadResult>;
   sftpTransferCancel(transferId: string): Promise<void>;
   resetLocalData(): Promise<void>;
+  permitStatus(serverId: string): Promise<PermitStatus>;
+  permitUnlock(serverId: string, minutes: number): Promise<PermitStatus>;
+  permitLock(serverId: string): Promise<PermitStatus>;
+  writePreview(input: WritePreviewInput): Promise<WritePreview>;
+  writeExecute(previewId: string): Promise<WriteResult>;
+  writeRollback(auditId: number): Promise<WriteResult>;
+  auditList(limit: number, offset: number): Promise<AuditEntry[]>;
+  alertsList(filter: AlertFilterName, limit: number, offset: number): Promise<AlertsListResult>;
+  alertsIgnore(alertId: number, reason: string, untilMs: number): Promise<void>;
+  alertsMute(serverId: string, ruleId: string | null, untilMs: number): Promise<void>;
+  testNotification(): Promise<boolean>;
   onStatus(handler: (event: StatusEvent) => void): () => void;
+  onPermit(handler: (event: PermitEvent) => void): () => void;
+  onWrite(handler: (event: WriteEvent) => void): () => void;
+  onAlertsChanged(handler: (event: AlertsChangedEvent) => void): () => void;
 }

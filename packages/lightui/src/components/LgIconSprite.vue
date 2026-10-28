@@ -36,6 +36,8 @@
     <symbol id="lg-i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Z" /><path d="m3 13 9 5 9-5" /></symbol>
     <symbol id="lg-i-tray" viewBox="0 0 24 24"><path d="M4 5h16v10H4z" /><path d="M4 13h4l1.5 2h5L16 13h4" /></symbol>
     <symbol id="lg-i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></symbol>
+    <symbol id="lg-i-unlock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 7.5-2" /></symbol>
+    <symbol id="lg-i-folder-plus" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" /><path d="M12 11v6M9 14h6" /></symbol>
     <symbol id="lg-i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4" /><path d="m11 12 7-7M15 5l3 3M17 3l3 3" /></symbol>
     <symbol id="lg-i-wifi" viewBox="0 0 24 24"><path d="M2.5 9a15 15 0 0 1 19 0M5.5 12.5a10 10 0 0 1 13 0M8.5 16a5 5 0 0 1 7 0" /><circle cx="12" cy="19" r="1" /></symbol>
     <symbol id="lg-i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h8" /></symbol>

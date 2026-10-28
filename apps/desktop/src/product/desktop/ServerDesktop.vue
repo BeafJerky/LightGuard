@@ -21,6 +21,17 @@ import {
   type DesktopAppKey,
 } from './apps';
 import { useDesktopWindows } from './useDesktopWindows';
+import PermitControl from '../guard/PermitControl.vue';
+import {
+  closePermitPanel,
+  lockPermit,
+  openPermitPanel,
+  permitOf,
+  refreshPermit,
+  subscribeGuard,
+  unlockPermit,
+} from '../guard/store';
+import { permitVisual } from '../guard/view';
 import { addLog, backendAvailable, disconnectServer, retryServer, state } from '../store';
 import { navigateTo } from '../router';
 import { switchScopeTheme } from '../theme';
@@ -139,7 +150,91 @@ const connecting = computed(() => props.server.status === 'connecting');
 
 let timers: number[] = [];
 
+const permit = computed(() => permitOf(props.server.id));
+const permitNow = ref(Date.now());
+const autoLocked = ref(false);
+const permitState = computed(() => permitVisual(permit.value, permitNow.value));
+let refreshingPermit = false;
+let stopGuard: (() => void) | null = null;
+let disposed = false;
+// 许可倒计时完全在本地走：锁定或到期后立刻停表，不再每秒唤醒后端。
+let permitTimer: number | null = null;
+
+function stopPermitTimer() {
+  if (permitTimer === null) return;
+  window.clearInterval(permitTimer);
+  permitTimer = null;
+}
+
+function startPermitTimer() {
+  if (permitTimer !== null) return;
+  permitTimer = window.setInterval(() => {
+    permitNow.value = Date.now();
+    if (permit.value.expiresAtMs > permitNow.value) return;
+    stopPermitTimer();
+    void refreshPermitOnce();
+  }, 1000);
+}
+
+function syncPermitTimer() {
+  if (permit.value.locked || permit.value.expiresAtMs <= permitNow.value) {
+    stopPermitTimer();
+    return;
+  }
+  startPermitTimer();
+}
+
+async function refreshPermitOnce() {
+  if (refreshingPermit) return;
+  refreshingPermit = true;
+  try {
+    await refreshPermit(props.server.id);
+  } finally {
+    refreshingPermit = false;
+    // 卸载后返回的许可请求不能再拉起计时器。
+    if (disposed) return;
+    permitNow.value = Date.now();
+    syncPermitTimer();
+  }
+}
+
+async function onUnlockPermit(minutes: number) {
+  if (await unlockPermit(props.server.id, minutes)) {
+    closePermitPanel();
+    toast({
+      title: '写操作已解锁',
+      message: `${props.server.name} 允许写操作 ${minutes} 分钟`,
+      tone: 'success',
+      duration: 2400,
+    });
+  }
+}
+
+async function onLockPermit() {
+  await lockPermit(props.server.id);
+  closePermitPanel();
+}
+
+watch(
+  () => permit.value.locked,
+  (locked, previous) => {
+    if (!locked) {
+      autoLocked.value = false;
+      permitNow.value = Date.now();
+      syncPermitTimer();
+      return;
+    }
+    stopPermitTimer();
+    if (previous === false) {
+      autoLocked.value = true;
+      timers.push(window.setTimeout(() => (autoLocked.value = false), 4000));
+    }
+  },
+);
+
 onMounted(() => {
+  void refreshPermitOnce();
+  stopGuard = subscribeGuard();
   document.addEventListener('keydown', onGlobalKey, true);
   timers.push(window.setInterval(() => (now.value = new Date()), 20000));
   if (reduced.value === 'reduce') {
@@ -163,6 +258,10 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  disposed = true;
+  stopGuard?.();
+  stopGuard = null;
+  stopPermitTimer();
   document.removeEventListener('keydown', onGlobalKey, true);
   for (const timer of timers) {
     window.clearTimeout(timer);
@@ -282,7 +381,7 @@ async function onRetry() {
   <div
     ref="shell"
     class="serverdesk"
-    :class="{ 'is-bar-full': fullBar }"
+    :class="{ 'is-bar-full': fullBar, 'is-permit-unlocked': !permit.locked }"
     :style="{ '--desk-bar-inset': `${barInset}px` }"
   >
     <div class="desk-wallpaper" aria-hidden="true" @click="onWallpaperClick" />
@@ -311,6 +410,17 @@ async function onRetry() {
           {{ server.uptime }}
         </span>
       </div>
+      <PermitControl
+        class="conn-bar__permit"
+        :server-id="server.id"
+        :status="permit"
+        :default-minutes="state.settings.permit.defaultMinutes"
+        :write-active="permit.writeActive"
+        :now-ms="permitNow"
+        :auto-locked="autoLocked"
+        @unlock="onUnlockPermit"
+        @lock="onLockPermit"
+      />
       <button type="button" class="conn-bar__power" @click="onDisconnect">断开</button>
     </header>
 
@@ -487,6 +597,18 @@ async function onRetry() {
       </div>
 
       <div class="desk-taskbar__right">
+        <button
+          v-if="!permit.locked"
+          type="button"
+          class="desk-taskbar__icon desk-taskbar__permit-btn"
+          :class="{ 'is-danger': permitState.state === 'expiring' }"
+          :aria-label="`写操作已解锁，剩余 ${permitState.remaining}`"
+          :title="`写操作已解锁 · ${permitState.remaining}`"
+          @click="openPermitPanel"
+        >
+          <LgIcon name="unlock" :size="14" />
+          <span class="desk-taskbar__permit">{{ permitState.remaining }}</span>
+        </button>
         <button
           v-if="isFullscreen"
           type="button"
@@ -1505,6 +1627,46 @@ async function onRetry() {
   }
 }
 
+.conn-bar__permit {
+  padding-left: 7px;
+  border-left: var(--lg-border-width) solid var(--lg-border);
+}
+
+.serverdesk.is-permit-unlocked::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 400;
+  border: 2px solid var(--lg-warning);
+  pointer-events: none;
+}
+
+.desk-taskbar__permit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 6px;
+  border: var(--lg-border-width) solid transparent;
+  border-radius: var(--lg-radius-sm);
+  background: transparent;
+  color: var(--lg-text-secondary);
+  cursor: pointer;
+}
+
+.desk-taskbar__permit-btn:hover {
+  border-color: var(--lg-border);
+}
+
+.desk-taskbar__permit {
+  color: var(--lg-warning);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.desk-taskbar__permit-btn.is-danger .desk-taskbar__permit {
+  color: var(--lg-danger);
+}
+
 @media (max-width: 900px) {
   .conn-bar__addr {
     display: none;
@@ -1609,6 +1771,12 @@ async function onRetry() {
   .desk-tray {
     right: 6px;
     width: min(250px, calc(100vw - 12px));
+  }
+
+  /* 两个入口都要让位：子组件的 display 规则与父级同权重，所以这里加一层类名。 */
+  .conn-bar .conn-bar__permit,
+  .desk-taskbar__right .desk-taskbar__permit-btn {
+    display: none;
   }
 }
 </style>

@@ -1,3 +1,4 @@
+pub mod alerts;
 pub mod db;
 pub mod ssh;
 

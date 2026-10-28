@@ -91,18 +91,39 @@ pub async fn collect_sample(
     Ok(parse_sample(&text, state, Instant::now()))
 }
 
+/// 取出 `###LG:<name>###` 段的正文，直到下一个 `###LG:` 标记或文本结尾；正文去除首尾空白。
+fn section<'a>(text: &'a str, name: &str) -> Option<&'a str> {
+    let marker = format!("###LG:{name}###");
+    let start = text.find(&marker)? + marker.len();
+    let rest = &text[start..];
+    let end = rest.find("###LG:").unwrap_or(rest.len());
+    Some(rest[..end].trim())
+}
+
 pub fn parse_sample(text: &str, state: &mut CollectorState, now: Instant) -> Sample {
     let has_baseline = state.has_cpu_baseline();
     let snapshot = collector::parse_snapshot(text, state, now);
+    // 缺失/不可读的读数以 NaN 表示“无信号”，避免被规则引擎当作真实的 0 而误判恢复。
+    let mem_read = section(text, "mem").is_some_and(|body| !body.is_empty());
+    let load_read = section(text, "load").is_some_and(|body| !body.is_empty());
+    let cores = snapshot.cpu_cores;
     Sample {
         cpu_percent: if has_baseline {
             Some(snapshot.cpu_percent)
         } else {
             None
         },
-        mem_percent: snapshot.mem_percent,
-        load1: snapshot.load[0],
-        cores: snapshot.cpu_cores,
+        mem_percent: if mem_read {
+            snapshot.mem_percent
+        } else {
+            f64::NAN
+        },
+        load1: if load_read && cores > 0 {
+            snapshot.load[0]
+        } else {
+            f64::NAN
+        },
+        cores,
         disks: snapshot
             .disks
             .iter()
@@ -162,10 +183,46 @@ mod tests {
         let mut state = CollectorState::default();
         let sample = parse_sample("###LG:mem###\n", &mut state, Instant::now());
         assert_eq!(sample.cpu_percent, None);
-        assert_eq!(sample.mem_percent, 0.0);
-        assert_eq!(sample.load1, 0.0);
+        assert!(sample.mem_percent.is_nan());
+        assert!(sample.load1.is_nan());
         assert_eq!(sample.cores, 0);
         assert!(sample.disks.is_empty());
+    }
+
+    #[test]
+    fn empty_mem_and_load_bodies_yield_nan_but_disks_parse() {
+        let mut state = CollectorState::default();
+        let text = "###LG:load###\n   \n\
+                    ###LG:cpu###\ncores=4\nstat=cpu 100 0 100 800\n\
+                    ###LG:mem###\n\n\
+                    ###LG:disk###\n/dev/sda1 ext4 100000 90000 10000 90% /data\n";
+        let sample = parse_sample(text, &mut state, Instant::now());
+        assert!(sample.mem_percent.is_nan());
+        assert!(sample.load1.is_nan());
+        assert_eq!(sample.cores, 4);
+        assert_eq!(sample.disks.len(), 1);
+        assert_eq!(sample.disks[0].mount, "/data");
+        assert!((sample.disks[0].percent - 90.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn complete_sample_keeps_finite_mem_and_load() {
+        let mut state = CollectorState::default();
+        let sample = parse_sample(&fixture("cpu 100 0 100 800"), &mut state, Instant::now());
+        assert!(sample.mem_percent.is_finite());
+        assert!(sample.load1.is_finite());
+        assert!((sample.mem_percent - 50.0).abs() < 0.01);
+        assert!((sample.load1 - 2.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn zero_cores_makes_present_load_neutral() {
+        let mut state = CollectorState::default();
+        let text = "###LG:load###\n2.00 1.00 0.50 1/100 1234\n\
+                    ###LG:cpu###\nstat=cpu 100 0 100 800\n";
+        let sample = parse_sample(text, &mut state, Instant::now());
+        assert_eq!(sample.cores, 0);
+        assert!(sample.load1.is_nan());
     }
 
     #[test]

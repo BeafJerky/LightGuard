@@ -213,6 +213,51 @@ impl SshError {
             None,
         )
     }
+
+    pub fn permit_required() -> Self {
+        Self::new(
+            "PERMIT_REQUIRED",
+            "当前服务器未解锁。",
+            "先解锁当前服务器再执行写操作。",
+            None,
+        )
+    }
+
+    pub fn write_busy() -> Self {
+        Self::new(
+            "WRITE_BUSY",
+            "写操作正在进行。",
+            "等待当前操作结束后重试。",
+            None,
+        )
+    }
+
+    pub fn preview_expired() -> Self {
+        Self::new(
+            "PREVIEW_EXPIRED",
+            "预览已过期或已使用。",
+            "重新发起预览。",
+            None,
+        )
+    }
+
+    pub fn preview_failed(message: impl Into<String>) -> Self {
+        Self::new(
+            "PREVIEW_FAILED",
+            message,
+            "检查名称与目标位置后重试。",
+            None,
+        )
+    }
+
+    pub fn write_failed(message: impl Into<String>) -> Self {
+        Self::new(
+            "WRITE_FAILED",
+            message,
+            "操作可能已执行，请在文件列表中刷新核对。",
+            None,
+        )
+    }
 }
 
 impl std::fmt::Display for SshError {
@@ -280,5 +325,27 @@ mod tests {
         assert_eq!(json["code"], "SFTP_FAILED");
         assert_eq!(json["stage"], "sftp");
         assert!(json.get("retryable").is_none());
+    }
+
+    #[test]
+    fn guard_errors_keep_the_wire_shape() {
+        let cases = [
+            (SshError::permit_required(), "PERMIT_REQUIRED"),
+            (SshError::write_busy(), "WRITE_BUSY"),
+            (SshError::preview_expired(), "PREVIEW_EXPIRED"),
+            (
+                SshError::preview_failed("文件夹名称不能为空"),
+                "PREVIEW_FAILED",
+            ),
+            (SshError::write_failed("mkdir failed"), "WRITE_FAILED"),
+        ];
+        for (error, code) in cases {
+            let json = serde_json::to_value(&error).unwrap();
+            assert_eq!(json["code"], code);
+            assert!(json.get("stage").is_none(), "no stage for {code}");
+            assert!(!json["message"].as_str().unwrap_or_default().is_empty());
+            assert!(!json["hint"].as_str().unwrap_or_default().is_empty());
+        }
+        assert_eq!(SshError::preview_failed("x").message, "x");
     }
 }

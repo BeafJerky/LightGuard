@@ -1,5 +1,6 @@
 pub mod alerts;
 pub mod db;
+pub mod guard;
 pub mod ssh;
 
 use std::sync::atomic::{AtomicBool, Ordering};

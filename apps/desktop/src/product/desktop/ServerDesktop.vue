@@ -152,11 +152,15 @@ let timers: number[] = [];
 
 const permit = computed(() => permitOf(props.server.id));
 const permitNow = ref(Date.now());
-const autoLocked = ref(false);
+// 上锁播报要区分来源：倒计时/到期算“自动”，用户点“立即上锁”不能也说自动。
+const lockNotice = ref<'' | 'auto' | 'manual'>('');
 const permitState = computed(() => permitVisual(permit.value, permitNow.value));
 let refreshingPermit = false;
 let stopGuard: (() => void) | null = null;
 let disposed = false;
+let lockNoticeTimer: number | null = null;
+// 手动上锁在 locked 翻转前立旗，锁成功由 watcher 读取并复位，失败则由请求方撤销。
+let manualLockPending = false;
 // 许可倒计时完全在本地走：锁定或到期后立刻停表，不再每秒唤醒后端。
 let permitTimer: number | null = null;
 
@@ -177,11 +181,23 @@ function startPermitTimer() {
 }
 
 function syncPermitTimer() {
-  if (permit.value.locked || permit.value.expiresAtMs <= permitNow.value) {
+  // 用真实时钟判断到期：permitNow 靠每秒 tick 推进，延长许可后它可能还是旧值。
+  const current = Date.now();
+  if (permit.value.locked || permit.value.expiresAtMs <= current) {
     stopPermitTimer();
     return;
   }
+  permitNow.value = current;
   startPermitTimer();
+}
+
+function announceLock(kind: 'auto' | 'manual') {
+  lockNotice.value = kind;
+  if (lockNoticeTimer !== null) window.clearTimeout(lockNoticeTimer);
+  lockNoticeTimer = window.setTimeout(() => {
+    lockNotice.value = '';
+    lockNoticeTimer = null;
+  }, 4000);
 }
 
 async function refreshPermitOnce() {
@@ -200,6 +216,9 @@ async function refreshPermitOnce() {
 
 async function onUnlockPermit(minutes: number) {
   if (await unlockPermit(props.server.id, minutes)) {
+    // 到期停表后再延长时 locked 没变，只有这里和到期时间 watcher 能重新拉起计时器。
+    permitNow.value = Date.now();
+    syncPermitTimer();
     closePermitPanel();
     toast({
       title: '写操作已解锁',
@@ -211,7 +230,13 @@ async function onUnlockPermit(minutes: number) {
 }
 
 async function onLockPermit() {
+  manualLockPending = true;
   await lockPermit(props.server.id);
+  // 失败时 locked 仍为 false：与解锁一致，保留面板让错误段落可见，也不算一次上锁播报。
+  if (!permit.value.locked) {
+    manualLockPending = false;
+    return;
+  }
   closePermitPanel();
 }
 
@@ -219,16 +244,28 @@ watch(
   () => permit.value.locked,
   (locked, previous) => {
     if (!locked) {
-      autoLocked.value = false;
+      lockNotice.value = '';
+      manualLockPending = false;
       permitNow.value = Date.now();
       syncPermitTimer();
       return;
     }
     stopPermitTimer();
     if (previous === false) {
-      autoLocked.value = true;
-      timers.push(window.setTimeout(() => (autoLocked.value = false), 4000));
+      announceLock(manualLockPending ? 'manual' : 'auto');
+      manualLockPending = false;
     }
+  },
+);
+
+// 到期时间变化（延长、整条刷新、后端事件）都要重算计时器：
+// 零秒刷新失败后许可可能停在“未锁定但已过期”，此时延长不改变 locked，
+// 只挂在 locked 上的 watcher 不会触发，倒计时/任务栏/危险色就会一直冻在 00:00。
+watch(
+  () => permit.value.expiresAtMs,
+  () => {
+    if (disposed) return;
+    syncPermitTimer();
   },
 );
 
@@ -262,6 +299,8 @@ onBeforeUnmount(() => {
   stopGuard?.();
   stopGuard = null;
   stopPermitTimer();
+  if (lockNoticeTimer !== null) window.clearTimeout(lockNoticeTimer);
+  lockNoticeTimer = null;
   document.removeEventListener('keydown', onGlobalKey, true);
   for (const timer of timers) {
     window.clearTimeout(timer);
@@ -417,7 +456,7 @@ async function onRetry() {
         :default-minutes="state.settings.permit.defaultMinutes"
         :write-active="permit.writeActive"
         :now-ms="permitNow"
-        :auto-locked="autoLocked"
+        :lock-notice="lockNotice"
         @unlock="onUnlockPermit"
         @lock="onLockPermit"
       />
@@ -598,18 +637,6 @@ async function onRetry() {
 
       <div class="desk-taskbar__right">
         <button
-          v-if="!permit.locked"
-          type="button"
-          class="desk-taskbar__icon desk-taskbar__permit-btn"
-          :class="{ 'is-danger': permitState.state === 'expiring' }"
-          :aria-label="`写操作已解锁，剩余 ${permitState.remaining}`"
-          :title="`写操作已解锁 · ${permitState.remaining}`"
-          @click="openPermitPanel"
-        >
-          <LgIcon name="unlock" :size="14" />
-          <span class="desk-taskbar__permit">{{ permitState.remaining }}</span>
-        </button>
-        <button
           v-if="isFullscreen"
           type="button"
           class="desk-taskbar__icon"
@@ -621,6 +648,22 @@ async function onRetry() {
         </button>
         <button type="button" class="desk-taskbar__icon" aria-label="显示桌面" title="显示桌面" @click="onShowDesktop">
           <LgIcon name="monitor" :size="14" />
+        </button>
+        <!--
+          许可入口必须排在窄屏要隐藏的显示器图标之后：窄屏规则靠 :first-child 选中
+          那个图标，插到最前面会让它被顶到第二位而不是消失。
+        -->
+        <button
+          v-if="!permit.locked"
+          type="button"
+          class="desk-taskbar__icon desk-taskbar__permit-btn"
+          :class="{ 'is-danger': permitState.state === 'expiring' }"
+          :aria-label="`写操作已解锁，剩余 ${permitState.remaining}`"
+          :title="`写操作已解锁 · ${permitState.remaining}`"
+          @click="openPermitPanel"
+        >
+          <LgIcon name="unlock" :size="14" />
+          <span class="desk-taskbar__permit">{{ permitState.remaining }}</span>
         </button>
         <button
           type="button"
@@ -1732,6 +1775,8 @@ async function onRetry() {
     height: 24px;
   }
 
+  /* 窄屏只留一个显示器图标（全屏时是“退出全屏”，否则是“显示桌面”）：
+     这条规则依赖它们排在__right 的第一位，许可入口必须放在它之后。 */
   .desk-taskbar__right .desk-taskbar__icon:first-child {
     display: none;
   }

@@ -12,7 +12,8 @@ const props = defineProps<{
   defaultMinutes: PermitMinutes;
   writeActive: boolean;
   nowMs: number;
-  autoLocked: boolean;
+  // 上锁播报的来源：'' 不播报，'auto' 倒计时/到期上锁，'manual' 用户点了“立即上锁”。
+  lockNotice: '' | 'auto' | 'manual';
 }>();
 
 const emit = defineEmits<{
@@ -26,6 +27,7 @@ const minutes = ref<PermitMinutes>(props.defaultMinutes);
 
 const visual = computed(() => permitVisual(props.status, props.nowMs));
 const open = computed(() => guardState.permitPanelOpen);
+const lockMessage = computed(() => (props.lockNotice === 'manual' ? '已上锁' : '已自动上锁'));
 const options: PermitMinutes[] = [5, 15, 30];
 
 watch(
@@ -35,8 +37,13 @@ watch(
   },
 );
 
-watch(open, async (value) => {
-  if (!value) return;
+watch(open, async (value, previous) => {
+  if (!value) {
+    // 面板除了 Escape，还会被父级在解锁/上锁成功后程序化关闭：
+    // 那时焦点元素随面板卸载，必须把焦点还给触发器，不能落到 body 上。
+    if (previous && trigger.value?.isConnected) trigger.value.focus();
+    return;
+  }
   minutes.value = props.defaultMinutes;
   await nextTick();
   panel.value?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')?.focus();
@@ -48,8 +55,8 @@ function toggle() {
 }
 
 function close() {
+  // 焦点回位统一交给上面的 open watcher 处理。
   closePermitPanel();
-  trigger.value?.focus();
 }
 
 function onKeydown(event: KeyboardEvent) {
@@ -127,7 +134,7 @@ onBeforeUnmount(() => {
       <p v-if="guardState.error" class="permit-control__error">{{ guardState.error }}</p>
     </section>
 
-    <span v-if="autoLocked" class="permit-control__sr" role="status">已自动上锁</span>
+    <span v-if="lockNotice" class="permit-control__sr" role="status">{{ lockMessage }}</span>
   </div>
 </template>
 

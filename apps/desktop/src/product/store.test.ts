@@ -236,6 +236,27 @@ describe('desktop status bar mode', () => {
   });
 });
 
+describe('permit and alert settings', () => {
+  it('normalizes nested values from persisted state', async () => {
+    window.localStorage.setItem(
+      STORE_KEY,
+      JSON.stringify({
+        version: 2,
+        settings: {
+          permit: { defaultMinutes: 30 },
+          alerts: { rules: { cpu: { threshold: 500 } } },
+        },
+        servers: [],
+        logs: [],
+      }),
+    );
+    const store = await loadStore();
+    expect(store.state.settings.permit.defaultMinutes).toBe(30);
+    expect(store.state.settings.alerts.rules.cpu.threshold).toBe(100);
+    expect(store.state.settings.alerts.rules.memory.threshold).toBe(90);
+  });
+});
+
 describe('persistence', () => {
   it('persists only whitelisted metadata', async () => {
     const store = await loadStore();

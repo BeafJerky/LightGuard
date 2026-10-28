@@ -2,6 +2,11 @@ import { computed, reactive } from 'vue';
 import { themeOptions } from '@lightguard/lightui';
 import type { ThemeId } from '@lightguard/lightui';
 import { resetRenderSettings } from '../render/settings';
+import {
+  DEFAULT_ALERT_SETTINGS,
+  normalizeAlertSettings,
+  normalizePermitSettings,
+} from './alerts/settings';
 import { APP_VERSION, AUTH_LABELS, MAX_LOGS, isCloseBehavior, isDesktopBarMode, round, uid } from './data';
 import {
   applySnapshot,
@@ -60,6 +65,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   idleLock: 30,
   closeBehavior: 'ask',
   desktopBar: 'floating',
+  permit: { defaultMinutes: 15 },
+  alerts: DEFAULT_ALERT_SETTINGS,
 };
 
 export const DEFAULT_THEMES: ThemeChoices = {
@@ -92,6 +99,8 @@ function readSettings(value: unknown): AppSettings {
       ? raw.closeBehavior
       : DEFAULT_SETTINGS.closeBehavior,
     desktopBar: isDesktopBarMode(raw.desktopBar) ? raw.desktopBar : DEFAULT_SETTINGS.desktopBar,
+    permit: normalizePermitSettings(raw.permit),
+    alerts: normalizeAlertSettings(raw.alerts),
   };
 }
 

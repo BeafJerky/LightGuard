@@ -11,6 +11,11 @@ use super::super::error::SshError;
 use super::super::session::ClientHandler;
 use super::super::state::AppState;
 
+/// Upper bound for opening the channel, requesting the subsystem and the SFTP
+/// `INIT`/`VERSION` exchange, so a peer that never answers cannot hang the
+/// caller (the handshake runs outside any caller-side timeout).
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
+
 pub struct SftpHandle {
     pub session_id: String,
     pub client: Arc<SftpSession>,
@@ -55,17 +60,20 @@ pub async fn acquire(state: &AppState, server_id: &str) -> Result<Arc<SftpSessio
         return Ok(existing);
     }
 
-    let channel = handle
-        .channel_open_session()
-        .await
-        .map_err(|error| SshError::sftp_failed(format!("打开 SFTP 通道失败：{error}")))?;
-    channel
-        .request_subsystem(true, "sftp")
-        .await
-        .map_err(|error| SshError::sftp_failed(format!("服务器未接受 SFTP 子系统：{error}")))?;
-    let client = SftpSession::new(channel.into_stream())
-        .await
-        .map_err(|error| SshError::sftp_failed(format!("SFTP 握手失败：{error}")))?;
+    let client = with_timeout(HANDSHAKE_TIMEOUT, "SFTP 握手超时", async {
+        let channel = handle
+            .channel_open_session()
+            .await
+            .map_err(|error| SshError::sftp_failed(format!("打开 SFTP 通道失败：{error}")))?;
+        channel
+            .request_subsystem(true, "sftp")
+            .await
+            .map_err(|error| SshError::sftp_failed(format!("服务器未接受 SFTP 子系统：{error}")))?;
+        SftpSession::new(channel.into_stream())
+            .await
+            .map_err(|error| SshError::sftp_failed(format!("SFTP 握手失败：{error}")))
+    })
+    .await?;
 
     // The handshake above awaits, so the server may have reconnected meanwhile:
     // the captured id can be stale and must not key the fresh SFTP session.

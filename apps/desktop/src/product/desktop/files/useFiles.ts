@@ -342,8 +342,12 @@ export function useFiles(server: Server, client: SshBackend = ssh) {
   }
 
   function togglePreview(): void {
-    previewOpen.value = !previewOpen.value;
-    if (previewOpen.value && preview.entry && preview.mode === 'none') {
+    if (previewOpen.value) {
+      closePreview();
+      return;
+    }
+    previewOpen.value = true;
+    if (preview.entry && preview.mode === 'none') {
       void loadPreview(preview.entry);
     }
   }
@@ -352,6 +356,9 @@ export function useFiles(server: Server, client: SshBackend = ssh) {
     previewOpen.value = false;
     previewToken += 1;
     preview.loading = false;
+    // A closed pane must not keep the previous file's mode, or reopening it
+    // skips loadPreview and keeps showing the placeholder meta view.
+    preview.mode = 'none';
   }
 
   async function refresh(): Promise<void> {

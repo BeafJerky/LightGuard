@@ -211,7 +211,20 @@ describe('useFiles', () => {
     expect(files.preview.loading).toBe(false);
   });
 
-  it('drops an open whose symlink probe finishes after another selection', async () => {
+  it('reloads preview content after the pane was closed', async () => {
+    const sftpPreviewText = vi.fn(async () => textPreview('hi'));
+    const files = useFiles(server(), backend({ sftpPreviewText }));
+    await files.boot();
+    await files.open(entry('a.txt'));
+    files.closePreview();
+
+    files.togglePreview();
+    await vi.waitFor(() => expect(files.preview.text?.content).toBe('hi'));
+
+    expect(files.previewOpen.value).toBe(true);
+    expect(files.preview.mode).toBe('text');
+    expect(sftpPreviewText).toHaveBeenCalledTimes(2);
+  });  it('drops an open whose symlink probe finishes after another selection', async () => {
     const pending = deferred<FileEntry>();
     const sftpStat = vi.fn(() => pending.promise);
     const files = useFiles(server(), backend({ sftpStat }));

@@ -108,14 +108,19 @@ mod tests {
         assert!(matches!(outcome, transfer::TransferOutcome::Saved { .. }));
         assert!(!std::fs::read(&file).unwrap().is_empty());
 
-        let archive = dir.path().join("etc.tar.gz");
+        // `LG_SSH_DIR` points at a directory the login user can read in full;
+        // /etc holds root-only files on a normal host, and the spec turns a
+        // non-zero tar exit into TRANSFER_FAILED (asserted below when
+        // `LG_SSH_DENIED_DIR` names such a directory).
+        let source = std::env::var("LG_SSH_DIR").unwrap_or_else(|_| "/etc/apt".to_string());
+        let archive = dir.path().join("dir.tar.gz");
         let handle = client::session_handle(&state, "sftp-it")
             .await
             .expect("handle");
         let outcome = transfer::download_dir(
             &handle,
             &client,
-            "/etc",
+            &source,
             &archive,
             "it-archive",
             &cancel,
@@ -126,6 +131,30 @@ mod tests {
         assert!(matches!(outcome, transfer::TransferOutcome::Saved { .. }));
         let bytes = std::fs::read(&archive).unwrap();
         assert_eq!(&bytes[..2], &[0x1f, 0x8b]);
+
+        if let Ok(denied_source) = std::env::var("LG_SSH_DENIED_DIR") {
+            let denied = dir.path().join("denied.tar.gz");
+            let error = transfer::download_dir(
+                &handle,
+                &client,
+                &denied_source,
+                &denied,
+                "it-denied",
+                &cancel,
+                |_, _| {},
+            )
+            .await
+            .expect_err("unreadable subtree must fail");
+            assert_eq!(error.code, "TRANSFER_FAILED");
+            assert!(error.message.contains("退出码"));
+            assert!(!std::fs::read_dir(dir.path())
+                .unwrap()
+                .any(|entry| entry
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .contains(".lgpart")));
+        }
 
         let missing = list::stat(&state, "sftp-it", "/definitely-not-here-12345").await;
         assert_eq!(missing.unwrap_err().code, "FILE_NOT_FOUND");

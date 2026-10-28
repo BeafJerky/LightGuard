@@ -206,6 +206,48 @@ mod tests {
     }
 
     #[test]
+    fn per_server_override_threshold_is_clamped() {
+        let raw = json!({
+            "alerts": {
+                "perServer": {
+                    "srv_1": { "cpu": { "enabled": true, "threshold": 120, "sustainSeconds": 10 } }
+                }
+            }
+        });
+        let view = parse_settings(Some(&raw));
+        let effective = view.alerts.effective("srv_1");
+        assert_eq!(effective.cpu.threshold, 100, "override threshold clamped to max");
+        assert_eq!(effective.cpu.sustain_seconds, 60, "override sustain clamped to min");
+    }
+
+    #[test]
+    fn out_of_type_range_value_drops_whole_alerts_section() {
+        // Intended behavior (see task-5 report note 2): a number that cannot be represented
+        // by the field's Rust type (300 does not fit u8) makes the *entire* `alerts` section
+        // fail deserialization, so every rule and per-server override reverts to defaults
+        // rather than clamping just that one field.
+        let raw = json!({
+            "alerts": {
+                "rules": {
+                    "cpu": { "threshold": 300, "sustainSeconds": 180 },
+                    "login": { "enabled": false }
+                },
+                "perServer": {
+                    "srv_1": { "cpu": { "enabled": false, "threshold": 95, "sustainSeconds": 120 } }
+                }
+            }
+        });
+        let view = parse_settings(Some(&raw));
+        assert_eq!(view.alerts.rules.cpu.threshold, 90, "section fell back to defaults");
+        assert!(view.alerts.rules.login.enabled, "valid siblings are discarded too");
+        assert_eq!(
+            view.alerts.effective("srv_1").cpu.threshold,
+            90,
+            "per-server overrides are discarded too"
+        );
+    }
+
+    #[test]
     fn garbage_settings_fall_back_to_defaults() {
         let raw = json!({ "alerts": "nope", "permit": 42, "notifyThreshold": "yes" });
         let view = parse_settings(Some(&raw));
@@ -337,7 +379,13 @@ pub fn parse_settings(raw: Option<&Value>) -> SettingsView {
     let alerts = value
         .get("alerts")
         .cloned()
-        .and_then(|section| serde_json::from_value::<AlertSettings>(section).ok())
+        .map(|section| match serde_json::from_value::<AlertSettings>(section) {
+            Ok(settings) => settings,
+            Err(error) => {
+                eprintln!("[lightguard] alert settings parse failed: {error}");
+                AlertSettings::default()
+            }
+        })
         .unwrap_or_default()
         .clamped();
     let permit_minutes = value

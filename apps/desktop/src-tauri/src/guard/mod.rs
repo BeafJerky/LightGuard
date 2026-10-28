@@ -4,6 +4,7 @@
 //! 只有用户显式解锁（5/15/30 分钟）后才允许写；写操作之间按 `server_id` 串行，
 //! 服务端之间互不阻塞。
 
+pub mod commands;
 pub mod permit;
 pub mod preview;
 pub mod write;

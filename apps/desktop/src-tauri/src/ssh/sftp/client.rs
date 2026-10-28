@@ -191,6 +191,61 @@ pub async fn clear_all(state: &AppState) {
     cancel_for_server(state, None).await;
 }
 
+/// Upper bound for one metadata or mutation request over an already-open
+/// channel. The handshake keeps its own, larger budget.
+const OP_TIMEOUT: Duration = Duration::from_secs(15);
+
+pub async fn canonicalize(
+    state: &AppState,
+    server_id: &str,
+    path: &str,
+) -> Result<String, SshError> {
+    let client = acquire(state, server_id).await?;
+    with_timeout(OP_TIMEOUT, "路径解析超时", async {
+        client
+            .canonicalize(path)
+            .await
+            .map_err(|error| map_error(error, path))
+    })
+    .await
+}
+
+pub async fn try_exists(state: &AppState, server_id: &str, path: &str) -> Result<bool, SshError> {
+    let client = acquire(state, server_id).await?;
+    with_timeout(OP_TIMEOUT, "目标检查超时", async {
+        client
+            .try_exists(path)
+            .await
+            .map_err(|error| map_error(error, path))
+    })
+    .await
+}
+
+/// Directory mutations never go through [`with_retry`]: a retried write could
+/// create the directory twice, so the caller records the first attempt and
+/// surfaces it as `WRITE_FAILED`.
+pub async fn create_dir(state: &AppState, server_id: &str, path: &str) -> Result<(), SshError> {
+    let client = acquire(state, server_id).await?;
+    with_timeout(OP_TIMEOUT, "创建文件夹超时", async {
+        client
+            .create_dir(path)
+            .await
+            .map_err(|error| map_error(error, path))
+    })
+    .await
+}
+
+pub async fn remove_dir(state: &AppState, server_id: &str, path: &str) -> Result<(), SshError> {
+    let client = acquire(state, server_id).await?;
+    with_timeout(OP_TIMEOUT, "删除文件夹超时", async {
+        client
+            .remove_dir(path)
+            .await
+            .map_err(|error| map_error(error, path))
+    })
+    .await
+}
+
 /// Session id plus shared handle, read under both locks without holding the
 /// session map guard across the entry lock or any channel work.
 async fn session_snapshot(

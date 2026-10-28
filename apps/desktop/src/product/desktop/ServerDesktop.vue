@@ -16,13 +16,12 @@ import DesktopWindow from './DesktopWindow.vue';
 import {
   DESKTOP_APPS,
   appMeta,
-  desktopIconItems,
   statusLabel,
   statusTone,
   type DesktopAppKey,
 } from './apps';
 import { useDesktopWindows } from './useDesktopWindows';
-import { addLog, disconnectServer, retryServer, state } from '../store';
+import { addLog, backendAvailable, disconnectServer, retryServer, state } from '../store';
 import { navigateTo } from '../router';
 import { switchScopeTheme } from '../theme';
 import { confirm, toast } from '../ui';
@@ -74,10 +73,17 @@ const startOpen = ref(false);
 const trayOpen = ref(false);
 const startQuery = ref('');
 
+const visibleApps = computed(() =>
+  DESKTOP_APPS.filter((app) => app.key !== 'files' || backendAvailable),
+);
+const iconItems = computed(() =>
+  visibleApps.value.map((app) => ({ name: app.icon, label: app.title, tile: app.tile })),
+);
+
 const startApps = computed(() => {
   const keyword = startQuery.value.trim().toLowerCase();
-  if (!keyword) return DESKTOP_APPS;
-  return DESKTOP_APPS.filter((app) =>
+  if (!keyword) return visibleApps.value;
+  return visibleApps.value.filter((app) =>
     `${app.title} ${app.description}`.toLowerCase().includes(keyword),
   );
 });
@@ -196,7 +202,7 @@ function onIconSelect(index: number) {
 }
 
 function onIconActivate(index: number) {
-  const app = DESKTOP_APPS[index];
+  const app = visibleApps.value[index];
   if (app) open(app.key);
 }
 
@@ -313,7 +319,7 @@ async function onRetry() {
 
     <DesktopIconLayer
       class="desk-icons"
-      :items="desktopIconItems"
+      :items="iconItems"
       :selected-index="selectedIcon"
       :rows="iconRows"
       aria-label="服务器桌面图标"
@@ -463,7 +469,7 @@ async function onRetry() {
 
       <div class="desk-taskbar__center" aria-label="固定应用">
         <button
-          v-for="app in DESKTOP_APPS"
+          v-for="app in visibleApps"
           :key="app.key"
           type="button"
           class="desk-taskbar__app"

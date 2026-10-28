@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import ConnectionApp from './ConnectionApp.vue';
 import DisksApp from './DisksApp.vue';
+import FilesApp from './files/FilesApp.vue';
 import NetworkApp from './NetworkApp.vue';
 import PerformanceApp from './PerformanceApp.vue';
 import ProcessesApp from './ProcessesApp.vue';
@@ -32,5 +33,6 @@ const emit = defineEmits<{ disconnect: [] }>();
     :started-at="startedAt"
     @disconnect="emit('disconnect')"
   />
+  <FilesApp v-else-if="app === 'files'" :server="server" />
   <TerminalApp v-else :server="server" />
 </template>

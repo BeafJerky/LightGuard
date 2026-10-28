@@ -637,6 +637,7 @@
 .tile-network,
 .tile-processes,
 .tile-connection,
+.tile-files,
 .tile-terminal {
   /* 图标底色由主题 token 派生，7 套主题与深浅模式保持一致。 */
   border: var(--lg-border-width) solid color-mix(in srgb, var(--tile-color) 34%, var(--lg-border));
@@ -673,6 +674,10 @@
 
 .tile-connection {
   --tile-color: var(--lg-success);
+}
+
+.tile-files {
+  --tile-color: var(--lg-accent);
 }
 
 .tile-terminal {

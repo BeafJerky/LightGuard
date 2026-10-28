@@ -149,6 +149,21 @@ describe('useFiles', () => {
     expect(files.preview.loading).toBe(false);
   });
 
+  it('drops an in-flight preview when another entry is selected', async () => {
+    const slow = deferred<TextPreview>();
+    const sftpPreviewText = vi.fn(() => slow.promise);
+    const files = useFiles(server(), backend({ sftpPreviewText }));
+
+    const opening = files.loadPreview(entry('a.txt'));
+    files.select(entry('b.txt'));
+    slow.resolve(textPreview('A content'));
+    await opening;
+
+    expect(files.preview.entry?.name).toBe('b.txt');
+    expect(files.preview.text).toBeNull();
+    expect(files.preview.loading).toBe(false);
+  });
+
   it('disables up at the filesystem root', async () => {
     const sftpList = vi.fn(
       async (_serverId: string, path: string): Promise<FileListing> =>

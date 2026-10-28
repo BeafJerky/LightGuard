@@ -270,8 +270,12 @@ export function useFiles(server: Server, client: SshBackend = ssh) {
 
   function select(entry: FileEntry): void {
     selectedPath.value = entry.path;
+    previewToken += 1;
     preview.entry = entry;
+    preview.text = null;
+    preview.image = null;
     preview.error = null;
+    preview.loading = false;
     if (preview.mode !== 'none') preview.mode = 'meta';
   }
 

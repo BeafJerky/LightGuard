@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useElementSize, usePreferredDark, usePreferredReducedMotion } from '@vueuse/core';
 import {
   LgButton,
@@ -37,7 +37,7 @@ const reduced = usePreferredReducedMotion();
 const prefersDark = usePreferredDark();
 
 const shell = ref<HTMLElement | null>(null);
-const { height: shellHeight } = useElementSize(shell);
+const { width: shellWidth, height: shellHeight } = useElementSize(shell);
 
 const FULL_BAR_HEIGHT = 46;
 const fullBar = computed(() => state.settings.desktopBar === 'full');
@@ -64,7 +64,10 @@ const {
   showDesktop,
   move,
   resize,
+  fitToBounds,
 } = useDesktopWindows(bounds, () => barInset.value);
+
+watch([shellWidth, shellHeight, barInset], () => fitToBounds());
 
 const selectedIcon = ref(-1);
 const startOpen = ref(false);

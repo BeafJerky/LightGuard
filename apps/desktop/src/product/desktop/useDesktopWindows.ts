@@ -17,6 +17,27 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), Math.max(min, max));
 }
 
+const MIN_W = 320;
+const MIN_H = 240;
+const TASKBAR_HEIGHT = 54;
+
+interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+function fitRect(rect: Rect, width: number, height: number, topInset: number) {
+  const usableH = Math.max(120, height - TASKBAR_HEIGHT);
+  const maxW = Math.max(160, width);
+  const maxH = Math.max(120, usableH - topInset);
+  rect.w = clamp(rect.w, Math.min(MIN_W, maxW), maxW);
+  rect.h = clamp(rect.h, Math.min(MIN_H, maxH), maxH);
+  rect.x = clamp(rect.x, 0, Math.max(0, width - rect.w));
+  rect.y = clamp(rect.y, topInset, Math.max(topInset, usableH - rect.h));
+}
+
 export function useDesktopWindows(
   getBounds: () => { width: number; height: number },
   getTopInset: () => number = () => 0,
@@ -113,6 +134,18 @@ export function useDesktopWindows(
     active.value = null;
   }
 
+  function fitToBounds() {
+    const { width, height } = getBounds();
+    if (!Number.isFinite(width) || !Number.isFinite(height)) return;
+    // 窗口隐藏或全屏切换的瞬间会量到接近 0 的尺寸，此时收敛会把布局压坏
+    if (width < 200 || height < 160) return;
+    const topInset = Math.max(0, getTopInset());
+    for (const win of windows.value) {
+      fitRect(win, width, height, topInset);
+      if (win.restore) fitRect(win.restore, width, height, topInset);
+    }
+  }
+
   function move(key: DesktopAppKey, x: number, y: number) {
     const win = windows.value.find((entry) => entry.app === key);
     if (!win) return;
@@ -143,5 +176,6 @@ export function useDesktopWindows(
     showDesktop,
     move,
     resize,
+    fitToBounds,
   };
 }

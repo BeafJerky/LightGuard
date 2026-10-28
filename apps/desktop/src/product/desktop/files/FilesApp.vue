@@ -2,7 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { LgIcon } from '@lightguard/lightui';
 import type { Server } from '../../types';
-import type { FileEntry } from '../../ssh/backend';
+import type { FileEntry, FileKind } from '../../ssh/backend';
+import { toSshError } from '../../ssh';
 import FileList from './FileList.vue';
 import FilePreview from './FilePreview.vue';
 import FileTree from './FileTree.vue';
@@ -16,6 +17,7 @@ const address = ref('');
 const drawerOpen = ref(false);
 const menuOpen = ref(false);
 const context = ref<{ entry: FileEntry; x: number; y: number } | null>(null);
+const pendingDownload = ref<FileEntry | null>(null);
 const addressInput = ref<HTMLInputElement | null>(null);
 const rootRef = ref<HTMLElement | null>(null);
 
@@ -47,6 +49,7 @@ watch(
     address.value = path;
     drawerOpen.value = false;
     context.value = null;
+    pendingDownload.value = null;
     menuOpen.value = false;
   },
   { immediate: true },
@@ -92,6 +95,36 @@ function onRowSelect(entry: FileEntry) {
   context.value = null;
 }
 
+// Every download entry point resolves the target kind first. Directories need
+// an explicit confirmation because the archive keeps symlinks as-is and
+// extraction is the user's responsibility.
+async function requestDownload(entry: FileEntry): Promise<void> {
+  let kind: FileKind;
+  try {
+    kind = await files.resolveKind(entry);
+  } catch (caught) {
+    pendingDownload.value = null;
+    files.notice.value = toSshError(caught).message;
+    return;
+  }
+  if (kind === 'dir') {
+    pendingDownload.value = entry;
+    return;
+  }
+  pendingDownload.value = null;
+  await files.download(entry);
+}
+
+async function confirmDownload(): Promise<void> {
+  const entry = pendingDownload.value;
+  pendingDownload.value = null;
+  if (entry) await files.download(entry);
+}
+
+function dismissDownload(): void {
+  pendingDownload.value = null;
+}
+
 async function contextAction(action: 'open' | 'preview' | 'download' | 'copy' | 'meta') {
   const entry = context.value?.entry;
   context.value = null;
@@ -101,7 +134,7 @@ async function contextAction(action: 'open' | 'preview' | 'download' | 'copy' | 
     files.previewOpen.value = true;
     files.select(entry);
     await files.loadPreview(entry);
-  } else if (action === 'download') await files.download(entry);
+  } else if (action === 'download') await requestDownload(entry);
   else if (action === 'copy') {
     try { await navigator.clipboard.writeText(entry.path); } catch { files.notice.value = '复制路径失败'; }
   } else {
@@ -128,6 +161,7 @@ function onGlobalKey(event: KeyboardEvent) {
   } else if (event.key === 'Escape') {
     context.value = null;
     menuOpen.value = false;
+    dismissDownload();
     if (files.previewOpen.value) files.closePreview();
   }
 }
@@ -232,7 +266,7 @@ watch(
 
         <section class="lgfiles-main">
           <FileList
-            :key="files.currentPath.value"
+            :reset-key="files.currentPath.value"
             :entries="files.visibleRows.value"
             :selected="files.selectedPath.value"
             :loading="files.loading.value"
@@ -263,7 +297,7 @@ watch(
           :entry="files.selectedEntry.value"
           @close="files.closePreview"
           @retry="files.preview.entry && files.loadPreview(files.preview.entry)"
-          @download="files.selectedEntry.value && files.download(files.selectedEntry.value)"
+          @download="files.selectedEntry.value && requestDownload(files.selectedEntry.value)"
         />
       </div>
 
@@ -276,6 +310,23 @@ watch(
         <button type="button" @click="contextAction('copy')">复制路径</button>
         <button type="button" @click="contextAction('meta')">属性</button>
         <button type="button" @click="files.refresh(); context = null">刷新</button>
+      </div>
+
+      <div v-if="pendingDownload" class="lgfiles-confirm">
+        <div
+          class="lgfiles-confirm__dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="lgfiles-confirm-title"
+        >
+          <strong id="lgfiles-confirm-title">下载文件夹？</strong>
+          <p>「{{ pendingDownload.name }}」将打包为 .tar.gz 下载。</p>
+          <p>符号链接按原样打包、不跟随目标；解压风险自负。</p>
+          <div class="lgfiles-confirm__actions">
+            <button type="button" @click="dismissDownload">取消</button>
+            <button type="button" class="is-primary" @click="confirmDownload">继续下载</button>
+          </div>
+        </div>
       </div>
 
       <div v-if="files.downloads.value.length" class="lgfiles-downloads">

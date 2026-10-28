@@ -2,7 +2,7 @@ import type { FileEntry } from '../../ssh/backend';
 
 const TEXT_EXTENSIONS = new Set([
   'txt', 'md', 'markdown', 'log', 'conf', 'cfg', 'ini', 'env', 'toml', 'yaml', 'yml',
-  'json', 'xml', 'html', 'htm', 'css', 'scss', 'js', 'jsx', 'ts', 'tsx', 'vue',
+  'json', 'xml', 'html', 'htm', 'svg', 'css', 'scss', 'js', 'jsx', 'ts', 'tsx', 'vue',
   'sh', 'bash', 'zsh', 'py', 'rb', 'go', 'rs', 'java', 'c', 'h', 'cpp', 'hpp',
   'sql', 'service', 'socket', 'pem', 'crt', 'properties',
 ]);

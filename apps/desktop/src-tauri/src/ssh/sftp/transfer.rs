@@ -28,8 +28,13 @@ pub enum TransferOutcome {
     Canceled { bytes: u64 },
 }
 
-pub fn part_path(target: &Path) -> PathBuf {
+/// `<target>.<transfer_id>.lgpart`: the transfer id keeps concurrent downloads
+/// of the same target from corrupting each other's partial file. The id is
+/// validated as `[A-Za-z0-9_-]{1,64}` by the command layer before it lands here.
+pub fn part_path(target: &Path, transfer_id: &str) -> PathBuf {
     let mut name = target.as_os_str().to_os_string();
+    name.push(".");
+    name.push(transfer_id);
     name.push(".lgpart");
     PathBuf::from(name)
 }
@@ -88,9 +93,13 @@ pub async fn download_file(
     client: &SftpSession,
     remote_path: &str,
     target: &Path,
+    transfer_id: &str,
     cancel: &AtomicBool,
     mut progress: impl FnMut(u64, Option<u64>),
 ) -> Result<TransferOutcome, SshError> {
+    if cancel.load(Ordering::SeqCst) {
+        return Ok(TransferOutcome::Canceled { bytes: 0 });
+    }
     validate_remote_path(remote_path)?;
     let total = client
         .metadata(remote_path)
@@ -101,7 +110,7 @@ pub async fn download_file(
         .open_with_flags(remote_path, OpenFlags::READ)
         .await
         .map_err(|error| map_error(error, remote_path))?;
-    let part = part_path(target);
+    let part = part_path(target, transfer_id);
     let mut sink = tokio::fs::File::create(&part)
         .await
         .map_err(|error| SshError::transfer_failed(format!("无法创建临时文件：{error}")))?;
@@ -250,9 +259,13 @@ pub async fn download_dir(
     client: &SftpSession,
     remote_path: &str,
     target: &Path,
+    transfer_id: &str,
     cancel: &AtomicBool,
     mut progress: impl FnMut(u64, Option<u64>),
 ) -> Result<TransferOutcome, SshError> {
+    if cancel.load(Ordering::SeqCst) {
+        return Ok(TransferOutcome::Canceled { bytes: 0 });
+    }
     validate_remote_path(remote_path)?;
     let canonical = client
         .canonicalize(remote_path)
@@ -265,12 +278,17 @@ pub async fn download_dir(
         .channel_open_session()
         .await
         .map_err(|error| SshError::transfer_failed(format!("打开打包通道失败：{error}")))?;
+    // A cancel that arrived while the channel was opening must not start tar.
+    if cancel.load(Ordering::SeqCst) {
+        let _ = channel.close().await;
+        return Ok(TransferOutcome::Canceled { bytes: 0 });
+    }
     channel
         .exec(true, command)
         .await
         .map_err(|error| SshError::transfer_failed(format!("启动远端打包失败：{error}")))?;
 
-    let part = part_path(target);
+    let part = part_path(target, transfer_id);
     let mut sink = tokio::fs::File::create(&part)
         .await
         .map_err(|error| SshError::transfer_failed(format!("无法创建临时文件：{error}")))?;
@@ -486,20 +504,33 @@ mod tests {
     // ---- path and command helpers -------------------------------------------
 
     #[test]
-    fn appends_part_suffix() {
+    fn appends_part_suffix_with_transfer_id() {
         let target = Path::new("C:/tmp/report.txt");
-        assert_eq!(part_path(target), PathBuf::from("C:/tmp/report.txt.lgpart"));
+        assert_eq!(
+            part_path(target, "t-01"),
+            PathBuf::from("C:/tmp/report.txt.t-01.lgpart")
+        );
     }
 
     #[test]
     fn part_path_keeps_hostile_local_names_intact() {
         let target = Path::new("C:/tmp/报告 $(x) 'quoted'.tar.gz");
         assert_eq!(
-            part_path(target),
-            PathBuf::from("C:/tmp/报告 $(x) 'quoted'.tar.gz.lgpart")
+            part_path(target, "abc"),
+            PathBuf::from("C:/tmp/报告 $(x) 'quoted'.tar.gz.abc.lgpart")
         );
         // The part file never collides with the final name.
-        assert_ne!(part_path(target), target.to_path_buf());
+        assert_ne!(part_path(target, "abc"), target.to_path_buf());
+    }
+
+    #[test]
+    fn part_paths_differ_per_transfer_id() {
+        let target = Path::new("C:/tmp/report.txt");
+        let first = part_path(target, "first");
+        let second = part_path(target, "second");
+        assert_ne!(first, second);
+        assert!(first.to_string_lossy().ends_with(".lgpart"));
+        assert!(second.to_string_lossy().ends_with(".lgpart"));
     }
 
     #[test]
@@ -579,7 +610,7 @@ mod tests {
 
         let cancel = AtomicBool::new(false);
         let mut calls = Vec::new();
-        let outcome = download_file(&client, REMOTE, &target, &cancel, |done, total| {
+        let outcome = download_file(&client, REMOTE, &target, "t1", &cancel, |done, total| {
             calls.push((done, total));
         })
         .await
@@ -588,7 +619,7 @@ mod tests {
         let bytes = payload().len() as u64;
         assert_eq!(outcome, TransferOutcome::Saved { bytes });
         assert_eq!(tokio::fs::read(&target).await.expect("target"), payload());
-        assert!(!part_path(&target).exists(), "part file must be renamed");
+        assert!(!part_path(&target, "t1").exists(), "part file must be renamed");
         assert_eq!(calls.first(), Some(&(0, Some(bytes))));
         assert_eq!(calls.last(), Some(&(bytes, Some(bytes))));
         assert_read_only(&peer.opened());
@@ -602,13 +633,17 @@ mod tests {
         let target = directory.path().join("report.bin");
 
         let cancel = AtomicBool::new(true);
-        let outcome = download_file(&client, REMOTE, &target, &cancel, |_, _| {})
+        let outcome = download_file(&client, REMOTE, &target, "t1", &cancel, |_, _| {})
             .await
             .expect("cancel is not an error");
 
         assert_eq!(outcome, TransferOutcome::Canceled { bytes: 0 });
         assert!(!target.exists(), "canceled download leaves no target");
-        assert!(!part_path(&target).exists(), "part file must be deleted");
+        assert!(!part_path(&target, "t1").exists(), "part file was never created");
+        assert!(
+            peer.opened().is_empty(),
+            "a pre-canceled download must not open the remote file"
+        );
     }
 
     #[tokio::test]
@@ -625,7 +660,7 @@ mod tests {
             let cancel = cancel.clone();
             let target = target.clone();
             tokio::spawn(async move {
-                download_file(&client, REMOTE, &target, &cancel, |_, _| {}).await
+                download_file(&client, REMOTE, &target, "t1", &cancel, |_, _| {}).await
             })
         };
 
@@ -636,7 +671,10 @@ mod tests {
         }
         // The peer is holding the reply, so the client read is still pending.
         tokio::time::sleep(Duration::from_millis(50)).await;
-        assert!(part_path(&target).exists(), "download must be mid-read");
+        assert!(
+            part_path(&target, "t1").exists(),
+            "download must be mid-read"
+        );
 
         let flipped = Instant::now();
         cancel.store(true, Ordering::SeqCst);
@@ -649,7 +687,7 @@ mod tests {
         );
         assert_eq!(outcome, TransferOutcome::Canceled { bytes: 0 });
         assert!(!target.exists(), "canceled download leaves no target");
-        assert!(!part_path(&target).exists(), "part file must be deleted");
+        assert!(!part_path(&target, "t1").exists(), "part file must be deleted");
     }
 
     #[tokio::test]
@@ -660,14 +698,14 @@ mod tests {
         let target = directory.path().join("report.bin");
 
         let cancel = AtomicBool::new(false);
-        let error = download_file(&client, REMOTE, &target, &cancel, |_, _| {})
+        let error = download_file(&client, REMOTE, &target, "t1", &cancel, |_, _| {})
             .await
             .expect_err("read failure");
 
         assert_eq!(error.code, "TRANSFER_FAILED");
         assert!(error.message.contains("读取远端文件失败"));
         assert!(!target.exists());
-        assert!(!part_path(&target).exists(), "part file must be deleted");
+        assert!(!part_path(&target, "t1").exists(), "part file must be deleted");
     }
 
     #[tokio::test]
@@ -682,6 +720,7 @@ mod tests {
             &client,
             "/home/user/missing.bin",
             &target,
+            "t1",
             &cancel,
             |_, _| {},
         )
@@ -690,7 +729,7 @@ mod tests {
 
         assert_eq!(error.code, "FILE_NOT_FOUND");
         assert!(!target.exists());
-        assert!(!part_path(&target).exists());
+        assert!(!part_path(&target, "t1").exists());
     }
 
     #[tokio::test]
@@ -701,13 +740,13 @@ mod tests {
         let target = directory.path().join("report.bin");
 
         let cancel = AtomicBool::new(false);
-        let error = download_file(&client, "/home/user/a\0b", &target, &cancel, |_, _| {})
+        let error = download_file(&client, "/home/user/a\0b", &target, "t1", &cancel, |_, _| {})
             .await
             .expect_err("nul byte");
 
         assert_eq!(error.code, "PATH_INVALID");
         assert!(peer.opened().is_empty());
-        assert!(!part_path(&target).exists());
+        assert!(!part_path(&target, "t1").exists());
     }
 
     fn assert_read_only(flags: &[OpenFlags]) {

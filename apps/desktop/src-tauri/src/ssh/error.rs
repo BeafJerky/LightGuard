@@ -8,6 +8,10 @@ pub struct SshError {
     pub hint: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stage: Option<&'static str>,
+    /// Internal retry hint for channel-level SFTP failures. Never serialized:
+    /// the wire shape is part of the frontend contract (`SshCommandError`).
+    #[serde(skip)]
+    pub retryable: bool,
 }
 
 impl SshError {
@@ -22,7 +26,17 @@ impl SshError {
             message: message.into(),
             hint: hint.into(),
             stage,
+            retryable: false,
         }
+    }
+
+    /// A dead SFTP channel behind a still-live SSH session. Same code, message
+    /// and stage as [`Self::sftp_failed`], but the caller may discard the cached
+    /// client and retry once on a fresh channel.
+    pub fn sftp_channel(message: impl Into<String>) -> Self {
+        let mut error = Self::sftp_failed(message);
+        error.retryable = true;
+        error
     }
 
     pub fn invalid_input(message: impl Into<String>) -> Self {
@@ -249,5 +263,22 @@ mod tests {
         let text = serde_json::to_string(&err).unwrap();
         assert!(!text.contains("secret"));
         assert!(!text.contains("passphrase"));
+    }
+
+    #[test]
+    fn channel_errors_stay_off_the_wire() {
+        let plain = SshError::sftp_failed("通道已断开");
+        let channel = SshError::sftp_channel("通道已断开");
+        assert!(!plain.retryable);
+        assert!(channel.retryable);
+        // The serialized shape must stay identical to the business error.
+        assert_eq!(
+            serde_json::to_value(&plain).unwrap(),
+            serde_json::to_value(&channel).unwrap()
+        );
+        let json = serde_json::to_value(&channel).unwrap();
+        assert_eq!(json["code"], "SFTP_FAILED");
+        assert_eq!(json["stage"], "sftp");
+        assert!(json.get("retryable").is_none());
     }
 }

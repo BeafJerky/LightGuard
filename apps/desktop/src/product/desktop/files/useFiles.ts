@@ -407,8 +407,8 @@ export function useFiles(server: Server, client: SshBackend = ssh) {
   }
 
   async function runDownload(task: DownloadTask): Promise<void> {
-    task.status = 'running';
-    task.message = '传输中';
+    // Stay in `waiting` until the backend reports real progress: with the
+    // transfer queue this is what makes "等待中" observable before a slot opens.
     try {
       const result = await client.sftpDownload({
         serverId: server.id,
@@ -417,6 +417,10 @@ export function useFiles(server: Server, client: SshBackend = ssh) {
         transferId: task.id,
         onEvent: (event) => {
           if (event.type === 'progress') {
+            if (task.status === 'waiting') {
+              task.status = 'running';
+              task.message = '传输中';
+            }
             task.transferred = event.transferred;
             task.total = event.total;
           }

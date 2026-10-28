@@ -8,7 +8,7 @@ use tokio::io::AsyncReadExt;
 
 use super::super::error::SshError;
 use super::super::state::AppState;
-use super::client::{acquire, map_error, with_timeout};
+use super::client::{map_error, with_retry, with_timeout};
 use super::dto::{FileKind, ImagePreview, TextPreview};
 use super::list::stat_with;
 use super::path::{image_mime, validate_remote_path};
@@ -74,8 +74,10 @@ async fn read_prefix(client: &SftpSession, path: &str, limit: u64) -> Result<Vec
 
 pub async fn text(state: &AppState, server_id: &str, path: &str) -> Result<TextPreview, SshError> {
     validate_remote_path(path)?;
-    let client = acquire(state, server_id).await?;
-    text_with(&client, path).await
+    with_retry(state, server_id, |client| async move {
+        text_with(&client, path).await
+    })
+    .await
 }
 
 async fn text_with(client: &SftpSession, path: &str) -> Result<TextPreview, SshError> {
@@ -116,8 +118,10 @@ pub async fn image(
     if image_mime(path).is_none() {
         return Err(SshError::path_invalid("不支持预览该图片格式"));
     }
-    let client = acquire(state, server_id).await?;
-    image_with(&client, path).await
+    with_retry(state, server_id, |client| async move {
+        image_with(&client, path).await
+    })
+    .await
 }
 
 async fn image_with(client: &SftpSession, path: &str) -> Result<ImagePreview, SshError> {

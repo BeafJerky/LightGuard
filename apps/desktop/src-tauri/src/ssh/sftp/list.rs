@@ -5,7 +5,7 @@ use russh_sftp::client::SftpSession;
 
 use super::super::error::SshError;
 use super::super::state::AppState;
-use super::client::{acquire, map_error, with_timeout};
+use super::client::{map_error, with_retry, with_timeout};
 use super::dto::{file_entry, FileEntry, FileKind, FileListing};
 use super::path::{basename, validate_remote_path};
 
@@ -16,20 +16,23 @@ pub const MAX_ENTRIES: usize = 20_000;
 const LIST_TIMEOUT: Duration = Duration::from_secs(15);
 
 pub async fn home(state: &AppState, server_id: &str) -> Result<String, SshError> {
-    let client = acquire(state, server_id).await?;
-    home_with(&client).await
+    with_retry(state, server_id, |client| async move { home_with(&client).await }).await
 }
 
 pub async fn list(state: &AppState, server_id: &str, path: &str) -> Result<FileListing, SshError> {
     validate_remote_path(path)?;
-    let client = acquire(state, server_id).await?;
-    list_with(&client, path).await
+    with_retry(state, server_id, |client| async move {
+        list_with(&client, path).await
+    })
+    .await
 }
 
 pub async fn stat(state: &AppState, server_id: &str, path: &str) -> Result<FileEntry, SshError> {
     validate_remote_path(path)?;
-    let client = acquire(state, server_id).await?;
-    stat_with(&client, path).await
+    with_retry(state, server_id, |client| async move {
+        stat_with(&client, path).await
+    })
+    .await
 }
 
 /// The remote home directory as reported by the server (`.` canonicalized).

@@ -1,6 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Server } from '../../types';
-import type { FileEntry, FileListing, SshBackend, TextPreview } from '../../ssh/backend';
+import type {
+  DownloadInput,
+  DownloadResult,
+  FileEntry,
+  FileListing,
+  SshBackend,
+  TextPreview,
+  TransferProgress,
+} from '../../ssh/backend';
 import { useFiles } from './useFiles';
 
 function deferred<T>() {
@@ -80,6 +88,45 @@ describe('useFiles', () => {
     await files.open(entry('a.txt'));
     expect(files.previewOpen.value).toBe(true);
     expect(files.preview.text?.content).toBe('hi');
+  });
+
+  it('previews svg through the text endpoint', async () => {
+    const sftpPreviewText = vi.fn(async () => textPreview('<svg/>'));
+    const sftpPreviewImage = vi.fn(async () => ({ mime: 'image/svg+xml', base64: '', bytes: 0 }));
+    const files = useFiles(server(), backend({ sftpPreviewText, sftpPreviewImage }));
+    await files.boot();
+
+    await files.loadPreview(entry('icon.svg'));
+
+    expect(sftpPreviewText).toHaveBeenCalledWith('srv_1', '/home/test/icon.svg');
+    expect(sftpPreviewImage).not.toHaveBeenCalled();
+    expect(files.preview.mode).toBe('text');
+    expect(files.preview.text?.content).toBe('<svg/>');
+  });
+
+  it('keeps a download waiting until the first progress event', async () => {
+    const pending = deferred<DownloadResult>();
+    let emit: ((event: TransferProgress) => void) | null = null;
+    const sftpDownload = vi.fn((input: DownloadInput) => {
+      emit = input.onEvent;
+      return pending.promise;
+    });
+    const files = useFiles(server(), backend({ sftpDownload }));
+    await files.boot();
+
+    await files.download(entry('a.txt'));
+    const task = files.downloads.value[0];
+    expect(task.status).toBe('waiting');
+    expect(task.message).toBe('等待中');
+    expect(emit).not.toBeNull();
+
+    emit!({ type: 'progress', transferred: 4, total: 10 });
+    expect(task.status).toBe('running');
+    expect(task.message).toBe('传输中');
+    expect(task.transferred).toBe(4);
+
+    pending.resolve({ status: 'saved', targetPath: 'C:/tmp/a.txt', bytes: 10 });
+    await vi.waitFor(() => expect(task.status).toBe('saved'));
   });
 
   it('marks offline without clearing the list', async () => {

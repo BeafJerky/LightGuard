@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { LgIcon } from '@lightguard/lightui';
 import type { FileEntry } from '../../ssh/backend';
 import { fileIcon, fileTypeLabel, formatSize, formatTime } from './format';
@@ -14,6 +14,8 @@ const props = defineProps<{
   sortKey: SortKey;
   sortDir: SortDirection;
   offline: boolean;
+  /** Changes on directory navigation without remounting the list. */
+  resetKey: string;
 }>();
 
 const emit = defineEmits<{
@@ -127,6 +129,17 @@ watch(() => props.entries.length, () => {
     scrollTop.value = 0;
     if (viewport.value) viewport.value.scrollTop = 0;
   }
+});
+// Navigation resets the viewport in place and keeps it focused: remounting the
+// component (the old `:key`) dropped the tabindex="0" viewport and killed
+// Backspace/arrow/F5 for the rest of the session.
+watch(() => props.resetKey, async () => {
+  scrollTop.value = 0;
+  await nextTick();
+  const element = viewport.value;
+  if (!element) return;
+  element.scrollTop = 0;
+  element.focus();
 });
 </script>
 

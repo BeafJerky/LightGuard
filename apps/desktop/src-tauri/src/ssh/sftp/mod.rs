@@ -95,9 +95,16 @@ mod tests {
         let client = client::acquire(&state, "sftp-it").await.expect("client");
         let cancel = AtomicBool::new(false);
         let file = dir.path().join("hostname.txt");
-        let outcome = transfer::download_file(&client, "/etc/hostname", &file, &cancel, |_, _| {})
-            .await
-            .expect("download");
+        let outcome = transfer::download_file(
+            &client,
+            "/etc/hostname",
+            &file,
+            "it-file",
+            &cancel,
+            |_, _| {},
+        )
+        .await
+        .expect("download");
         assert!(matches!(outcome, transfer::TransferOutcome::Saved { .. }));
         assert!(!std::fs::read(&file).unwrap().is_empty());
 
@@ -110,6 +117,7 @@ mod tests {
             &client,
             "/etc",
             &archive,
+            "it-archive",
             &cancel,
             |_, _| {},
         )

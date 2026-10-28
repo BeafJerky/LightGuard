@@ -118,6 +118,7 @@ pub async fn sftp_download(
         &server_id,
         &path,
         kind,
+        &transfer_id,
         &cancel,
         &on_event,
     )
@@ -127,17 +128,34 @@ pub async fn sftp_download(
     result
 }
 
+fn canceled_result() -> DownloadResult {
+    DownloadResult {
+        status: DownloadStatus::Canceled,
+        target_path: None,
+        bytes: 0,
+    }
+}
+
 async fn run_download(
     app: &AppHandle,
     state: &AppState,
     server_id: &str,
     path: &str,
     kind: FileKind,
+    transfer_id: &str,
     cancel: &Arc<AtomicBool>,
     on_event: &Channel<TransferProgress>,
 ) -> Result<DownloadResult, SshError> {
-    let client = client::acquire(state, server_id).await?;
-    let entry = list::stat_with(&client, path).await?;
+    if cancel.load(Ordering::SeqCst) {
+        return Ok(canceled_result());
+    }
+
+    // The stat goes through the retry wrapper too: a dead channel detected here
+    // is recovered before the save dialog ever opens.
+    let entry = client::with_retry(state, server_id, |client| async move {
+        list::stat_with(&client, path).await
+    })
+    .await?;
     let resolved = entry.target_kind.unwrap_or(entry.kind);
     if kind != resolved {
         return Err(SshError::path_invalid("文件类型已变化，请刷新后重试"));
@@ -149,47 +167,66 @@ async fn run_download(
     } else {
         sanitize_local_name(&basename(path), "download")
     };
-    let target = match test_download_dir() {
-        Some(directory) => directory.join(default_name),
-        None => match transfer::pick_save_path(app, default_name).await {
-            Some(target) => target,
-            None => {
-                return Ok(DownloadResult {
-                    status: DownloadStatus::Canceled,
-                    target_path: None,
-                    bytes: 0,
-                });
-            }
-        },
-    };
 
+    // Slots are taken before the dialog so a cancellation while queued is seen
+    // before the user is asked where to save.
     let _permit = state
         .transfer_slots
         .acquire()
         .await
         .map_err(|_| SshError::internal("传输队列已关闭"))?;
+    if cancel.load(Ordering::SeqCst) {
+        return Ok(canceled_result());
+    }
 
-    let mut progress = |transferred: u64, total: Option<u64>| {
-        let _ = on_event.send(TransferProgress::Progress {
-            transferred,
-            total,
-        });
+    let target = match test_download_dir() {
+        Some(directory) => directory.join(default_name),
+        None => match transfer::pick_save_path(app, default_name).await {
+            Some(target) => target,
+            None => return Ok(canceled_result()),
+        },
     };
+    if cancel.load(Ordering::SeqCst) {
+        return Ok(canceled_result());
+    }
 
-    let outcome = if is_dir {
-        let handle = client::session_handle(state, server_id).await?;
-        transfer::download_dir(
-            &handle,
-            &client,
-            path,
-            &target,
-            cancel,
-            &mut progress,
-        )
-        .await?
-    } else {
-        transfer::download_file(&client, path, &target, cancel, &mut progress).await?
-    };
+    // The save path and permit are fixed, so a retry only rebuilds the network
+    // side (fresh SFTP client, and for directories a fresh SSH channel).
+    let outcome = client::with_retry(state, server_id, |client| {
+        let target = &target;
+        async move {
+            let mut progress = |transferred: u64, total: Option<u64>| {
+                let _ = on_event.send(TransferProgress::Progress {
+                    transferred,
+                    total,
+                });
+            };
+            if is_dir {
+                let handle = client::session_handle(state, server_id).await?;
+                transfer::download_dir(
+                    &handle,
+                    &client,
+                    path,
+                    &target,
+                    transfer_id,
+                    cancel,
+                    &mut progress,
+                )
+                .await
+            } else {
+                transfer::download_file(
+                    &client,
+                    path,
+                    &target,
+                    transfer_id,
+                    cancel,
+                    &mut progress,
+                )
+                .await
+            }
+        }
+    })
+    .await?;
 
     Ok(match outcome {
         TransferOutcome::Saved { bytes } => DownloadResult {

@@ -1,4 +1,5 @@
 use std::future::Future;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -49,9 +50,85 @@ pub fn map_error(error: Error, path: &str) -> SshError {
             }
             _ => SshError::sftp_failed(format!("{path}：{}", status.error_message)),
         },
-        Error::Timeout => SshError::timeout("SFTP 请求超时"),
-        other => SshError::sftp_failed(format!("{path}：{other}")),
+        // The server answered, so this is a business error even though the
+        // request failed: retrying the same call cannot help.
+        other @ Error::Limited(_) => SshError::sftp_failed(format!("{path}：{other}")),
+        // These mean the channel itself is gone while the SSH session may still
+        // be alive. Mark them retryable so callers can rebuild the channel.
+        Error::Timeout => SshError::sftp_channel("SFTP 请求超时"),
+        other @ (Error::IO(_) | Error::UnexpectedPacket | Error::UnexpectedBehavior(_)) => {
+            SshError::sftp_channel(format!("{path}：{other}"))
+        }
     }
+}
+
+/// Removes the cached client for `server_id` only when it is still the exact
+/// `Arc` the caller failed on, so a concurrent fresh client is never dropped.
+/// The channel is closed outside the registry lock.
+pub async fn invalidate(state: &AppState, server_id: &str, client: &Arc<SftpSession>) {
+    let removed = {
+        let mut registry = state.sftp.lock().await;
+        let matches = registry
+            .get(server_id)
+            .map(|handle| Arc::ptr_eq(&handle.client, client))
+            .unwrap_or(false);
+        if matches {
+            registry.remove(server_id)
+        } else {
+            None
+        }
+    };
+    if let Some(handle) = removed {
+        let _ = handle.client.close().await;
+    }
+}
+
+type SftpFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// Runs `operation` against the cached client and, when it fails with a
+/// retryable channel error, discards that exact client and runs the operation
+/// once more on a freshly acquired session. Business errors never retry.
+pub async fn retry_once<'a, T, A, I, F, Fut>(
+    mut acquire: A,
+    mut invalidate: I,
+    operation: F,
+) -> Result<T, SshError>
+where
+    A: FnMut() -> SftpFuture<'a, Result<Arc<SftpSession>, SshError>>,
+    I: FnMut(Arc<SftpSession>) -> SftpFuture<'a, ()>,
+    F: Fn(Arc<SftpSession>) -> Fut,
+    Fut: Future<Output = Result<T, SshError>>,
+{
+    let client = acquire().await?;
+    match operation(client.clone()).await {
+        Err(error) if error.retryable => {
+            invalidate(client).await;
+            let fresh = acquire().await?;
+            operation(fresh).await
+        }
+        result => result,
+    }
+}
+
+/// [`retry_once`] bound to the app's session registry.
+pub async fn with_retry<'a, T, F, Fut>(
+    state: &'a AppState,
+    server_id: &'a str,
+    operation: F,
+) -> Result<T, SshError>
+where
+    F: Fn(Arc<SftpSession>) -> Fut,
+    Fut: Future<Output = Result<T, SshError>>,
+{
+    let acquire_slot = move || -> SftpFuture<'a, Result<Arc<SftpSession>, SshError>> {
+        Box::pin(async move { acquire(state, server_id).await })
+    };
+    let invalidate_slot = move |client: Arc<SftpSession>| -> SftpFuture<'a, ()> {
+        Box::pin(async move {
+            invalidate(state, server_id, &client).await;
+        })
+    };
+    retry_once(acquire_slot, invalidate_slot, operation).await
 }
 
 pub async fn acquire(state: &AppState, server_id: &str) -> Result<Arc<SftpSession>, SshError> {
@@ -218,6 +295,8 @@ async fn cancel_for_server(state: &AppState, server_id: Option<&str>) {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::Mutex;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     use russh_sftp::protocol::{Status, StatusCode};
@@ -240,11 +319,38 @@ mod tests {
     }
 
     #[test]
-    fn maps_timeout_and_protocol_errors() {
-        assert_eq!(map_error(Error::Timeout, "/tmp").code, "TIMEOUT");
+    fn classifies_business_errors_as_final() {
+        let failure = map_error(status(StatusCode::Failure), "/tmp");
+        assert_eq!(failure.code, "SFTP_FAILED");
+        assert!(!failure.retryable);
+
+        let limited = map_error(Error::Limited("open files".to_string()), "/tmp");
+        assert_eq!(limited.code, "SFTP_FAILED");
+        assert!(!limited.retryable);
+        assert!(limited.message.contains("open files"));
+
+        assert!(!map_error(status(StatusCode::NoSuchFile), "/tmp").retryable);
+        assert!(!map_error(status(StatusCode::PermissionDenied), "/tmp").retryable);
+    }
+
+    #[test]
+    fn classifies_channel_failures_as_retryable() {
+        for error in [
+            Error::Timeout,
+            Error::UnexpectedPacket,
+            Error::UnexpectedBehavior("bad packet".to_string()),
+            Error::IO("broken pipe".to_string()),
+        ] {
+            let mapped = map_error(error, "/tmp");
+            assert_eq!(mapped.code, "SFTP_FAILED");
+            assert_eq!(mapped.stage, Some("sftp"));
+            assert!(mapped.retryable, "channel failure must retry");
+        }
+        // The human message is unchanged from the previous flattening.
+        assert_eq!(map_error(Error::Timeout, "/tmp").message, "SFTP 请求超时");
         assert_eq!(
-            map_error(Error::UnexpectedPacket, "/tmp").code,
-            "SFTP_FAILED"
+            map_error(Error::UnexpectedPacket, "/tmp").message,
+            "/tmp：Unexpected packet"
         );
     }
 
@@ -307,6 +413,103 @@ mod tests {
         drop_for_server(&state, "srv").await;
         assert!(state.sftp.lock().await.is_empty());
         assert!(cached_client(&state, "srv", "s2").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn invalidate_removes_only_the_matching_client() {
+        let state = AppState::new(PathBuf::from("."));
+        let cached = store_client(&state, "srv", "s1".to_string(), fake_sftp().await).await;
+
+        // A different client (e.g. a concurrent fresh acquire) must not evict
+        // the cached one.
+        let other = Arc::new(fake_sftp().await);
+        invalidate(&state, "srv", &other).await;
+        assert!(cached_client(&state, "srv", "s1").await.is_some());
+
+        invalidate(&state, "srv", &cached).await;
+        assert!(state.sftp.lock().await.is_empty());
+        assert!(cached_client(&state, "srv", "s1").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn retries_once_with_a_fresh_session_after_invalidation() {
+        let first = Arc::new(fake_sftp().await);
+        let second = Arc::new(fake_sftp().await);
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let invalidated: Arc<Mutex<Vec<Arc<SftpSession>>>> = Arc::new(Mutex::new(Vec::new()));
+
+        let result = retry_once(
+            {
+                let first = first.clone();
+                let second = second.clone();
+                let attempts = attempts.clone();
+                move || {
+                    let attempt = attempts.fetch_add(1, Ordering::SeqCst);
+                    let session = if attempt == 0 {
+                        first.clone()
+                    } else {
+                        second.clone()
+                    };
+                    Box::pin(async move { Ok(session) })
+                }
+            },
+            {
+                let invalidated = invalidated.clone();
+                move |client: Arc<SftpSession>| {
+                    invalidated.lock().expect("invalidate log").push(client);
+                    Box::pin(async {})
+                }
+            },
+            {
+                let first = first.clone();
+                move |client: Arc<SftpSession>| {
+                    let stale = Arc::ptr_eq(&client, &first);
+                    async move {
+                        if stale {
+                            Err(SshError::sftp_channel("通道已断开"))
+                        } else {
+                            Ok(7u8)
+                        }
+                    }
+                }
+            },
+        )
+        .await;
+
+        assert_eq!(result.expect("retry succeeds"), 7);
+        assert_eq!(attempts.load(Ordering::SeqCst), 2, "one retry, not a loop");
+        let invalidated = invalidated.lock().expect("invalidate log");
+        assert_eq!(invalidated.len(), 1);
+        assert!(Arc::ptr_eq(&invalidated[0], &first));
+        assert!(!Arc::ptr_eq(&invalidated[0], &second));
+    }
+
+    #[tokio::test]
+    async fn business_errors_are_not_retried() {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let invalidations = Arc::new(AtomicUsize::new(0));
+        let result = retry_once(
+            {
+                let attempts = attempts.clone();
+                move || {
+                    attempts.fetch_add(1, Ordering::SeqCst);
+                    Box::pin(async { Ok(Arc::new(fake_sftp().await)) })
+                }
+            },
+            {
+                let invalidations = invalidations.clone();
+                move |_client: Arc<SftpSession>| {
+                    invalidations.fetch_add(1, Ordering::SeqCst);
+                    Box::pin(async {})
+                }
+            },
+            |_client| async { Err::<u8, SshError>(SshError::file_not_found("gone")) },
+        )
+        .await;
+
+        assert_eq!(result.expect_err("business error").code, "FILE_NOT_FOUND");
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        assert_eq!(invalidations.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]

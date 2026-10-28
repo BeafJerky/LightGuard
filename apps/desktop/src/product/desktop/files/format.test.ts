@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { FileEntry } from '../../ssh/backend';
-import { fileIcon, fileTypeLabel, formatSize, formatTime } from './format';
+import {
+  fileIcon,
+  fileTypeLabel,
+  formatSize,
+  formatTime,
+  isImagePreviewable,
+  isTextPreviewable,
+} from './format';
 
 function entry(overrides: Partial<FileEntry> = {}): FileEntry {
   return {
@@ -38,5 +45,11 @@ describe('file formatting', () => {
     expect(fileIcon(entry({ name: 'main.rs' }))).toBe('file-text');
     expect(fileIcon(entry({ name: 'data.bin' }))).toBe('file');
     expect(fileIcon(entry({ name: 'link', kind: 'symlink' }))).toBe('link');
+  });
+
+  it('previews svg as text, never as an image', () => {
+    expect(isTextPreviewable('icon.svg')).toBe(true);
+    expect(isImagePreviewable('icon.svg')).toBe(false);
+    expect(fileIcon(entry({ name: 'icon.svg' }))).toBe('file-text');
   });
 });

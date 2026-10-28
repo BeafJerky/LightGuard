@@ -101,7 +101,7 @@ function setToggle(key: 'hostkey' | 'login', enabled: boolean) {
           {{ server.name }}{{ draft.perServer[server.id] ? '（独立）' : '' }}
         </option>
       </select>
-      <span v-if="overridden" class="rules-editor__flag">独立阈值</span>
+      <span v-if="overridden" class="rules-editor__flag">独立规则</span>
       <button v-if="overridden" type="button" class="rules-editor__reset" @click="resetOverride">
         恢复跟随全局
       </button>
@@ -264,7 +264,7 @@ function setToggle(key: 'hostkey' | 'login', enabled: boolean) {
 
       <div class="rules-editor__row">
         <span class="rules-editor__name"><LgIcon name="users" :size="15" />登录异常</span>
-        <span class="rules-editor__hint">15 分钟内失败 5 次</span>
+        <span class="rules-editor__hint">最近日志中失败 5 次</span>
         <span class="rules-editor__toggle">
           <LgSwitch
             :value="rules.login.enabled"

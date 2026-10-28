@@ -50,6 +50,7 @@ describe('AlertRulesEditor', () => {
     const next = lastUpdate(wrapper);
     expect(next.rules.login.enabled).toBe(false);
     expect(next.rules.hostkey.enabled).toBe(true);
+    expect(wrapper.find('.rules-editor__hint').text()).toBe('最近日志中失败 5 次');
     wrapper.unmount();
   });
 
@@ -62,9 +63,35 @@ describe('AlertRulesEditor', () => {
     const next = lastUpdate(wrapper);
     expect(next.perServer.srv_1?.cpu?.threshold).toBe(70);
     expect(next.perServer.srv_1?.memory?.threshold).toBe(90);
+    expect(wrapper.find('.rules-editor__flag').text()).toBe('独立规则');
 
     await wrapper.find('.rules-editor__reset').trigger('click');
     expect(lastUpdate(wrapper).perServer).toEqual({});
+    wrapper.unmount();
+  });
+
+  it('keeps settings the editor does not render when an unrelated field changes', async () => {
+    // 编辑器不显示规则开关，也不认识 servers 之外的服务器 id；
+    // 一次无关编辑必须把这些值原样带回去，不能悄悄抹掉。
+    const settings = normalizeAlertSettings({
+      rules: {
+        ...DEFAULT_ALERT_SETTINGS.rules,
+        cpu: { enabled: false, threshold: 70, sustainSeconds: 120 },
+      },
+      perServer: { srv_9: { login: { enabled: false } } },
+    });
+    const wrapper = mount(AlertRulesEditor, {
+      props: { settings, servers: [{ id: 'srv_1', name: '生产机' }] },
+    });
+
+    const memory = wrapper.find('[aria-label="内存阈值（%）"]');
+    await memory.setValue('80');
+    await memory.trigger('change');
+
+    const next = lastUpdate(wrapper);
+    expect(next.rules.memory.threshold).toBe(80);
+    expect(next.rules.cpu).toEqual({ enabled: false, threshold: 70, sustainSeconds: 120 });
+    expect(next.perServer.srv_9).toEqual({ login: { enabled: false } });
     wrapper.unmount();
   });
 

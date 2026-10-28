@@ -211,9 +211,24 @@ impl AlertService {
     }
 
     pub fn on_host_key_mismatch(&self, server_id: &str, detail: &str) {
+        // 没有数据库时既写不了新行也收口不了旧行，先于设置读取退出。
         let Some(db) = &self.db else {
             return;
         };
+        // 与 `ingest_login` 同构：规则关闭时只收口已有告警，不插入也不弹通知。
+        // 设置锁放在独立作用域里，先释放再走 `resolve_rule`（它要查库并发布），
+        // 不让读锁跨过别的锁与副作用，避免与引擎/发布路径形成反向获取顺序。
+        let (enabled, notify) = {
+            let settings = read_lock(&self.settings);
+            (
+                settings.alerts.effective(server_id).hostkey.enabled,
+                should_notify(&settings, RULE_HOSTKEY, "critical"),
+            )
+        };
+        if !enabled {
+            self.resolve_rule(server_id, RULE_HOSTKEY);
+            return;
+        }
         let server_name = self.server_name(server_id);
         let event = NewAlert {
             server_id: server_id.to_string(),
@@ -225,7 +240,7 @@ impl AlertService {
             first_seen_at: now_ms(),
         };
         if db.alert_insert(&event).is_ok() {
-            if should_notify(&read_lock(&self.settings), RULE_HOSTKEY, "critical") {
+            if notify {
                 self.notify_host("critical", &server_name, &event.title);
             }
             self.publish();
@@ -789,6 +804,82 @@ mod tests {
         let row = db.alert_active("srv_1", "hostkey").unwrap().unwrap();
         assert_eq!(row.severity, "critical");
         assert!(row.detail.contains("SHA256:new"));
+        assert_eq!(db.alerts_active_count().unwrap(), 1);
+    }
+
+    fn all_alerts(db: &Arc<Database>) -> Vec<crate::db::AlertRow> {
+        db.alerts_list(&AlertFilter {
+            statuses: &[],
+            limit: 50,
+            offset: 0,
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn disabled_hostkey_rule_stays_silent_and_resolves_the_open_row() {
+        // 通知开关保持全开：静默必须来自规则开关，而不是通知门控。通知只在插入成功后
+        // 判定，所以"没有新行"同时意味着没有通知判定。
+        let db = Arc::new(Database::in_memory());
+        let service = AlertService::new(Some(Arc::clone(&db)), None);
+        {
+            let mut settings = write_lock(&service.settings);
+            settings.notify_failure = true;
+            settings.notify_threshold = true;
+            settings.alerts.rules.hostkey.enabled = false;
+        }
+
+        service.on_host_key_mismatch("srv_2", "SHA256:old -> SHA256:new");
+        assert!(
+            all_alerts(&db).is_empty(),
+            "关闭的主机指纹规则不得插入任何行，连收口的行都不该出现"
+        );
+
+        // 已在告警中的行在关闭后要收口：再次触发只做 resolve。
+        write_lock(&service.settings)
+            .alerts
+            .rules
+            .hostkey
+            .enabled = true;
+        service.on_host_key_mismatch("srv_1", "SHA256:old -> SHA256:new");
+        assert!(db.alert_active("srv_1", RULE_HOSTKEY).unwrap().is_some());
+
+        write_lock(&service.settings)
+            .alerts
+            .rules
+            .hostkey
+            .enabled = false;
+        service.on_host_key_mismatch("srv_1", "SHA256:old -> SHA256:newer");
+        assert_eq!(db.alerts_active_count().unwrap(), 0, "关闭后收口已有告警");
+        assert!(
+            db.alert_active("srv_1", RULE_HOSTKEY).unwrap().is_none(),
+            "被收口的行不得重新打开"
+        );
+    }
+
+    #[test]
+    fn per_server_hostkey_override_disables_only_that_server() {
+        let db = Arc::new(Database::in_memory());
+        let service = AlertService::new(Some(Arc::clone(&db)), None);
+        write_lock(&service.settings)
+            .alerts
+            .per_server
+            .entry("srv_1".to_string())
+            .or_default()
+            .hostkey = Some(crate::alerts::settings::ToggleRule { enabled: false });
+
+        service.on_host_key_mismatch("srv_1", "SHA256:old -> SHA256:new");
+        assert!(
+            all_alerts(&db).is_empty(),
+            "per-server 覆盖关闭后，这台服务器不该再写入主机指纹告警"
+        );
+
+        service.on_host_key_mismatch("srv_2", "SHA256:old -> SHA256:new");
+        let row = db
+            .alert_active("srv_2", RULE_HOSTKEY)
+            .unwrap()
+            .expect("没有覆盖的服务器仍按全局规则告警");
+        assert_eq!(row.severity, "critical");
     }
 
     #[tokio::test]

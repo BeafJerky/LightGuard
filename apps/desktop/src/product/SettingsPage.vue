@@ -660,7 +660,7 @@ async function onReset() {
         <div class="setting-row rules-section">
           <div class="setting-text">
             <strong>告警规则</strong>
-            <span>更改后立即生效；选择单台服务器可写入独立阈值</span>
+            <span>更改后立即生效；选择单台服务器可写入独立规则</span>
           </div>
         </div>
         <AlertRulesEditor

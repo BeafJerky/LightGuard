@@ -46,6 +46,14 @@ impl Engine {
     pub fn clear_server(&mut self, server_id: &str) {
         self.states.retain(|(id, _), _| id != server_id);
     }
+
+    /// 丢弃单条规则的状态，让下一次越线样本重新从零累计并发出 `Open`。
+    /// 用于告警落库失败：内存态已标记 opened 而 DB 没有对应行，继续推进只会
+    /// 得到无人接收的 `Touch`。
+    pub fn forget(&mut self, server_id: &str, rule_id: &str) {
+        self.states
+            .remove(&(server_id.to_string(), rule_id.to_string()));
+    }
 }
 
 struct Signal {
@@ -544,6 +552,35 @@ mod tests {
                 rule_id: "cpu".into()
             }],
             "mute must not suppress recovery"
+        );
+    }
+
+    #[test]
+    fn forget_reopens_on_next_sustained_sample() {
+        let rules = cpu_only_rules(10);
+        let mut engine = Engine::new();
+        assert!(
+            matches!(
+                engine.step("srv", &cpu_sample(95.0), &rules, &unmuted).as_slice(),
+                [Transition::Open { .. }]
+            ),
+            "the rule must be open before forgetting it"
+        );
+        assert!(
+            matches!(
+                engine.step("srv", &cpu_sample(95.0), &rules, &unmuted).as_slice(),
+                [Transition::Touch { .. }]
+            ),
+            "an open rule keeps touching"
+        );
+
+        engine.forget("srv", "cpu");
+        assert!(
+            matches!(
+                engine.step("srv", &cpu_sample(95.0), &rules, &unmuted).as_slice(),
+                [Transition::Open { .. }]
+            ),
+            "a forgotten rule must Open again instead of Touching"
         );
     }
 

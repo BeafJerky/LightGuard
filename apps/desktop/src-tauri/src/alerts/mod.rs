@@ -3,7 +3,7 @@ pub mod notify;
 pub mod rules;
 pub mod settings;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -37,6 +37,19 @@ pub struct LoginStatus {
     pub reason: String,
 }
 
+// 策略只看 severity：critical 跟随 `notifyFailure`，其余跟随 `notifyThreshold`。
+// `rule_id` 保留在签名里供调用方统一传参，不参与判定。
+pub(crate) fn should_notify(view: &SettingsView, rule_id: &str, severity: &str) -> bool {
+    let _ = rule_id;
+    if !view.notify_threshold && severity != "critical" {
+        return false;
+    }
+    if !view.notify_failure && severity == "critical" {
+        return false;
+    }
+    true
+}
+
 pub struct AlertService {
     db: Option<Arc<Database>>,
     // lib 测试二进制没有应用清单，而 `AppHandle` 的析构会把 tauri 平台层
@@ -51,6 +64,7 @@ pub struct AlertService {
     offline: Mutex<HashMap<String, JoinHandle<()>>>,
     logins: Mutex<HashMap<String, JoinHandle<()>>>,
     login_status: Mutex<HashMap<String, LoginStatus>>,
+    connected: Mutex<HashSet<String>>,
 }
 
 impl AlertService {
@@ -68,6 +82,7 @@ impl AlertService {
             offline: Mutex::new(HashMap::new()),
             logins: Mutex::new(HashMap::new()),
             login_status: Mutex::new(HashMap::new()),
+            connected: Mutex::new(HashSet::new()),
         });
         service.reload_settings();
         service
@@ -97,6 +112,7 @@ impl AlertService {
     }
 
     pub fn start(self: &Arc<Self>, server_id: String, handle: Arc<Handle<ClientHandler>>) {
+        lock_map(&self.connected).insert(server_id.clone());
         self.stop_sampling(&server_id);
         self.cancel_offline(&server_id);
         self.resolve_rule(&server_id, RULE_OFFLINE);
@@ -129,6 +145,7 @@ impl AlertService {
     }
 
     pub fn on_session_closed(self: &Arc<Self>, server_id: &str) {
+        lock_map(&self.connected).remove(server_id);
         self.stop_sampling(server_id);
         let (enabled, grace) = {
             let settings = read_lock(&self.settings);
@@ -146,12 +163,13 @@ impl AlertService {
         let id = server_id.clone();
         let task = tokio::spawn(async move {
             tokio::time::sleep(grace).await;
-            service.open_offline(&id);
+            service.open_offline(&id, grace);
         });
         lock_map(&self.offline).insert(server_id, task);
     }
 
     pub fn on_explicit_disconnect(&self, server_id: &str) {
+        lock_map(&self.connected).remove(server_id);
         self.stop_sampling(server_id);
         self.cancel_offline(server_id);
         lock_map(&self.engine).clear_server(server_id);
@@ -176,7 +194,7 @@ impl AlertService {
             first_seen_at: now_ms(),
         };
         if db.alert_insert(&event).is_ok() {
-            if read_lock(&self.settings).notify_failure {
+            if should_notify(&read_lock(&self.settings), RULE_HOSTKEY, "critical") {
                 self.notify_host("critical", &server_name, &event.title);
             }
             self.publish();
@@ -185,6 +203,7 @@ impl AlertService {
 
     pub fn reset(&self) {
         self.abort_all();
+        lock_map(&self.connected).clear();
         lock_map(&self.engine).clear();
         lock_map(&self.login_status).clear();
         self.reload_settings();
@@ -199,8 +218,13 @@ impl AlertService {
     }
 
     pub fn publish(&self) {
-        let count = self.active_count();
-        self.announce(count);
+        let Some(db) = &self.db else {
+            self.announce(0);
+            return;
+        };
+        if let Ok(count) = db.alerts_active_count() {
+            self.announce(count);
+        }
     }
 
     #[cfg(not(test))]
@@ -259,25 +283,32 @@ impl AlertService {
                         detail,
                         first_seen_at: now_ms(),
                     };
-                    if db.alert_insert(&event).is_err() {
+                    if let Err(error) = db.alert_insert(&event) {
+                        eprintln!(
+                            "[lightguard] alert insert failed for {server_id}/{rule_id}: {error}"
+                        );
+                        lock_map(&self.engine).forget(server_id, &rule_id);
                         continue;
                     }
-                    let notify_enabled = {
-                        let settings = read_lock(&self.settings);
-                        if rules::is_resource(&rule_id) {
-                            settings.notify_threshold
-                        } else {
-                            settings.notify_failure
-                        }
-                    };
-                    if notify_enabled && severity != "info" {
+                    let notify = should_notify(&read_lock(&self.settings), &rule_id, &severity);
+                    if notify {
                         self.notify_host(&severity, server_name, &title);
                     }
                     self.publish();
                 }
                 Transition::Touch { rule_id, title } => {
-                    if let Ok(Some(row)) = db.alert_active(server_id, &rule_id) {
-                        let _ = db.alert_touch(row.id, &title, now_ms());
+                    match db.alert_active(server_id, &rule_id) {
+                        Ok(Some(row)) => {
+                            if let Err(error) = db.alert_touch(row.id, &title, now_ms()) {
+                                eprintln!(
+                                    "[lightguard] alert touch failed for {server_id}/{rule_id}: {error}"
+                                );
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(error) => eprintln!(
+                            "[lightguard] alert lookup failed for {server_id}/{rule_id}: {error}"
+                        ),
                     }
                 }
                 Transition::Resolve { rule_id } => self.resolve_rule(server_id, &rule_id),
@@ -289,33 +320,53 @@ impl AlertService {
         let Some(db) = &self.db else {
             return;
         };
-        if let Ok(Some(row)) = db.alert_active(server_id, rule_id) {
-            let _ = db.alert_resolve(row.id);
-            self.publish();
+        match db.alert_active(server_id, rule_id) {
+            Ok(Some(row)) => {
+                if let Err(error) = db.alert_resolve(row.id) {
+                    eprintln!(
+                        "[lightguard] alert resolve failed for {server_id}/{rule_id}: {error}"
+                    );
+                }
+                self.publish();
+            }
+            Ok(None) => {}
+            Err(error) => eprintln!(
+                "[lightguard] alert lookup failed for {server_id}/{rule_id}: {error}"
+            ),
         }
     }
 
-    fn open_offline(&self, server_id: &str) {
+    fn open_offline(&self, server_id: &str, grace: Duration) {
+        // 重连与定时器唤醒可能交错：会话若已恢复，这条离线告警就不该再开。
+        let still_connected = lock_map(&self.connected).contains(server_id);
+        if still_connected {
+            return;
+        }
         let Some(db) = &self.db else {
             return;
         };
-        let grace = read_lock(&self.settings)
-            .alerts
-            .effective(server_id)
-            .offline
-            .grace_seconds;
+        let (enabled, notify) = {
+            let settings = read_lock(&self.settings);
+            (
+                settings.alerts.effective(server_id).offline.enabled,
+                should_notify(&settings, RULE_OFFLINE, "critical"),
+            )
+        };
+        if !enabled {
+            return;
+        }
         let server_name = self.server_name(server_id);
         let event = NewAlert {
             server_id: server_id.to_string(),
             server_name: server_name.clone(),
             rule_id: RULE_OFFLINE.to_string(),
             severity: "critical".to_string(),
-            title: format!("服务器连接中断超过 {grace} 秒"),
+            title: format!("服务器连接中断超过 {} 秒", grace.as_secs()),
             detail: String::new(),
             first_seen_at: now_ms(),
         };
         if db.alert_insert(&event).is_ok() {
-            if read_lock(&self.settings).notify_failure {
+            if notify {
                 self.notify_host("critical", &server_name, &event.title);
             }
             self.publish();
@@ -444,8 +495,10 @@ mod tests {
         service.record_sample("srv_1", "web-01", &cpu(95.0));
         assert_eq!(db.alerts_active_count().unwrap(), 1);
 
+        lock_map(&service.connected).insert("srv_1".to_string());
         service.on_explicit_disconnect("srv_1");
         assert_eq!(db.alerts_active_count().unwrap(), 0);
+        assert!(!lock_map(&service.connected).contains("srv_1"));
     }
 
     #[test]
@@ -485,5 +538,80 @@ mod tests {
         let row = db.alert_active("srv_1", "offline").unwrap().expect("offline alert");
         assert_eq!(row.severity, "critical");
         assert!(row.title.contains("连接中断"), "title was {}", row.title);
+    }
+
+    #[tokio::test]
+    async fn offline_timer_skips_when_session_reconnected() {
+        let db = Arc::new(Database::in_memory());
+        let service = service_with(&db);
+        lock_map(&service.connected).insert("srv_1".to_string());
+        service.schedule_offline("srv_1".to_string(), Duration::from_millis(5));
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        assert!(
+            db.alert_active("srv_1", "offline").unwrap().is_none(),
+            "a reconnected session must not open an offline alert"
+        );
+    }
+
+    #[tokio::test]
+    async fn session_close_marks_server_offline_and_alerts() {
+        let db = Arc::new(Database::in_memory());
+        let service = service_with(&db);
+        lock_map(&service.connected).insert("srv_1".to_string());
+        write_lock(&service.settings).alerts.rules.offline.grace_seconds = 0;
+        service.on_session_closed("srv_1");
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        assert!(!lock_map(&service.connected).contains("srv_1"));
+        assert!(db.alert_active("srv_1", "offline").unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn offline_timer_respects_rule_disabled_at_fire_time() {
+        let db = Arc::new(Database::in_memory());
+        let service = service_with(&db);
+        service.schedule_offline("srv_1".to_string(), Duration::from_millis(5));
+        write_lock(&service.settings).alerts.rules.offline.enabled = false;
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        assert!(db.alert_active("srv_1", "offline").unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn offline_title_keeps_the_scheduled_grace() {
+        let db = Arc::new(Database::in_memory());
+        let service = service_with(&db);
+        service.schedule_offline("srv_1".to_string(), Duration::from_millis(5));
+        write_lock(&service.settings)
+            .alerts
+            .rules
+            .offline
+            .grace_seconds = 300;
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        let row = db.alert_active("srv_1", "offline").unwrap().expect("offline alert");
+        assert!(
+            row.title.contains("超过 0 秒"),
+            "title must use the grace captured at schedule time, was {}",
+            row.title
+        );
+    }
+
+    fn notify_view(notify_failure: bool, notify_threshold: bool) -> SettingsView {
+        let mut view = parse_settings(None);
+        view.notify_failure = notify_failure;
+        view.notify_threshold = notify_threshold;
+        view
+    }
+
+    #[test]
+    fn should_notify_respects_failure_and_threshold_toggles() {
+        assert!(
+            !should_notify(&notify_view(false, true), "offline", "critical"),
+            "critical alerts follow the failure toggle"
+        );
+        assert!(
+            !should_notify(&notify_view(true, false), "cpu", "warning"),
+            "threshold alerts follow the threshold toggle"
+        );
+        assert!(should_notify(&notify_view(true, true), "cpu", "warning"));
+        assert!(should_notify(&notify_view(true, false), "offline", "critical"));
     }
 }

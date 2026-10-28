@@ -6,6 +6,7 @@ pub mod rules;
 pub mod settings;
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -34,6 +35,9 @@ pub(crate) fn now_ms() -> i64 {
 }
 
 const SAMPLE_INTERVAL: Duration = Duration::from_secs(10);
+
+/// 保留裁剪只在启动时跑一次会一直拖到重启；采样路径上按小时限频补跑。
+const PRUNE_INTERVAL_MS: i64 = 60 * 60 * 1000;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoginStatus {
@@ -91,6 +95,8 @@ pub struct AlertService {
     login_status: Mutex<HashMap<String, LoginStatus>>,
     login_baseline: Mutex<HashSet<String>>,
     connected: Mutex<HashSet<String>>,
+    /// 上次保留裁剪的时刻（毫秒），只在采样写入路径上做无锁限频。
+    last_prune: AtomicI64,
 }
 
 impl AlertService {
@@ -110,6 +116,7 @@ impl AlertService {
             login_status: Mutex::new(HashMap::new()),
             login_baseline: Mutex::new(HashSet::new()),
             connected: Mutex::new(HashSet::new()),
+            last_prune: AtomicI64::new(0),
         });
         service.reload_settings();
         service
@@ -132,10 +139,30 @@ impl AlertService {
 
     pub fn startup(&self) {
         if let Some(db) = &self.db {
-            let _ = db.prune_retention(now_ms());
+            let now = now_ms();
+            if let Err(error) = db.prune_retention(now) {
+                eprintln!("[lightguard] retention prune failed: {error}");
+            }
+            self.last_prune.store(now, Ordering::Relaxed);
             let _ = db.alerts_resolve_all_active();
         }
         self.publish();
+    }
+
+    /// 采样写入后的补跑：限频一小时，失败只记日志，不阻塞采样。
+    fn prune_if_due(&self) {
+        let Some(db) = &self.db else {
+            return;
+        };
+        let now = now_ms();
+        let last = self.last_prune.load(Ordering::Relaxed);
+        if now - last < PRUNE_INTERVAL_MS {
+            return;
+        }
+        self.last_prune.store(now, Ordering::Relaxed);
+        if let Err(error) = db.prune_retention(now) {
+            eprintln!("[lightguard] retention prune failed: {error}");
+        }
     }
 
     pub fn start(self: &Arc<Self>, server_id: String, handle: Arc<Handle<ClientHandler>>) {
@@ -160,10 +187,12 @@ impl AlertService {
                         failures = 0;
                         service.record_sample(&id, &server_name, &sample);
                     }
-                    Err(_) => {
+                    Err(error) => {
+                        // 采样失败不等于会话结束：ticker 自带 10 秒节拍，继续重试即可；
+                        // 只有 stop_sampling/abort 才该结束这个循环。
                         failures += 1;
-                        if failures >= 3 {
-                            break;
+                        if failures == 3 {
+                            eprintln!("[lightguard] sampling failed {failures}x for {id}: {error}");
                         }
                     }
                 }
@@ -313,6 +342,7 @@ impl AlertService {
             let mut engine = lock_map(&self.engine);
             engine.step(server_id, sample, &rules, &muted)
         };
+        let wrote = !transitions.is_empty();
         for transition in transitions {
             match transition {
                 Transition::Open {
@@ -352,7 +382,31 @@ impl AlertService {
                                 );
                             }
                         }
-                        Ok(None) => {}
+                        // 引擎仍处 opened 态（例如这条告警被忽略），没有活跃行时可
+                        // 能在忽略窗口到期后重开；静音期间保持沉默，与 Open 一致。
+                        Ok(None) => {
+                            if muted(&rule_id) {
+                                continue;
+                            }
+                            match db.alert_reopen_ignored(server_id, &rule_id, &title, now_ms()) {
+                                Ok(false) => {}
+                                Ok(true) => {
+                                    let severity = rules::severity(&rule_id).to_string();
+                                    let notify = should_notify(
+                                        &read_lock(&self.settings),
+                                        &rule_id,
+                                        &severity,
+                                    );
+                                    if notify {
+                                        self.notify_host(&severity, server_name, &title);
+                                    }
+                                    self.publish();
+                                }
+                                Err(error) => eprintln!(
+                                    "[lightguard] alert reopen failed for {server_id}/{rule_id}: {error}"
+                                ),
+                            }
+                        }
                         Err(error) => eprintln!(
                             "[lightguard] alert lookup failed for {server_id}/{rule_id}: {error}"
                         ),
@@ -360,6 +414,9 @@ impl AlertService {
                 }
                 Transition::Resolve { rule_id } => self.resolve_rule(server_id, &rule_id),
             }
+        }
+        if wrote {
+            self.prune_if_due();
         }
     }
 
@@ -1125,6 +1182,95 @@ mod tests {
         );
         service.ignore_alert(id, "维护中", now_ms() + 60_000).unwrap();
         assert!(db.alert_active("srv_1", "cpu").unwrap().is_none());
+    }
+
+    #[test]
+    fn expired_ignore_reopens_as_a_new_active_row() {
+        let db = Arc::new(Database::in_memory());
+        let service = service_with(&db);
+        service.record_sample("srv_1", "web-01", &cpu(95.0));
+        let ignored_id = db.alert_active("srv_1", "cpu").unwrap().unwrap().id;
+        db.alert_ignore(ignored_id, "维护窗口", 1).unwrap();
+
+        service.record_sample("srv_1", "web-01", &cpu(97.0));
+
+        let active = db
+            .alert_active("srv_1", "cpu")
+            .unwrap()
+            .expect("忽略到期后条件仍成立，必须重新开启活跃行");
+        assert_ne!(active.id, ignored_id, "重开是新行，历史行保持不动");
+        assert_eq!(active.title, "CPU 使用率 97%");
+        let rows = all_alerts(&db);
+        assert_eq!(rows.len(), 2, "忽略行留在历史里，不参与重开");
+        let ignored = rows.iter().find(|row| row.id == ignored_id).unwrap();
+        assert_eq!(ignored.status, "ignored");
+        assert_eq!(ignored.ignore_reason, "维护窗口");
+    }
+
+    #[test]
+    fn unexpired_ignore_stays_closed() {
+        let db = Arc::new(Database::in_memory());
+        let service = service_with(&db);
+        service.record_sample("srv_1", "web-01", &cpu(95.0));
+        let id = db.alert_active("srv_1", "cpu").unwrap().unwrap().id;
+        db.alert_ignore(id, "维护窗口", now_ms() + 60_000).unwrap();
+
+        service.record_sample("srv_1", "web-01", &cpu(97.0));
+
+        assert!(
+            db.alert_active("srv_1", "cpu").unwrap().is_none(),
+            "忽略窗口未到期不得重开"
+        );
+        assert_eq!(all_alerts(&db).len(), 1);
+    }
+
+    #[test]
+    fn muted_rule_does_not_reopen_an_expired_ignore() {
+        let db = Arc::new(Database::in_memory());
+        let service = service_with(&db);
+        service.record_sample("srv_1", "web-01", &cpu(95.0));
+        let id = db.alert_active("srv_1", "cpu").unwrap().unwrap().id;
+        db.alert_ignore(id, "维护窗口", 1).unwrap();
+        db.alert_mute_add("srv_1", Some("cpu"), now_ms() + 60_000)
+            .unwrap();
+
+        service.record_sample("srv_1", "web-01", &cpu(97.0));
+
+        assert!(
+            db.alert_active("srv_1", "cpu").unwrap().is_none(),
+            "静音期间与 Open 一致：即使忽略已到期也不重开"
+        );
+        assert_eq!(all_alerts(&db).len(), 1);
+    }
+
+    #[test]
+    fn retention_prune_runs_at_most_once_an_hour() {
+        let db = Arc::new(Database::in_memory());
+        let service = service_with(&db);
+        let stale = now_ms() - 40 * 24 * 60 * 60 * 1000;
+        let mut event = NewAlert {
+            server_id: "srv_1".to_string(),
+            server_name: "web-01".to_string(),
+            rule_id: "cpu".to_string(),
+            severity: "warning".to_string(),
+            title: "40 天前的告警".to_string(),
+            detail: String::new(),
+            first_seen_at: stale,
+        };
+        db.alert_insert(&event).unwrap();
+        service.prune_if_due();
+        assert!(
+            db.alert_active("srv_1", "cpu").unwrap().is_none(),
+            "首次补跑按保留窗口删除过期行"
+        );
+
+        event.title = "第二条过期告警".to_string();
+        db.alert_insert(&event).unwrap();
+        service.prune_if_due();
+        assert!(
+            db.alert_active("srv_1", "cpu").unwrap().is_some(),
+            "限频窗口内不得再次裁剪"
+        );
     }
 
     #[test]

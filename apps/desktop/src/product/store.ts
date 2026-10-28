@@ -301,6 +301,14 @@ function schedulePersist() {
   }, 300);
 }
 
+/** 丢弃尚未落地的防抖写入；测试在换夹具前必须调用，否则旧计时器会覆盖新夹具。 */
+export function cancelPendingPersist() {
+  if (persistTimer) {
+    window.clearTimeout(persistTimer);
+    persistTimer = undefined;
+  }
+}
+
 function persistLocal() {
   try {
     window.localStorage.setItem(
@@ -320,10 +328,7 @@ function persistLocal() {
 }
 
 export function persistNow() {
-  if (persistTimer) {
-    window.clearTimeout(persistTimer);
-    persistTimer = undefined;
-  }
+  cancelPendingPersist();
   if (isPersistenceActive()) {
     void replaceStoredState({
       themes: { ...state.themes },

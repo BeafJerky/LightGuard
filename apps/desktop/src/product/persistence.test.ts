@@ -57,7 +57,9 @@ async function loadModules() {
   return { store };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  // 上一个用例留下的 300ms 防抖写入会在本用例夹具落盘后触发；先取消它的计时器。
+  (await import('./store')).cancelPendingPersist();
   window.localStorage.clear();
   invoke.mockReset();
   disableTauri();

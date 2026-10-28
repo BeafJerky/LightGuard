@@ -1,5 +1,5 @@
 use rusqlite::types::Value;
-use rusqlite::{params, params_from_iter, OptionalExtension};
+use rusqlite::{params, params_from_iter, OptionalExtension, Transaction};
 use serde::Serialize;
 
 use super::{Database, DbError};
@@ -72,43 +72,99 @@ fn row_from(row: &rusqlite::Row<'_>) -> rusqlite::Result<AlertRow> {
     })
 }
 
+/// 活跃行就地更新、否则插入新行；调用方必须已在写事务里。
+fn upsert_active_alert(tx: &Transaction<'_>, event: &NewAlert) -> Result<i64, DbError> {
+    let existing: Option<i64> = tx
+        .query_row(
+            "SELECT id FROM alerts
+             WHERE server_id = ?1 AND rule_id = ?2 AND status = 'active'",
+            params![event.server_id, event.rule_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(DbError::write)?;
+    if let Some(id) = existing {
+        tx.execute(
+            "UPDATE alerts SET title = ?2, detail = ?3, last_seen_at = ?4 WHERE id = ?1",
+            params![id, event.title, event.detail, event.first_seen_at],
+        )
+        .map_err(DbError::write)?;
+        return Ok(id);
+    }
+    tx.execute(
+        "INSERT INTO alerts
+           (server_id, server_name, rule_id, severity, status, title, detail,
+            first_seen_at, last_seen_at)
+         VALUES (?1, ?2, ?3, ?4, 'active', ?5, ?6, ?7, ?7)",
+        params![
+            event.server_id,
+            event.server_name,
+            event.rule_id,
+            event.severity,
+            event.title,
+            event.detail,
+            event.first_seen_at
+        ],
+    )
+    .map_err(DbError::write)?;
+    Ok(tx.last_insert_rowid())
+}
+
 impl Database {
     pub(crate) fn alert_insert(&self, event: &NewAlert) -> Result<i64, DbError> {
+        self.write_tx(|tx| upsert_active_alert(tx, event))
+    }
+
+    /// 忽略窗口到期后重新开启一条告警：`ignored` 行原样留在历史里，另插一行 `active`。
+    /// 忽略期间引擎仍处 opened 态，只会发 `Touch`；没有这个入口就再也不会出现活跃行。
+    /// 唯一部分索引要求此刻没有别的活跃行，所以存在活跃行时直接返回 false。
+    pub(crate) fn alert_reopen_ignored(
+        &self,
+        server_id: &str,
+        rule_id: &str,
+        title: &str,
+        now: i64,
+    ) -> Result<bool, DbError> {
         self.write_tx(|tx| {
-            let existing: Option<i64> = tx
+            let previous: Option<String> = tx
                 .query_row(
-                    "SELECT id FROM alerts
-                     WHERE server_id = ?1 AND rule_id = ?2 AND status = 'active'",
-                    params![event.server_id, event.rule_id],
+                    "SELECT server_name FROM alerts
+                     WHERE server_id = ?1 AND rule_id = ?2 AND status = 'ignored'
+                       AND ignored_until IS NOT NULL AND ignored_until <= ?3
+                     ORDER BY ignored_until DESC, id DESC LIMIT 1",
+                    params![server_id, rule_id, now],
                     |row| row.get(0),
                 )
                 .optional()
                 .map_err(DbError::write)?;
-            if let Some(id) = existing {
-                tx.execute(
-                    "UPDATE alerts SET title = ?2, detail = ?3, last_seen_at = ?4 WHERE id = ?1",
-                    params![id, event.title, event.detail, event.first_seen_at],
+            let Some(server_name) = previous else {
+                return Ok(false);
+            };
+            let active: Option<i64> = tx
+                .query_row(
+                    "SELECT id FROM alerts
+                     WHERE server_id = ?1 AND rule_id = ?2 AND status = 'active'",
+                    params![server_id, rule_id],
+                    |row| row.get(0),
                 )
+                .optional()
                 .map_err(DbError::write)?;
-                return Ok(id);
+            if active.is_some() {
+                return Ok(false);
             }
-            tx.execute(
-                "INSERT INTO alerts
-                   (server_id, server_name, rule_id, severity, status, title, detail,
-                    first_seen_at, last_seen_at)
-                 VALUES (?1, ?2, ?3, ?4, 'active', ?5, ?6, ?7, ?7)",
-                params![
-                    event.server_id,
-                    event.server_name,
-                    event.rule_id,
-                    event.severity,
-                    event.title,
-                    event.detail,
-                    event.first_seen_at
-                ],
-            )
-            .map_err(DbError::write)?;
-            Ok(tx.last_insert_rowid())
+            upsert_active_alert(
+                tx,
+                &NewAlert {
+                    server_id: server_id.to_string(),
+                    server_name,
+                    rule_id: rule_id.to_string(),
+                    severity: crate::alerts::rules::severity(rule_id).to_string(),
+                    title: title.to_string(),
+                    detail: String::new(),
+                    first_seen_at: now,
+                },
+            )?;
+            Ok(true)
         })
     }
 

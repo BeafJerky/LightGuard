@@ -46,7 +46,8 @@ let themeObserver: ResizeObserver | null = null;
 let stopAlerts: () => void = () => {};
 
 onMounted(() => {
-  void loadAlerts('open');
+  // Web 构建没有告警命令：调用只会把 UNSUPPORTED 写进 alertsState.error。
+  if (backendAvailable) void loadAlerts('open');
   stopAlerts = subscribeAlerts(() => {
     if (route.value.name === 'alerts') void loadAlerts();
   });

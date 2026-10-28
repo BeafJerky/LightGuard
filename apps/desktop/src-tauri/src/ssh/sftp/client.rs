@@ -67,7 +67,16 @@ pub async fn acquire(state: &AppState, server_id: &str) -> Result<Arc<SftpSessio
         .await
         .map_err(|error| SshError::sftp_failed(format!("SFTP 握手失败：{error}")))?;
 
-    Ok(store_client(state, server_id, session_id, client).await)
+    // The handshake above awaits, so the server may have reconnected meanwhile:
+    // the captured id can be stale and must not key the fresh SFTP session.
+    let current = match current_session_id(state, server_id).await {
+        Ok(current) => current,
+        Err(error) => {
+            let _ = client.close().await;
+            return Err(error);
+        }
+    };
+    adopt(state, server_id, &session_id, &current, client).await
 }
 
 pub async fn session_handle(
@@ -129,6 +138,36 @@ async fn cached_client(
         .map(|existing| existing.client.clone())
 }
 
+/// The session id registered for `server_id` right now, re-read after the SFTP
+/// handshake so a reconnect during that await is detected.
+async fn current_session_id(state: &AppState, server_id: &str) -> Result<String, SshError> {
+    let session = {
+        let sessions = state.sessions.lock().await;
+        sessions
+            .get(server_id)
+            .cloned()
+            .ok_or_else(SshError::session_not_found)?
+    };
+    let entry = session.lock().await;
+    Ok(entry.session_id.clone())
+}
+
+/// Post-handshake commit: a client whose handshake straddled a reconnect is
+/// closed instead of cached, because its channel belongs to a dead session.
+async fn adopt(
+    state: &AppState,
+    server_id: &str,
+    captured: &str,
+    current: &str,
+    client: SftpSession,
+) -> Result<Arc<SftpSession>, SshError> {
+    if captured != current {
+        let _ = client.close().await;
+        return Err(SshError::sftp_failed("会话已更新，请重新加载"));
+    }
+    Ok(store_client(state, server_id, captured.to_string(), client).await)
+}
+
 async fn store_client(
     state: &AppState,
     server_id: &str,
@@ -136,10 +175,16 @@ async fn store_client(
     client: SftpSession,
 ) -> Arc<SftpSession> {
     let mut registry = state.sftp.lock().await;
-    if let Some(existing) = registry.get(server_id) {
-        if existing.session_id == session_id {
-            return existing.client.clone();
-        }
+    let existing = registry
+        .get(server_id)
+        .filter(|existing| existing.session_id == session_id)
+        .map(|existing| existing.client.clone());
+    if let Some(existing) = existing {
+        // A concurrent acquire cached this session first: keep its client and
+        // close the late one rather than leaking the channel.
+        drop(registry);
+        let _ = client.close().await;
+        return existing;
     }
     let client = Arc::new(client);
     registry.insert(
@@ -254,6 +299,32 @@ mod tests {
         drop_for_server(&state, "srv").await;
         assert!(state.sftp.lock().await.is_empty());
         assert!(cached_client(&state, "srv", "s2").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn rejects_sftp_session_adopted_after_reconnect() {
+        let state = AppState::new(PathBuf::from("."));
+
+        // Handshake started on s1, but the reconnect made s2 the live session:
+        // the freshly built client must be rejected and nothing may be cached.
+        let stale = adopt(&state, "srv", "s1", "s2", fake_sftp().await)
+            .await
+            .err()
+            .expect("stale session is rejected");
+        assert_eq!(stale.code, "SFTP_FAILED");
+        assert!(stale.message.contains("会话已更新"));
+        assert!(state.sftp.lock().await.is_empty());
+
+        // Control: the same adoption succeeds while the session is unchanged.
+        let stored = adopt(&state, "srv", "s1", "s1", fake_sftp().await)
+            .await
+            .expect("current session is cached");
+        {
+            let registry = state.sftp.lock().await;
+            let handle = registry.get("srv").expect("registry entry");
+            assert_eq!(handle.session_id, "s1");
+            assert!(Arc::ptr_eq(&handle.client, &stored));
+        }
     }
 
     #[tokio::test]

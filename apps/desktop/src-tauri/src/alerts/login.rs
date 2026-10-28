@@ -1,15 +1,26 @@
 // 只读：仅通过 journalctl / tail 读取登录日志，不写文件、不提权。
+// journalctl 存在不代表能读系统日志（非 systemd-journal/adm 组时会静默返回空），
+// 因此先捕获输出，只有真的拿到 ssh 日志才打印标记，否则继续回落到文件日志。
 pub const LOGIN_SCRIPT: &str = r#"LC_ALL=C; export LC_ALL
 if command -v journalctl >/dev/null 2>&1; then
-  echo '###LG:src=journal###'
-  journalctl -q --no-pager --since '-15 min' -u ssh -u sshd 2>/dev/null | tail -n 500
-elif [ -r /var/log/auth.log ]; then
+  lg_journal=$(journalctl -q --no-pager --since '-15 min' -u ssh -u sshd 2>/dev/null | tail -n 500)
+  if [ -n "$lg_journal" ]; then
+    echo '###LG:src=journal###'
+    printf '%s\n' "$lg_journal"
+    exit 0
+  fi
+fi
+if [ -r /var/log/auth.log ]; then
   echo '###LG:src=authlog###'
   tail -n 500 /var/log/auth.log
-elif [ -r /var/log/secure ]; then
+  exit 0
+fi
+if [ -r /var/log/secure ]; then
   echo '###LG:src=secure###'
   tail -n 500 /var/log/secure
+  exit 0
 fi
+exit 0
 "#;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -118,9 +129,59 @@ Jul 01 host sshd[1]: Accepted publickey for admin from 198.51.100.7 port 5005 ss
     }
 
     #[test]
+    fn empty_journal_falls_back_to_file_sources() {
+        // journalctl 存在但读不到系统日志时只会产出空输出，脚本此时不打 journal 标记，
+        // 而是继续落到 auth.log / secure，两者都必须照常可解析。
+        let authlog = parse_login(
+            "###LG:src=authlog###\n\
+             Jul 01 host sshd[1]: Failed password for root from 203.0.113.9 port 5000 ssh2\n",
+        );
+        assert!(authlog.available);
+        assert_eq!(authlog.source, "authlog");
+        assert_eq!(authlog.failed, 1);
+
+        let secure = parse_login(
+            "###LG:src=secure###\n\
+             Jul 01 host sshd[1]: Failed password for admin from 198.51.100.7 port 5001 ssh2\n\
+             Jul 01 host sshd[1]: Accepted password for admin from 198.51.100.7 port 5002 ssh2\n",
+        );
+        assert!(secure.available);
+        assert_eq!(secure.source, "secure");
+        assert_eq!(secure.failed, 1);
+        assert_eq!(secure.accepted, vec!["198.51.100.7"]);
+    }
+
+    #[test]
     fn script_stays_read_only() {
         for forbidden in ["rm ", "mkdir", "chmod", "sudo", "tee", "touch"] {
             assert!(!LOGIN_SCRIPT.contains(forbidden), "脚本不得包含 {forbidden}");
         }
+        for source in ["journal", "authlog", "secure"] {
+            assert!(
+                LOGIN_SCRIPT.contains(&format!("###LG:src={source}###")),
+                "缺少 {source} 标记"
+            );
+        }
+    }
+
+    #[test]
+    fn journal_branch_requires_output_before_its_marker() {
+        let capture = LOGIN_SCRIPT
+            .find("lg_journal=$(journalctl")
+            .expect("journalctl 输出必须先捕获");
+        let guard = LOGIN_SCRIPT
+            .find("[ -n \"$lg_journal\" ]")
+            .expect("journal 分支必须要求非空输出");
+        let marker = LOGIN_SCRIPT
+            .find("###LG:src=journal###")
+            .expect("journal 标记");
+        assert!(
+            capture < guard && guard < marker,
+            "空的 journalctl 输出不得打印 journal 标记"
+        );
+        assert!(
+            LOGIN_SCRIPT.matches("exit 0").count() >= 3,
+            "每个日志来源命中后都应立即结束脚本"
+        );
     }
 }

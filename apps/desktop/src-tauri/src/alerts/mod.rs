@@ -15,7 +15,7 @@ use tauri::AppHandle;
 use tauri::Emitter;
 use tokio::task::JoinHandle;
 
-use crate::db::{AlertFilter, Database, NewAlert};
+use crate::db::{AlertFilter, AlertRow, Database, NewAlert};
 use crate::ssh::collector::CollectorState;
 use crate::ssh::error::SshError;
 use crate::ssh::sampler::{self, Sample};
@@ -67,6 +67,12 @@ pub(crate) fn should_notify(view: &SettingsView, rule_id: &str, severity: &str) 
         return view.notify_failure;
     }
     view.notify_threshold
+}
+
+/// 登录失败告警与引擎路径一致：`alert_insert` 对活跃行是就地更新（返回同一 id），
+/// 所以只有"此前没有活跃行"才是这波失败的第一个上升沿，其余轮次只刷新标题与计数。
+fn login_burst_is_new(previous_active: Option<&AlertRow>) -> bool {
+    previous_active.is_none()
 }
 
 pub struct AlertService {
@@ -430,6 +436,8 @@ impl AlertService {
         if let Some(task) = lock_map(&self.logins).remove(server_id) {
             task.abort();
         }
+        // 监控已停：状态表里不能再留着这台机器，否则已断开的服务器仍在"登录监控"里挂着。
+        lock_map(&self.login_status).remove(server_id);
     }
 
     fn mark_login_unavailable(&self, server_id: &str) {
@@ -518,17 +526,31 @@ impl AlertService {
             return;
         }
         if report.failed >= 5 {
+            // 判定必须在插入之前：插入对活跃行是就地更新，插入后再查只会得到"已存在"。
+            let rising_edge = match db.alert_active(server_id, RULE_LOGIN) {
+                Ok(previous) => login_burst_is_new(previous.as_ref()),
+                Err(error) => {
+                    eprintln!(
+                        "[lightguard] alert lookup failed for {server_id}/{RULE_LOGIN}: {error}"
+                    );
+                    // 查不到状态时按"已在告警中"处理：宁可少弹一次，也不要每 60 秒重复刷屏。
+                    false
+                }
+            };
             let event = NewAlert {
                 server_id: server_id.to_string(),
                 server_name: server_name.clone(),
                 rule_id: RULE_LOGIN.to_string(),
                 severity: "warning".to_string(),
-                title: format!("15 分钟内失败登录 {} 次", report.failed),
+                title: format!("最近日志中失败登录 {} 次", report.failed),
                 detail: String::new(),
                 first_seen_at: now_ms(),
             };
+            // 每轮都插入（就地更新）让标题里的次数保持新鲜，但只有上升沿才弹通知。
             if db.alert_insert(&event).is_ok() {
-                if should_notify(&read_lock(&self.settings), RULE_LOGIN, "warning") {
+                let announce =
+                    rising_edge && should_notify(&read_lock(&self.settings), RULE_LOGIN, "warning");
+                if announce {
                     self.notify_host("warning", &server_name, &event.title);
                 }
                 self.publish();
@@ -600,6 +622,8 @@ impl AlertService {
         };
         db.alert_mute_add(server_id, rule_id, until_ms)
             .map_err(|error| SshError::internal(error.to_string()))?;
+        // 静音会改变后续告警的可见性，让打开着的告警列表立刻刷新一次。
+        self.publish();
         Ok(())
     }
 
@@ -886,6 +910,69 @@ mod tests {
         assert_eq!(row.severity, "warning");
         service.ingest_login("srv_1", &login_report(1, &["203.0.113.9"]));
         assert_eq!(db.alerts_active_count().unwrap(), 0);
+    }
+
+    #[test]
+    fn login_burst_is_announced_once_per_episode() {
+        // 通知本身在测试构建里是空实现，所以这里固定"是否该弹"的判定：只有此前没有
+        // 活跃行的上升沿才播报，`alert_insert` 的就地更新不会再次触发。
+        let db = Arc::new(Database::in_memory());
+        let first = db.alert_active("srv_1", RULE_LOGIN).unwrap();
+        assert!(first.is_none());
+        assert!(login_burst_is_new(first.as_ref()), "首次越线才是上升沿");
+
+        db.alert_insert(&NewAlert {
+            server_id: "srv_1".to_string(),
+            server_name: "web-01".to_string(),
+            rule_id: RULE_LOGIN.to_string(),
+            severity: "warning".to_string(),
+            title: "最近日志中失败登录 9 次".to_string(),
+            detail: String::new(),
+            first_seen_at: 1_000,
+        })
+        .unwrap();
+        let active = db.alert_active("srv_1", RULE_LOGIN).unwrap();
+        assert!(active.is_some());
+        assert!(
+            !login_burst_is_new(active.as_ref()),
+            "同一波失败的后续轮次不得重复播报"
+        );
+    }
+
+    #[test]
+    fn repeated_failed_login_reports_refresh_one_alert() {
+        let db = Arc::new(Database::in_memory());
+        let service = service_with(&db);
+        service.ingest_login("srv_1", &login_report(9, &["203.0.113.9"]));
+        service.ingest_login("srv_1", &login_report(9, &["203.0.113.9"]));
+        service.ingest_login("srv_1", &login_report(12, &["203.0.113.9"]));
+        let rows = db
+            .alerts_list(&AlertFilter {
+                statuses: &["active"],
+                limit: 50,
+                offset: 0,
+            })
+            .unwrap();
+        assert_eq!(rows.len(), 1, "one burst keeps exactly one active row");
+        assert_eq!(rows[0].rule_id, RULE_LOGIN);
+        assert!(
+            rows[0].title.starts_with("最近日志中失败登录 12 次"),
+            "title follows the newest count without claiming a time window, was {}",
+            rows[0].title
+        );
+    }
+
+    #[test]
+    fn stopping_login_monitor_drops_its_status_entry() {
+        let db = Arc::new(Database::in_memory());
+        let service = service_with(&db);
+        service.ingest_login("srv_1", &login_report(0, &[]));
+        assert_eq!(service.list_alerts("open", 50, 0).unwrap().login_monitor.len(), 1);
+        service.stop_login("srv_1");
+        assert!(
+            service.list_alerts("open", 50, 0).unwrap().login_monitor.is_empty(),
+            "断开的服务器不该再出现在登录监控里"
+        );
     }
 
     #[test]

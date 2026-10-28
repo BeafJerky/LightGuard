@@ -19,6 +19,13 @@ export const unsupportedBackend: SshBackend = {
   terminalWrite: async () => fail(),
   terminalResize: async () => fail(),
   terminalClose: async () => fail(),
+  sftpHome: async () => fail(),
+  sftpList: async () => fail(),
+  sftpStat: async () => fail(),
+  sftpPreviewText: async () => fail(),
+  sftpPreviewImage: async () => fail(),
+  sftpDownload: async () => fail(),
+  sftpTransferCancel: async () => fail(),
   resetLocalData: async () => fail(),
   onStatus: () => () => {},
 };

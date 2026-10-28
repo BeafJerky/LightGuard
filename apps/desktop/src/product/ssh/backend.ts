@@ -135,6 +135,62 @@ export interface StatusEvent {
   message?: string;
 }
 
+export type FileKind = 'file' | 'dir' | 'symlink' | 'other';
+
+export interface FileEntry {
+  name: string;
+  path: string;
+  kind: FileKind;
+  size: number;
+  mtime: number | null;
+  mode: number;
+  modeText: string;
+  uid: number | null;
+  gid: number | null;
+  symlinkTarget?: string;
+  targetKind?: FileKind;
+}
+
+export interface FileListing {
+  path: string;
+  canonicalPath: string;
+  entries: FileEntry[];
+  truncated: boolean;
+}
+
+export interface TextPreview {
+  content: string;
+  encoding: 'utf-8' | 'gb18030';
+  bytes: number;
+  truncated: boolean;
+}
+
+export interface ImagePreview {
+  mime: string;
+  base64: string;
+  bytes: number;
+}
+
+export interface TransferProgress {
+  type: 'progress';
+  transferred: number;
+  total: number | null;
+}
+
+export interface DownloadResult {
+  status: 'saved' | 'canceled';
+  targetPath?: string;
+  bytes: number;
+}
+
+export interface DownloadInput {
+  serverId: string;
+  path: string;
+  kind: FileKind;
+  transferId: string;
+  onEvent: (event: TransferProgress) => void;
+}
+
 export type CommandErrorCode =
   | 'INVALID_INPUT'
   | 'HOST_UNREACHABLE'
@@ -148,16 +204,25 @@ export type CommandErrorCode =
   | 'TERMINAL_FAILED'
   | 'CREDENTIAL_ERROR'
   | 'INTERNAL'
-  | 'UNSUPPORTED';
+  | 'UNSUPPORTED'
+  | 'SFTP_FAILED'
+  | 'PATH_INVALID'
+  | 'FILE_NOT_FOUND'
+  | 'PERMISSION_DENIED'
+  | 'FILE_TOO_LARGE'
+  | 'FILE_BINARY'
+  | 'TRANSFER_FAILED';
 
 export type ConnectStage = 'resolve' | 'tcp' | 'handshake' | 'hostKey' | 'auth' | 'collect';
+
+export type CommandStage = ConnectStage | 'sftp' | 'transfer';
 
 export class SshCommandError extends Error {
   readonly code: CommandErrorCode;
   readonly hint: string;
-  readonly stage?: ConnectStage;
+  readonly stage?: CommandStage;
 
-  constructor(code: CommandErrorCode, message: string, hint = '', stage?: ConnectStage) {
+  constructor(code: CommandErrorCode, message: string, hint = '', stage?: CommandStage) {
     super(message);
     this.name = 'SshCommandError';
     this.code = code;
@@ -180,9 +245,25 @@ const CODES = new Set<string>([
   'CREDENTIAL_ERROR',
   'INTERNAL',
   'UNSUPPORTED',
+  'SFTP_FAILED',
+  'PATH_INVALID',
+  'FILE_NOT_FOUND',
+  'PERMISSION_DENIED',
+  'FILE_TOO_LARGE',
+  'FILE_BINARY',
+  'TRANSFER_FAILED',
 ]);
 
-const STAGES = new Set<string>(['resolve', 'tcp', 'handshake', 'hostKey', 'auth', 'collect']);
+const STAGES = new Set<string>([
+  'resolve',
+  'tcp',
+  'handshake',
+  'hostKey',
+  'auth',
+  'collect',
+  'sftp',
+  'transfer',
+]);
 
 export function toSshError(error: unknown): SshCommandError {
   if (error instanceof SshCommandError) return error;
@@ -192,7 +273,7 @@ export function toSshError(error: unknown): SshCommandError {
     const message = typeof raw.message === 'string' && raw.message ? raw.message : '操作失败';
     const hint = typeof raw.hint === 'string' ? raw.hint : '';
     const stage =
-      typeof raw.stage === 'string' && STAGES.has(raw.stage) ? (raw.stage as ConnectStage) : undefined;
+      typeof raw.stage === 'string' && STAGES.has(raw.stage) ? (raw.stage as CommandStage) : undefined;
     return new SshCommandError(code, message, hint, stage);
   }
   if (typeof error === 'string' && error) {
@@ -219,6 +300,13 @@ export interface SshBackend {
   terminalWrite(serverId: string, terminalId: string, data: string): Promise<void>;
   terminalResize(serverId: string, terminalId: string, cols: number, rows: number): Promise<void>;
   terminalClose(serverId: string, terminalId: string): Promise<void>;
+  sftpHome(serverId: string): Promise<string>;
+  sftpList(serverId: string, path: string): Promise<FileListing>;
+  sftpStat(serverId: string, path: string): Promise<FileEntry>;
+  sftpPreviewText(serverId: string, path: string): Promise<TextPreview>;
+  sftpPreviewImage(serverId: string, path: string): Promise<ImagePreview>;
+  sftpDownload(input: DownloadInput): Promise<DownloadResult>;
+  sftpTransferCancel(transferId: string): Promise<void>;
   resetLocalData(): Promise<void>;
   onStatus(handler: (event: StatusEvent) => void): () => void;
 }

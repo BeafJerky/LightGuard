@@ -2,6 +2,11 @@ import {
   type ConnectInput,
   type ConnectResult,
   type CredentialStatus,
+  type DownloadInput,
+  type DownloadResult,
+  type FileEntry,
+  type FileListing,
+  type ImagePreview,
   type ReconnectInput,
   type ServerSnapshot,
   type SessionStatus,
@@ -9,6 +14,8 @@ import {
   type StatusEvent,
   type TerminalEvent,
   type TerminalOpenInput,
+  type TextPreview,
+  type TransferProgress,
   toSshError,
 } from './backend';
 
@@ -102,6 +109,43 @@ export const tauriBackend: SshBackend = {
 
   terminalClose(serverId, terminalId) {
     return call<void>('ssh_terminal_close', { serverId, terminalId });
+  },
+
+  sftpHome(serverId: string) {
+    return call<string>('sftp_home', { serverId });
+  },
+
+  sftpList(serverId: string, path: string) {
+    return call<FileListing>('sftp_list', { serverId, path });
+  },
+
+  sftpStat(serverId: string, path: string) {
+    return call<FileEntry>('sftp_stat', { serverId, path });
+  },
+
+  sftpPreviewText(serverId: string, path: string) {
+    return call<TextPreview>('sftp_preview_text', { serverId, path });
+  },
+
+  sftpPreviewImage(serverId: string, path: string) {
+    return call<ImagePreview>('sftp_preview_image', { serverId, path });
+  },
+
+  async sftpDownload(input: DownloadInput) {
+    const { Channel } = await loadCore();
+    const channel = new Channel<TransferProgress>();
+    channel.onmessage = (event) => input.onEvent(event);
+    return call<DownloadResult>('sftp_download', {
+      serverId: input.serverId,
+      path: input.path,
+      kind: input.kind,
+      transferId: input.transferId,
+      onEvent: channel,
+    });
+  },
+
+  sftpTransferCancel(transferId: string) {
+    return call<void>('sftp_transfer_cancel', { transferId });
   },
 
   resetLocalData() {

@@ -130,6 +130,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            alerts::notify::notify_test,
             ssh::commands::ssh_connect,
             ssh::commands::ssh_reconnect,
             ssh::commands::ssh_snapshot,

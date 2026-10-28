@@ -379,6 +379,11 @@ impl Database {
         })
     }
 
+    pub(crate) fn settings_raw(&self) -> Result<Option<serde_json::Value>, DbError> {
+        let conn = self.lock()?;
+        load_pref(&conn, "app.settings")
+    }
+
     #[cfg(test)]
     pub(crate) fn in_memory() -> Self {
         let conn = Connection::open_in_memory().expect("open in-memory sqlite");

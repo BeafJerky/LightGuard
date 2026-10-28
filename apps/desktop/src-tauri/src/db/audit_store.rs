@@ -195,7 +195,27 @@ mod tests {
         for index in 0..(RETENTION_ROWS - 1) {
             db.audit_insert(&entry(now - 30_000 + index)).unwrap();
         }
+        let stale_alert_at = now - RETENTION_MS - 1;
+        let fresh_alert_at = now - 1_000;
         db.write_tx(|tx| {
+            tx.execute(
+                "INSERT INTO alerts
+                   (server_id, server_name, rule_id, severity, status, title, detail,
+                    first_seen_at, last_seen_at)
+                 VALUES ('srv_1', 'web-01', 'stale-rule', 'warning', 'active', 'stale', '',
+                         ?1, ?1)",
+                [stale_alert_at],
+            )
+            .map_err(DbError::write)?;
+            tx.execute(
+                "INSERT INTO alerts
+                   (server_id, server_name, rule_id, severity, status, title, detail,
+                    first_seen_at, last_seen_at)
+                 VALUES ('srv_1', 'web-01', 'fresh-rule', 'warning', 'active', 'fresh', '',
+                         ?1, ?1)",
+                [fresh_alert_at],
+            )
+            .map_err(DbError::write)?;
             tx.execute(
                 "INSERT INTO alert_mutes (server_id, rule_id, until_ms, created_at)
                  VALUES ('srv_1', NULL, 10, 1)",
@@ -221,6 +241,22 @@ mod tests {
         assert_eq!(
             db.audit_list(RETENTION_ROWS + 20, 0).unwrap().len(),
             (RETENTION_ROWS - 1) as usize
+        );
+
+        let alerts: Vec<(String, i64)> = {
+            let conn = db.lock().unwrap();
+            let mut statement = conn
+                .prepare("SELECT rule_id, first_seen_at FROM alerts ORDER BY first_seen_at DESC")
+                .unwrap();
+            let rows = statement
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .unwrap();
+            rows.collect::<rusqlite::Result<Vec<_>>>().unwrap()
+        };
+        assert_eq!(
+            alerts,
+            vec![("fresh-rule".to_string(), fresh_alert_at)],
+            "只应删除超过 30 天的告警"
         );
 
         for index in (RETENTION_ROWS - 1)..(RETENTION_ROWS + 10) {

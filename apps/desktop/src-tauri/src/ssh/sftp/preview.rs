@@ -165,7 +165,6 @@ mod tests {
     use russh_sftp::server::Handler;
 
     use super::*;
-    use crate::ssh::state::AppState;
 
     const NOTE: &str = "你好，世界";
     const GBK: [u8; 4] = [0xD6, 0xD0, 0xCE, 0xC4];
@@ -363,7 +362,7 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_invalid_paths_before_opening_a_session() {
-        let state = AppState::new(PathBuf::from("."));
+        let state = crate::test_support::headless_state(PathBuf::from("."));
 
         let control = text(&state, "missing", "a\0b").await.expect_err("nul path");
         assert_eq!(control.code, "PATH_INVALID");

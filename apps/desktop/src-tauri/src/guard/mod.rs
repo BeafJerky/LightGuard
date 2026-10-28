@@ -28,7 +28,12 @@ fn lock_map<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poison| poison.into_inner())
 }
 
-fn write_payload(server_id: &str, active: bool) -> serde_json::Value {
+/// 前端订阅的事件名是接口契约的一部分：连接条的许可控件监听 `ssh://permit`，
+/// 写操作遮罩监听 `guard://write`。名字集中在这里，改名不会再绕过测试。
+pub const PERMIT_EVENT: &str = "ssh://permit";
+pub const WRITE_EVENT: &str = "guard://write";
+
+pub(crate) fn write_payload(server_id: &str, active: bool) -> serde_json::Value {
     serde_json::json!({ "serverId": server_id, "active": active })
 }
 
@@ -157,7 +162,7 @@ impl GuardService {
     #[cfg(not(test))]
     fn emit_permit(&self, status: &PermitStatus) {
         if let Some(app) = &self.app {
-            let _ = app.emit("ssh://permit", status);
+            let _ = app.emit(PERMIT_EVENT, status);
         }
     }
 
@@ -167,7 +172,7 @@ impl GuardService {
     #[cfg(not(test))]
     fn emit_write(&self, server_id: &str, active: bool) {
         if let Some(app) = &self.app {
-            let _ = app.emit("guard://write", write_payload(server_id, active));
+            let _ = app.emit(WRITE_EVENT, write_payload(server_id, active));
         }
     }
 

@@ -152,7 +152,6 @@ mod tests {
     use russh_sftp::server::Handler;
 
     use super::*;
-    use crate::ssh::state::AppState;
 
     const HOME: &str = "/home/user";
 
@@ -295,7 +294,7 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_invalid_paths_before_opening_a_session() {
-        let state = AppState::new(PathBuf::from("."));
+        let state = crate::test_support::headless_state(PathBuf::from("."));
 
         let empty = list(&state, "missing", "  ").await.expect_err("empty path");
         assert_eq!(empty.code, "PATH_INVALID");

@@ -15,6 +15,8 @@ use super::hostkey::HostKeyStore;
 use super::session::{self, SessionEntry};
 use super::state::AppState;
 use super::terminal::{self, MAX_TERMINALS_PER_SERVER};
+use crate::alerts::AlertService;
+use crate::guard::GuardService;
 
 const MAX_SECRET_LEN: usize = 64 * 1024;
 const MAX_INPUT_LEN: usize = 128 * 1024;
@@ -29,7 +31,18 @@ pub async fn ssh_connect(
     validate_connect(&input)?;
 
     let store = CredentialStore::from_config(&state.config_dir);
-    let outcome = session::connect(input.clone(), &state.config_dir, &store).await?;
+    let outcome = match session::connect(input.clone(), &state.config_dir, &store).await {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            // 指纹变化不是普通连接失败：它要进告警中心并弹出通知，所以先记账再返回。
+            if error.code == "HOST_KEY_MISMATCH" {
+                state
+                    .alerts
+                    .on_host_key_mismatch(&input.server_id, &error.message);
+            }
+            return Err(error);
+        }
+    };
 
     replace_session(&app, &state, &input.server_id, outcome.entry).await;
     Ok(outcome.result)
@@ -46,7 +59,7 @@ pub async fn ssh_reconnect(
     validate_user(&input.user)?;
 
     let store = CredentialStore::from_config(&state.config_dir);
-    let outcome = session::reconnect(
+    let outcome = match session::reconnect(
         &input.server_id,
         input.host.trim().to_string(),
         input.port,
@@ -55,7 +68,18 @@ pub async fn ssh_reconnect(
         &state.config_dir,
         &store,
     )
-    .await?;
+    .await
+    {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            if error.code == "HOST_KEY_MISMATCH" {
+                state
+                    .alerts
+                    .on_host_key_mismatch(&input.server_id, &error.message);
+            }
+            return Err(error);
+        }
+    };
 
     let session_id = outcome.result.session_id.clone();
     replace_session(&app, &state, &input.server_id, outcome.entry).await;
@@ -84,12 +108,21 @@ pub async fn ssh_snapshot(
 #[tauri::command]
 pub async fn ssh_disconnect(
     state: State<'_, Arc<AppState>>,
+    guard: State<'_, Arc<GuardService>>,
     server_id: String,
 ) -> Result<(), SshError> {
     validate_server_id(&server_id)?;
+    // 写操作进行中不允许断开：中途断线会让远端结果不可知，也拿不到审计回退入口。
+    // 这里只拒绝断开请求，绝不反过来中止已经发出的写操作。
+    if guard.is_write_active(&server_id) {
+        return Err(SshError::write_busy());
+    }
     let removed = state.sessions.lock().await.remove(&server_id);
     super::sftp::client::drop_for_server(state.inner(), &server_id).await;
     close_server_terminals(state.inner(), &server_id).await;
+    // 显式断开：立刻停掉采样与登录监控（不进入离线宽限），并让许可与预览失效。
+    state.alerts.on_explicit_disconnect(&server_id);
+    guard.clear_server(&server_id);
     if let Some(session) = removed {
         let entry = session.lock().await;
         let _ = entry
@@ -322,10 +355,14 @@ pub async fn ssh_terminal_close(
 }
 
 #[tauri::command]
-pub async fn ssh_reset_local_data(state: State<'_, Arc<AppState>>) -> Result<(), SshError> {
+pub async fn ssh_reset_local_data(
+    state: State<'_, Arc<AppState>>,
+    alerts: State<'_, Arc<AlertService>>,
+    guard: State<'_, Arc<GuardService>>,
+) -> Result<(), SshError> {
     let sessions = {
-        let mut guard = state.sessions.lock().await;
-        std::mem::take(&mut *guard)
+        let mut locked = state.sessions.lock().await;
+        std::mem::take(&mut *locked)
     };
     for (_, session) in sessions {
         let entry = session.lock().await;
@@ -338,14 +375,19 @@ pub async fn ssh_reset_local_data(state: State<'_, Arc<AppState>>) -> Result<(),
     }
 
     let terminals = {
-        let mut guard = state.terminals.lock().await;
-        std::mem::take(&mut *guard)
+        let mut locked = state.terminals.lock().await;
+        std::mem::take(&mut *locked)
     };
     for (_, entry) in terminals {
         terminal::close(entry).await;
     }
 
     super::sftp::client::clear_all(state.inner()).await;
+
+    // 清空本地数据等于取消所有授权：告警与写许可都必须归零，清理后不能还留着
+    // 有效许可或一次性预览。放在删文件之前，确保即使删文件失败也不会留下授权。
+    alerts.reset();
+    guard.clear_all();
 
     CredentialStore::from_config(&state.config_dir).clear()?;
     HostKeyStore::new(state.config_dir.join("known_hosts.json")).clear()
@@ -372,6 +414,7 @@ async fn replace_session(
 ) {
     super::sftp::client::drop_for_server(state.inner(), server_id).await;
     close_server_terminals(state.inner(), server_id).await;
+    let handle = entry.handle.clone();
     let session = Arc::new(Mutex::new(entry));
     let previous = {
         let mut sessions = state.sessions.lock().await;
@@ -388,6 +431,9 @@ async fn replace_session(
         }
     }
     watch_session(app.clone(), state.inner().clone(), server_id.to_string(), session);
+    // 新连接：上一轮遗留的许可与预览一律作废，然后开始采样与登录监控。
+    state.guard.clear_server(server_id);
+    state.alerts.start(server_id.to_string(), handle);
 }
 
 fn watch_session(
@@ -420,6 +466,10 @@ fn watch_session(
             if current {
                 super::sftp::client::drop_for_server(&state, &server_id).await;
                 close_server_terminals(&state, &server_id).await;
+                // 被动断线：停止采样与登录监控，按设置进入离线宽限；许可立刻失效。
+                // 正在跑的写操作不在这里中止——它拿着自己的写锁，结束后自行释放。
+                state.alerts.on_session_closed(&server_id);
+                state.guard.clear_server(&server_id);
                 let _ = app.emit(
                     "ssh://status",
                     StatusEvent {

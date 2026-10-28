@@ -20,7 +20,6 @@ mod tests {
     use crate::ssh::credentials::CredentialStore;
     use crate::ssh::dto::{AuthKind, ConnectInput};
     use crate::ssh::session;
-    use crate::ssh::state::AppState;
 
     /// Credentials for the real-server test. All three of `LG_SSH_HOST`,
     /// `LG_SSH_USER` and `LG_SSH_PASSWORD` must be non-empty; `LG_SSH_PORT`
@@ -70,7 +69,7 @@ mod tests {
         .await
         .expect("connect");
 
-        let state = AppState::new(dir.path().to_path_buf());
+        let state = crate::test_support::headless_state(dir.path().to_path_buf());
         state.sessions.lock().await.insert(
             "sftp-it".to_string(),
             Arc::new(tokio::sync::Mutex::new(outcome.entry)),

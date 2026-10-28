@@ -3,6 +3,9 @@ pub mod db;
 pub mod guard;
 pub mod ssh;
 
+#[cfg(test)]
+pub mod test_support;
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
@@ -113,8 +116,21 @@ pub fn run() {
         .setup(|app| {
             let config_dir = app.path().app_config_dir()?;
             std::fs::create_dir_all(&config_dir)?;
-            app.manage(db::DbState::new(&config_dir));
-            app.manage(ssh::state::AppState::new(config_dir));
+
+            // 两个服务与命令层共用同一个实例：`Arc` 既交给 `manage`，也交给
+            // `AppState` 保存，生命周期钩子与命令因此看到同一份状态。
+            let db_state = db::DbState::new(&config_dir);
+            let database = db_state.handle();
+            app.manage(db_state);
+
+            let alerts = alerts::AlertService::new(database, Some(app.handle().clone()));
+            let guard = guard::GuardService::new(Some(app.handle().clone()));
+            app.manage(alerts.clone());
+            app.manage(guard.clone());
+            app.manage(ssh::state::AppState::new(config_dir, alerts.clone(), guard));
+            // 上一轮遗留的活跃告警在这里结清，并向前端广播一次角标。
+            alerts.startup();
+
             #[cfg(windows)]
             if let Some(window) = app.get_webview_window("main") {
                 tune_window(&window);

@@ -427,7 +427,7 @@ mod tests {
 
     #[tokio::test]
     async fn acquire_reports_unknown_session() {
-        let state = AppState::new(PathBuf::from("."));
+        let state = crate::test_support::headless_state(PathBuf::from("."));
         let error = acquire(&state, "missing").await.err().expect("no session");
         assert_eq!(error.code, "SESSION_NOT_FOUND");
         let error = session_handle(&state, "missing")
@@ -440,7 +440,7 @@ mod tests {
 
     #[tokio::test]
     async fn registry_caches_by_session_and_replaces_on_reconnect() {
-        let state = AppState::new(PathBuf::from("."));
+        let state = crate::test_support::headless_state(PathBuf::from("."));
         assert!(cached_client(&state, "srv", "s1").await.is_none());
 
         let first = store_client(&state, "srv", "s1".to_string(), fake_sftp().await).await;
@@ -472,7 +472,7 @@ mod tests {
 
     #[tokio::test]
     async fn invalidate_removes_only_the_matching_client() {
-        let state = AppState::new(PathBuf::from("."));
+        let state = crate::test_support::headless_state(PathBuf::from("."));
         let cached = store_client(&state, "srv", "s1".to_string(), fake_sftp().await).await;
 
         // A different client (e.g. a concurrent fresh acquire) must not evict
@@ -569,7 +569,7 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_sftp_session_adopted_after_reconnect() {
-        let state = AppState::new(PathBuf::from("."));
+        let state = crate::test_support::headless_state(PathBuf::from("."));
 
         // Handshake started on s1, but the reconnect made s2 the live session:
         // the freshly built client must be rejected and nothing may be cached.
@@ -595,7 +595,7 @@ mod tests {
 
     #[tokio::test]
     async fn cancellation_targets_one_server_then_everything() {
-        let state = AppState::new(PathBuf::from("."));
+        let state = crate::test_support::headless_state(PathBuf::from("."));
         let (alpha, beta) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
         {
             let mut transfers = state.transfers.lock().await;

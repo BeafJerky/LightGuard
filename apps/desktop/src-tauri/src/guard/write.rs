@@ -567,7 +567,7 @@ mod tests {
     #[tokio::test]
     async fn disconnects_record_unknown_audits() {
         let db = Database::in_memory();
-        let state = AppState::new(std::path::PathBuf::from("."));
+        let state = crate::test_support::headless_state(std::path::PathBuf::from("."));
 
         let error = execute_mkdir(&state, &db, "srv", "/data/x", "unlock:15m")
             .await
@@ -588,7 +588,7 @@ mod tests {
     #[tokio::test]
     async fn failed_rollbacks_keep_their_origin() {
         let db = Database::in_memory();
-        let state = AppState::new(std::path::PathBuf::from("."));
+        let state = crate::test_support::headless_state(std::path::PathBuf::from("."));
 
         let error = rollback_mkdir(&state, &db, "srv", 7, "/data/x", "unlock:5m")
             .await
@@ -605,7 +605,7 @@ mod tests {
     #[tokio::test]
     async fn relative_targets_never_reach_the_audit_or_the_server() {
         let db = Database::in_memory();
-        let state = AppState::new(std::path::PathBuf::from("."));
+        let state = crate::test_support::headless_state(std::path::PathBuf::from("."));
 
         let error = execute_mkdir(&state, &db, "srv", "../etc", "unlock:5m")
             .await
@@ -624,7 +624,7 @@ mod tests {
     async fn mkdir_audit_failures_are_surfaced() {
         let db = Database::in_memory();
         db.drop_audit_table_for_test();
-        let state = AppState::new(std::path::PathBuf::from("."));
+        let state = crate::test_support::headless_state(std::path::PathBuf::from("."));
 
         let error = execute_mkdir(&state, &db, "srv", "/data/x", "unlock:15m")
             .await
@@ -645,7 +645,7 @@ mod tests {
     async fn rollback_audit_failures_are_surfaced() {
         let db = Database::in_memory();
         db.drop_audit_table_for_test();
-        let state = AppState::new(std::path::PathBuf::from("."));
+        let state = crate::test_support::headless_state(std::path::PathBuf::from("."));
 
         let error = rollback_mkdir(&state, &db, "srv", 7, "/data/x", "unlock:5m")
             .await

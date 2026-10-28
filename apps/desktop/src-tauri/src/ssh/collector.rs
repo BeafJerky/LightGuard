@@ -69,6 +69,12 @@ pub struct CollectorState {
     last_net: Option<(Instant, HashMap<String, NetCounters>)>,
 }
 
+impl CollectorState {
+    pub fn has_cpu_baseline(&self) -> bool {
+        self.last_cpu.is_some()
+    }
+}
+
 pub async fn collect(
     handle: &russh::client::Handle<ClientHandler>,
     state: &mut CollectorState,

@@ -4,6 +4,7 @@ pub mod credentials;
 pub mod dto;
 pub mod error;
 pub mod hostkey;
+pub mod sampler;
 pub mod session;
 pub mod sftp;
 pub mod state;

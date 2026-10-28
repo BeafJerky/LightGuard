@@ -2,7 +2,7 @@ import { computed, reactive } from 'vue';
 import { themeOptions } from '@lightguard/lightui';
 import type { ThemeId } from '@lightguard/lightui';
 import { resetRenderSettings } from '../render/settings';
-import { APP_VERSION, AUTH_LABELS, MAX_LOGS, isCloseBehavior, round, uid } from './data';
+import { APP_VERSION, AUTH_LABELS, MAX_LOGS, isCloseBehavior, isDesktopBarMode, round, uid } from './data';
 import {
   applySnapshot,
   fromPersisted,
@@ -34,6 +34,7 @@ import type {
   BackupConnection,
   BackupPayload,
   BackupSummary,
+  DesktopBarMode,
   LogEntry,
   LogSource,
   PersistedServer,
@@ -58,6 +59,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   notifyThreshold: true,
   idleLock: 30,
   closeBehavior: 'ask',
+  desktopBar: 'floating',
 };
 
 export const DEFAULT_THEMES: ThemeChoices = {
@@ -89,6 +91,7 @@ function readSettings(value: unknown): AppSettings {
     closeBehavior: isCloseBehavior(raw.closeBehavior)
       ? raw.closeBehavior
       : DEFAULT_SETTINGS.closeBehavior,
+    desktopBar: isDesktopBarMode(raw.desktopBar) ? raw.desktopBar : DEFAULT_SETTINGS.desktopBar,
   };
 }
 

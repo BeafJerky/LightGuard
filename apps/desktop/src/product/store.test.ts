@@ -204,6 +204,38 @@ describe('window close behavior', () => {
   });
 });
 
+describe('desktop status bar mode', () => {
+  it('defaults to a floating bar', async () => {
+    const store = await loadStore();
+    expect(store.state.settings.desktopBar).toBe('floating');
+  });
+
+  it('restores a saved full-width bar and rejects unknown values', async () => {
+    window.localStorage.setItem(
+      STORE_KEY,
+      JSON.stringify({ version: 2, settings: { desktopBar: 'full' }, servers: [], logs: [] }),
+    );
+    let store = await loadStore();
+    expect(store.state.settings.desktopBar).toBe('full');
+
+    window.localStorage.setItem(
+      STORE_KEY,
+      JSON.stringify({ version: 2, settings: { desktopBar: 'wide' }, servers: [], logs: [] }),
+    );
+    store = await loadStore();
+    expect(store.state.settings.desktopBar).toBe('floating');
+  });
+
+  it('persists a switched mode for the next launch', async () => {
+    const store = await loadStore();
+    store.updateSettings({ desktopBar: 'full' });
+    store.persistNow();
+
+    const parsed = JSON.parse(window.localStorage.getItem(STORE_KEY) as string);
+    expect(parsed.settings.desktopBar).toBe('full');
+  });
+});
+
 describe('persistence', () => {
   it('persists only whitelisted metadata', async () => {
     const store = await loadStore();

@@ -191,6 +191,8 @@ export type CloseBehavior = 'ask' | 'tray' | 'quit';
 
 export type CloseAction = Exclude<CloseBehavior, 'ask'>;
 
+export type DesktopBarMode = 'floating' | 'full';
+
 export interface AppSettings {
   interval: number;
   autoRefresh: boolean;
@@ -200,6 +202,7 @@ export interface AppSettings {
   notifyThreshold: boolean;
   idleLock: number;
   closeBehavior: CloseBehavior;
+  desktopBar: DesktopBarMode;
 }
 
 export interface ThemeChoices {

@@ -16,7 +16,7 @@ import { APP_BUILD, APP_VERSION } from './data';
 import { clearLocalData, restartLiveUpdates, state, updateSettings } from './store';
 import { switchScopeTheme } from './theme';
 import { confirm, toast } from './ui';
-import type { CloseBehavior, ThemeChoices } from './types';
+import type { CloseBehavior, DesktopBarMode, ThemeChoices } from './types';
 
 const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 
@@ -110,6 +110,24 @@ const closeMessages: Record<CloseBehavior, string> = {
   tray: '关闭窗口后驻留托盘，SSH 会话保持连接',
   quit: '关闭窗口即退出应用并断开全部会话',
 };
+
+const barOptions: Array<{ value: DesktopBarMode; label: string }> = [
+  { value: 'floating', label: '悬浮胶囊' },
+  { value: 'full', label: '通栏' },
+];
+
+function setDesktopBar(value: DesktopBarMode) {
+  updateSettings({ desktopBar: value });
+  toast({
+    title: '状态条样式已更新',
+    message:
+      value === 'full'
+        ? '通栏状态条已启用，桌面窗口会自动让出顶部区域'
+        : '已恢复为悬浮胶囊状态条',
+    tone: 'info',
+    duration: 2400,
+  });
+}
 
 function setCloseBehavior(value: CloseBehavior) {
   updateSettings({ closeBehavior: value });
@@ -336,6 +354,25 @@ async function onReset() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-text">
+            <strong>服务器桌面状态条</strong>
+            <span>悬浮为居中胶囊；通栏横跨桌面顶部，最大化窗口自动让出状态条区域。</span>
+          </div>
+          <div class="settings-segment" role="group" aria-label="服务器桌面状态条">
+            <button
+              v-for="option in barOptions"
+              :key="option.value"
+              type="button"
+              :class="{ 'is-active': state.settings.desktopBar === option.value }"
+              :aria-pressed="state.settings.desktopBar === option.value"
+              @click="setDesktopBar(option.value)"
+            >
+              {{ option.label }}
+            </button>
           </div>
         </div>
 

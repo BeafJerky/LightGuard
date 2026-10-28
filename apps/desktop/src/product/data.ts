@@ -1,7 +1,7 @@
-import type { AuthKind, CloseBehavior, ServerStatus } from './types';
+import type { AuthKind, CloseBehavior, DesktopBarMode, ServerStatus } from './types';
 
-export const APP_VERSION = '0.9.1';
-export const APP_BUILD = '2026.10.27';
+export const APP_VERSION = '0.10.0';
+export const APP_BUILD = '2026.10.28';
 export const HISTORY_POINTS = 120;
 export const MAX_LOGS = 80;
 
@@ -21,6 +21,9 @@ export const AUTH_LABELS: Record<AuthKind, string> = {
 
 export const isCloseBehavior = (value: unknown): value is CloseBehavior =>
   value === 'ask' || value === 'tray' || value === 'quit';
+
+export const isDesktopBarMode = (value: unknown): value is DesktopBarMode =>
+  value === 'floating' || value === 'full';
 
 export const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 export const round = (value: number, digits = 0) => {

@@ -38,6 +38,10 @@ const prefersDark = usePreferredDark();
 
 const shell = ref<HTMLElement | null>(null);
 const { height: shellHeight } = useElementSize(shell);
+
+const FULL_BAR_HEIGHT = 46;
+const fullBar = computed(() => state.settings.desktopBar === 'full');
+const barInset = computed(() => (fullBar.value ? FULL_BAR_HEIGHT : 0));
 const iconRows = computed(() => {
   const height = shellHeight.value || (typeof window === 'undefined' ? 900 : window.innerHeight);
   return Math.max(1, Math.floor((height - 138) / 92));
@@ -60,7 +64,7 @@ const {
   showDesktop,
   move,
   resize,
-} = useDesktopWindows(bounds);
+} = useDesktopWindows(bounds, () => barInset.value);
 
 const selectedIcon = ref(-1);
 const startOpen = ref(false);
@@ -266,29 +270,38 @@ async function onRetry() {
 </script>
 
 <template>
-  <div ref="shell" class="serverdesk">
+  <div
+    ref="shell"
+    class="serverdesk"
+    :class="{ 'is-bar-full': fullBar }"
+    :style="{ '--desk-bar-inset': `${barInset}px` }"
+  >
     <div class="desk-wallpaper" aria-hidden="true" @click="onWallpaperClick" />
 
     <header class="conn-bar" aria-label="SSH 会话状态">
-      <button type="button" class="conn-bar__back" aria-label="返回控制台" @click="goConsole">
-        <LgIcon name="chevron-left" :size="13" />
-      </button>
-      <span class="conn-bar__dot" :data-status="server.status" aria-hidden="true" />
-      <span class="conn-bar__mode">SSH</span>
-      <strong class="conn-bar__name">{{ server.name }}</strong>
-      <span class="conn-bar__addr">{{ server.user }}@{{ server.ip }}:{{ server.port }}</span>
-      <span class="conn-bar__meta">
-        <LgIcon name="wifi" :size="11" />
-        {{ server.latency }} ms
-      </span>
-      <span v-if="server.encryption" class="conn-bar__meta">
-        <LgIcon name="lock" :size="11" />
-        已加密
-      </span>
-      <span class="conn-bar__meta conn-bar__uptime">
-        <LgIcon name="clock" :size="11" />
-        {{ server.uptime }}
-      </span>
+      <div class="conn-bar__identity">
+        <button type="button" class="conn-bar__back" aria-label="返回控制台" @click="goConsole">
+          <LgIcon name="chevron-left" :size="13" />
+        </button>
+        <span class="conn-bar__dot" :data-status="server.status" aria-hidden="true" />
+        <span class="conn-bar__mode">SSH</span>
+        <strong class="conn-bar__name">{{ server.name }}</strong>
+        <span class="conn-bar__addr">{{ server.user }}@{{ server.ip }}:{{ server.port }}</span>
+      </div>
+      <div class="conn-bar__stats">
+        <span class="conn-bar__meta">
+          <LgIcon name="wifi" :size="11" />
+          {{ server.latency }} ms
+        </span>
+        <span v-if="server.encryption" class="conn-bar__meta">
+          <LgIcon name="lock" :size="11" />
+          已加密
+        </span>
+        <span class="conn-bar__meta conn-bar__uptime">
+          <LgIcon name="clock" :size="11" />
+          {{ server.uptime }}
+        </span>
+      </div>
       <button type="button" class="conn-bar__power" @click="onDisconnect">断开</button>
     </header>
 
@@ -318,6 +331,7 @@ async function onRetry() {
       :server="server"
       :session="session"
       :started-at="startedAt"
+      :top-inset="barInset"
       @focus="focus(win.app)"
       @minimize="minimize(win.app)"
       @maximize="toggleMaximize(win.app)"
@@ -539,6 +553,7 @@ async function onRetry() {
 
 <style scoped>
 .serverdesk {
+  --desk-bar-space: 46px;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -579,6 +594,14 @@ async function onRetry() {
   color: var(--lg-text-secondary);
   font-size: 10.5px;
   white-space: nowrap;
+}
+
+.conn-bar__identity,
+.conn-bar__stats {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
 }
 
 .conn-bar__back {
@@ -680,6 +703,69 @@ async function onRetry() {
   color: var(--lg-danger);
 }
 
+.serverdesk.is-bar-full .conn-bar {
+  top: 0;
+  right: 0;
+  left: 0;
+  gap: 16px;
+  height: var(--desk-bar-space);
+  max-width: none;
+  padding: 0 18px;
+  transform: none;
+  border-width: 0 0 var(--lg-border-width);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--lg-surface) 88%, transparent);
+}
+
+.serverdesk.is-bar-full .conn-bar__identity {
+  gap: 10px;
+}
+
+.serverdesk.is-bar-full .conn-bar__back {
+  width: 28px;
+  height: 28px;
+}
+
+.serverdesk.is-bar-full .conn-bar__mode {
+  padding: 2px 7px;
+  font-size: 9px;
+}
+
+.serverdesk.is-bar-full .conn-bar__name {
+  min-width: 0;
+  max-width: 220px;
+  font-size: 12px;
+}
+
+.serverdesk.is-bar-full .conn-bar__addr {
+  min-width: 0;
+  max-width: 240px;
+  padding-left: 10px;
+  border-left: var(--lg-border-width) solid var(--lg-border);
+  font-size: 10px;
+}
+
+.serverdesk.is-bar-full .conn-bar__stats {
+  gap: 0;
+  margin-left: auto;
+}
+
+.serverdesk.is-bar-full .conn-bar__stats > * + * {
+  margin-left: 16px;
+  padding-left: 16px;
+  border-left: var(--lg-border-width) solid var(--lg-border);
+}
+
+.serverdesk.is-bar-full .conn-bar__meta {
+  font-size: 10px;
+}
+
+.serverdesk.is-bar-full .conn-bar__power {
+  height: 28px;
+  padding: 0 12px;
+  font-size: 10.5px;
+}
+
 .desk-watermark {
   position: absolute;
   right: 4.5%;
@@ -705,7 +791,7 @@ async function onRetry() {
 
 .desk-icons {
   position: absolute;
-  top: 62px;
+  top: calc(var(--desk-bar-space) + 16px);
   left: 14px;
   z-index: 3;
 }
@@ -1417,10 +1503,23 @@ async function onRetry() {
 }
 
 @media (max-width: 719px) {
+  .serverdesk {
+    --desk-bar-space: 40px;
+  }
+
+  .serverdesk.is-bar-full {
+    --desk-bar-space: 46px;
+  }
+
   .conn-bar {
     top: 8px;
     height: 32px;
     gap: 5px;
+  }
+
+  .serverdesk.is-bar-full .conn-bar {
+    top: 0;
+    height: var(--desk-bar-space);
   }
 
   .conn-bar__mode,
@@ -1434,7 +1533,7 @@ async function onRetry() {
   }
 
   .desk-icons {
-    top: 50px;
+    top: calc(var(--desk-bar-space) + 10px);
     left: 6px;
   }
 

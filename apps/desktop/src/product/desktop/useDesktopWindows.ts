@@ -17,7 +17,10 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), Math.max(min, max));
 }
 
-export function useDesktopWindows(getBounds: () => { width: number; height: number }) {
+export function useDesktopWindows(
+  getBounds: () => { width: number; height: number },
+  getTopInset: () => number = () => 0,
+) {
   const windows = ref<DesktopWindowState[]>([]);
   const active = ref<DesktopAppKey | null>(null);
   let z = 30;
@@ -35,9 +38,10 @@ export function useDesktopWindows(getBounds: () => { width: number; height: numb
     const H = Math.max(320, shellHeight || window.innerHeight);
     const w = clamp(meta.width, 320, Math.max(320, W - 40));
     const h = clamp(meta.height, 260, Math.max(260, H - 110));
+    const topInset = Math.max(0, getTopInset());
     const offset = (windows.value.length % 5) * 26;
     const x = clamp(Math.round((W - w) / 2) - 50 + offset, 10, Math.max(10, W - w - 10));
-    const y = clamp(64 + offset, 10, Math.max(10, H - h - 66));
+    const y = clamp(64 + offset, topInset + 10, Math.max(topInset + 10, H - h - 66));
     windows.value.push({
       app: key,
       x,

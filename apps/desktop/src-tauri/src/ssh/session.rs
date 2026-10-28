@@ -72,7 +72,7 @@ impl russh::client::Handler for ClientHandler {
 }
 
 pub struct SessionEntry {
-    pub handle: russh::client::Handle<ClientHandler>,
+    pub handle: Arc<russh::client::Handle<ClientHandler>>,
     pub session_id: String,
     pub started_at: String,
     pub fingerprint: String,
@@ -173,7 +173,7 @@ pub async fn connect(
     let started_at = now_iso();
 
     let mut entry = SessionEntry {
-        handle,
+        handle: Arc::new(handle),
         session_id,
         started_at,
         fingerprint: observed_now.fingerprint,

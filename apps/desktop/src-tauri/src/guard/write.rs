@@ -733,6 +733,7 @@ mod tests {
 
         let db = Database::in_memory();
         let guard = state.guard.clone();
+        // 仅为健全性检查：真正的写入闸门在 guard/commands.rs，execute_mkdir 自身不校验许可。
         guard.unlock("guard-it", 5).expect("unlock");
         assert_eq!(guard.require_permit("guard-it").expect("permit"), 5);
         let _write = guard.begin_write("guard-it").expect("write lock");
@@ -748,26 +749,32 @@ mod tests {
         let created = execute_mkdir(&state, &db, "guard-it", &target, "unlock:5m")
             .await
             .expect("mkdir");
-        let rows = db.audit_list(10, 0).expect("audit list");
-        assert_eq!(rows[0].id, created.audit_id);
-        assert_eq!(rows[0].op, MKDIR_OP);
-        assert_eq!(rows[0].result, "success");
 
         // 同名目录再建一次：远端返回失败，落 failed 审计，且不产生第二个目录。
         let duplicate = execute_mkdir(&state, &db, "guard-it", &target, "unlock:5m").await;
+
+        // 回退先于任何断言执行：断言 panic 时远端目录才不会残留。
+        let rolled = rollback_mkdir(&state, &db, "guard-it", created.audit_id, &target, "unlock:5m")
+            .await;
+        let has_rollback = db.audit_has_rollback(created.audit_id).expect("has rollback");
+        let rows = db.audit_list(10, 0).expect("audit list");
+
         let error = duplicate.expect_err("duplicate mkdir must fail");
         assert_eq!(error.code, "WRITE_FAILED", "{error:?}");
-        let rows = db.audit_list(10, 0).expect("audit list");
-        assert_eq!(rows[0].op, MKDIR_OP);
-        assert_eq!(rows[0].result, "failed");
+        rolled.expect("rollback");
+        assert!(has_rollback);
 
-        rollback_mkdir(&state, &db, "guard-it", created.audit_id, &target, "unlock:5m")
-            .await
-            .expect("rollback");
-        assert!(db.audit_has_rollback(created.audit_id).expect("has rollback"));
-        let rows = db.audit_list(10, 0).expect("audit list");
+        assert_eq!(rows.len(), 3);
         assert_eq!(rows[0].op, MKDIR_ROLLBACK_OP);
         assert_eq!(rows[0].result, "success");
+        assert_eq!(rows[0].params, audit_params(&target));
+        assert_eq!(rows[1].op, MKDIR_OP);
+        assert_eq!(rows[1].result, "failed");
+        assert_eq!(rows[1].params, audit_params(&target));
+        assert_eq!(rows[2].id, created.audit_id);
+        assert_eq!(rows[2].op, MKDIR_OP);
+        assert_eq!(rows[2].result, "success");
+        assert_eq!(rows[2].params, audit_params(&target));
 
         state.sessions.lock().await.remove("guard-it");
     }

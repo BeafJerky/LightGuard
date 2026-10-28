@@ -1,3 +1,4 @@
+pub(crate) mod alert_store;
 pub(crate) mod commands;
 mod dto;
 
@@ -9,6 +10,7 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::Serialize;
 
 pub use commands::{db_load, db_write};
+pub(crate) use alert_store::{AlertFilter, AlertRow, MuteRow, NewAlert};
 pub use dto::{
     DbOp, LoadResult, LogEntry, PersistedServer, StoredState, ThemeChoices, MAX_LOGS, MAX_SERVERS,
 };

@@ -1225,6 +1225,38 @@ mod tests {
     }
 
     #[test]
+    fn reopen_then_reignore_honors_the_newest_window() {
+        let db = Arc::new(Database::in_memory());
+        let service = service_with(&db);
+        service.record_sample("srv_1", "web-01", &cpu(95.0));
+        let first_id = db.alert_active("srv_1", "cpu").unwrap().unwrap().id;
+        db.alert_ignore(first_id, "维护窗口", 1).unwrap();
+
+        // 已到期的忽略窗口会重开一条新活跃行。
+        service.record_sample("srv_1", "web-01", &cpu(97.0));
+        let reopened_id = db
+            .alert_active("srv_1", "cpu")
+            .unwrap()
+            .expect("过期忽略应当先重开")
+            .id;
+        db.alert_ignore(reopened_id, "再次忽略", now_ms() + 3_600_000)
+            .unwrap();
+
+        // 旧的过期行仍然匹配，但最新一次忽略的窗口未到期，必须保持关闭。
+        service.record_sample("srv_1", "web-01", &cpu(98.0));
+
+        assert_eq!(
+            db.alerts_active_count().unwrap(),
+            0,
+            "最新忽略窗口未到期时不得重开"
+        );
+        assert!(db.alert_active("srv_1", "cpu").unwrap().is_none());
+        let rows = all_alerts(&db);
+        assert_eq!(rows.len(), 2, "原始忽略行与再次忽略行，不允许出现活跃行");
+        assert!(rows.iter().all(|row| row.status == "ignored"));
+    }
+
+    #[test]
     fn muted_rule_does_not_reopen_an_expired_ignore() {
         let db = Arc::new(Database::in_memory());
         let service = service_with(&db);

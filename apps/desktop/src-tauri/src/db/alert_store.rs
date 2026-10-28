@@ -117,6 +117,8 @@ impl Database {
 
     /// 忽略窗口到期后重新开启一条告警：`ignored` 行原样留在历史里，另插一行 `active`。
     /// 忽略期间引擎仍处 opened 态，只会发 `Touch`；没有这个入口就再也不会出现活跃行。
+    /// 只看该 `(server_id, rule_id)` 最新的 `ignored` 行（`id` 最大者）：用户再次忽略后
+    /// 旧的过期窗口已失效，新窗口未到期（或为 NULL）时不得重开。
     /// 唯一部分索引要求此刻没有别的活跃行，所以存在活跃行时直接返回 false。
     pub(crate) fn alert_reopen_ignored(
         &self,
@@ -126,20 +128,25 @@ impl Database {
         now: i64,
     ) -> Result<bool, DbError> {
         self.write_tx(|tx| {
-            let previous: Option<String> = tx
+            let previous: Option<(String, Option<i64>)> = tx
                 .query_row(
-                    "SELECT server_name FROM alerts
+                    "SELECT server_name, ignored_until FROM alerts
                      WHERE server_id = ?1 AND rule_id = ?2 AND status = 'ignored'
-                       AND ignored_until IS NOT NULL AND ignored_until <= ?3
-                     ORDER BY ignored_until DESC, id DESC LIMIT 1",
-                    params![server_id, rule_id, now],
-                    |row| row.get(0),
+                     ORDER BY id DESC LIMIT 1",
+                    params![server_id, rule_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
                 )
                 .optional()
                 .map_err(DbError::write)?;
-            let Some(server_name) = previous else {
+            let Some((server_name, ignored_until)) = previous else {
                 return Ok(false);
             };
+            match ignored_until {
+                // 永久忽略（无截止时间）与未到期窗口一样保持关闭。
+                None => return Ok(false),
+                Some(until) if until > now => return Ok(false),
+                Some(_) => {}
+            }
             let active: Option<i64> = tx
                 .query_row(
                     "SELECT id FROM alerts

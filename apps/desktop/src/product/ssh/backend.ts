@@ -199,11 +199,13 @@ export interface PermitStatus {
   writeActive: boolean;
 }
 
+// 后端 `ssh://permit` 直接序列化完整的 `PermitStatus`，所以事件里也带 `writeActive`。
 export interface PermitEvent {
   serverId: string;
   locked: boolean;
   minutes: number;
   expiresAtMs: number;
+  writeActive: boolean;
 }
 
 export interface WriteEvent {

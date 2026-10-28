@@ -33,14 +33,28 @@ export function validateIgnoreReason(reason: string): string | null {
   return null;
 }
 
+function mergeItems(existing: AlertItem[], incoming: AlertItem[]): AlertItem[] {
+  const seen = new Set(existing.map((item) => item.id));
+  const merged = [...existing];
+  for (const alert of incoming) {
+    if (seen.has(alert.id)) continue;
+    seen.add(alert.id);
+    merged.push(alert);
+  }
+  return merged;
+}
+
 async function fetchPage(filter: AlertFilterName, offset: number): Promise<void> {
   alertsState.loading = true;
   alertsState.error = '';
   try {
     const page = await ssh.alertsList(filter, PAGE_SIZE, offset);
     alertsState.filter = filter;
-    alertsState.items = offset === 0 ? page.items : [...alertsState.items, ...page.items];
-    alertsState.offset = alertsState.items.length;
+    // 翻页期间事件可能被重新排序，后端会重发已经取过的行：按 id 去重且保留先出现的那条。
+    alertsState.items =
+      offset === 0 ? mergeItems([], page.items) : mergeItems(alertsState.items, page.items);
+    // offset 按后端实际返回的行数推进，去重不影响游标，否则重复页会让游标停住。
+    alertsState.offset = offset + page.items.length;
     alertsState.activeCount = page.activeCount;
     if (page.loginMonitor.length) alertsState.loginMonitor = page.loginMonitor;
     alertsState.exhausted = page.items.length < PAGE_SIZE;
@@ -61,6 +75,12 @@ export async function loadMore(): Promise<void> {
 }
 
 export async function ignoreAlert(alertId: number, reason: string, untilMs: number): Promise<boolean> {
+  // 本地先校验：给不出原因就不必打扰后端，错误文案与后端保持同一套。
+  const invalid = validateIgnoreReason(reason);
+  if (invalid) {
+    alertsState.error = invalid;
+    return false;
+  }
   try {
     await ssh.alertsIgnore(alertId, reason.trim(), untilMs);
     await loadAlerts();

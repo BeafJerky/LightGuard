@@ -87,6 +87,38 @@ describe('alerts store', () => {
     expect(mocks.alertsList).toHaveBeenLastCalledWith('open', 200, 200);
   });
 
+  it('de-duplicates appended pages by id and keeps the first occurrence', async () => {
+    mocks.alertsList.mockResolvedValueOnce({
+      items: Array.from({ length: PAGE_SIZE }, (_, index) => item(index + 1)),
+      activeCount: PAGE_SIZE,
+      loginMonitor: [],
+    });
+    await loadAlerts();
+    expect(alertsState.offset).toBe(PAGE_SIZE);
+
+    mocks.alertsList.mockResolvedValueOnce({
+      items: [{ ...item(PAGE_SIZE), title: '旧标题' }, item(PAGE_SIZE + 1)],
+      activeCount: PAGE_SIZE,
+      loginMonitor: [],
+    });
+    await loadMore();
+    expect(alertsState.items).toHaveLength(PAGE_SIZE + 1);
+    expect(alertsState.items.map((alert) => alert.id).at(-1)).toBe(PAGE_SIZE + 1);
+    expect(alertsState.items[PAGE_SIZE - 1].title).toBe(`事件 ${String(PAGE_SIZE)}`);
+    // 游标按后端返回的行数推进，去重不会让翻页停在同一页上。
+    expect(alertsState.offset).toBe(PAGE_SIZE + 2);
+  });
+
+  it('rejects blank ignore reasons without calling the backend', async () => {
+    expect(await ignoreAlert(5, '   ', 1_700_000_000_000)).toBe(false);
+    expect(mocks.alertsIgnore).not.toHaveBeenCalled();
+    expect(alertsState.error).toBe('请填写忽略原因');
+
+    expect(await ignoreAlert(5, 'x'.repeat(201), 1_700_000_000_000)).toBe(false);
+    expect(mocks.alertsIgnore).not.toHaveBeenCalled();
+    expect(alertsState.error).toBe('忽略原因不能超过 200 个字符');
+  });
+
   it('passes ignore and mute arguments through', async () => {
     mocks.alertsIgnore.mockResolvedValueOnce(undefined);
     mocks.alertsMute.mockResolvedValueOnce(undefined);

@@ -4,13 +4,15 @@ import {
   toSshError,
   type PermitEvent,
   type PermitStatus,
+  type WriteEvent,
   type WritePreview,
   type WriteResult,
 } from '../ssh';
 
 export const guardState = reactive({
+  // 写锁状态只存在许可条目里（`permitOf(id).writeActive`），不再单独维护一份表，
+  // 否则 `ssh://permit` 与 `guard://write` 两个来源会各写各的。
   permits: {} as Record<string, PermitStatus>,
-  writes: {} as Record<string, boolean>,
   preview: null as WritePreview | null,
   previewServerId: '',
   permitPanelOpen: false,
@@ -40,6 +42,26 @@ export function applyPermitEvent(event: PermitEvent): void {
   applyPermit({ ...permitOf(event.serverId), ...event });
 }
 
+/**
+ * `guard://write` 的独立载荷：只翻转该 server 的 `writeActive`。
+ * 还没有许可条目时补一个“锁定 + 无剩余时长”的占位条目（与后端 locked 状态同形），
+ * 之后收到的完整 `PermitStatus` 会整条覆盖它。
+ */
+export function applyWriteEvent(event: WriteEvent): void {
+  const permit = guardState.permits[event.serverId];
+  if (permit) {
+    permit.writeActive = event.active;
+    return;
+  }
+  guardState.permits[event.serverId] = {
+    serverId: event.serverId,
+    locked: true,
+    minutes: 0,
+    expiresAtMs: 0,
+    writeActive: event.active,
+  };
+}
+
 function fail(error: unknown): void {
   const parsed = toSshError(error);
   guardState.error = parsed.message;
@@ -53,8 +75,13 @@ function clearError(): void {
   guardState.errorCode = '';
 }
 
+function clearPreview(): void {
+  guardState.preview = null;
+  guardState.previewServerId = '';
+}
+
 export function isWriteActive(serverId: string): boolean {
-  return guardState.writes[serverId] === true;
+  return permitOf(serverId).writeActive === true;
 }
 
 export function formatRemaining(expiresAtMs: number, nowMs = Date.now()): string {
@@ -121,10 +148,12 @@ export async function executePreview(): Promise<WriteResult | null> {
   clearError();
   try {
     const result = await ssh.writeExecute(preview.previewId);
-    guardState.preview = null;
-    guardState.previewServerId = '';
+    clearPreview();
     return result;
   } catch (error) {
+    // 后端在 `write_execute` 里先 `take_preview` 再校验，失败的 id 已被消费，
+    // 留着它只会让重试撞 `PREVIEW_EXPIRED` 并渲染过期的影响面，所以失败即清空。
+    clearPreview();
     fail(error);
     return null;
   } finally {
@@ -133,9 +162,7 @@ export async function executePreview(): Promise<WriteResult | null> {
 }
 
 export function discardPreview(): void {
-  guardState.preview = null;
-  guardState.previewServerId = '';
-  clearError();
+  clearPreview();
 }
 
 export async function rollbackAudit(auditId: number): Promise<boolean> {
@@ -162,11 +189,7 @@ export function closePermitPanel(): void {
 
 export function clearServer(serverId: string): void {
   delete guardState.permits[serverId];
-  delete guardState.writes[serverId];
-  if (guardState.previewServerId === serverId) {
-    guardState.preview = null;
-    guardState.previewServerId = '';
-  }
+  if (guardState.previewServerId === serverId) clearPreview();
 }
 
 export function clearAll(): void {
@@ -175,9 +198,7 @@ export function clearAll(): void {
 
 export function resetGuard(): void {
   guardState.permits = {};
-  guardState.writes = {};
-  guardState.preview = null;
-  guardState.previewServerId = '';
+  clearPreview();
   guardState.permitPanelOpen = false;
   guardState.busy = false;
   clearError();
@@ -190,11 +211,7 @@ let subscribers = 0;
 
 function openSubscription(): () => void {
   const offPermit = ssh.onPermit(applyPermitEvent);
-  const offWrite = ssh.onWrite((event) => {
-    guardState.writes[event.serverId] = event.active;
-    const permit = guardState.permits[event.serverId];
-    if (permit) permit.writeActive = event.active;
-  });
+  const offWrite = ssh.onWrite(applyWriteEvent);
   return () => {
     offPermit();
     offWrite();

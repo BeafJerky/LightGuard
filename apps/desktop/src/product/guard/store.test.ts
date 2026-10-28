@@ -23,6 +23,7 @@ vi.mock('../ssh', () => ({
 import {
   applyPermit,
   applyPermitEvent,
+  applyWriteEvent,
   clearAll,
   clearServer,
   closePermitPanel,
@@ -70,11 +71,36 @@ describe('guard store', () => {
     expect(status.writeActive).toBe(false);
   });
 
-  it('merges permit events without dropping write state', () => {
+  it('applies permit events verbatim onto the stored status', () => {
     applyPermit({ serverId: 'srv_1', locked: false, minutes: 30, expiresAtMs: 5, writeActive: true });
-    applyPermitEvent({ serverId: 'srv_1', locked: true, minutes: 30, expiresAtMs: 0 });
-    expect(permitOf('srv_1').locked).toBe(true);
+    applyPermitEvent({ serverId: 'srv_1', locked: false, minutes: 30, expiresAtMs: 9, writeActive: false });
+    expect(permitOf('srv_1').expiresAtMs).toBe(9);
+    expect(permitOf('srv_1').writeActive).toBe(false);
+    expect(isWriteActive('srv_1')).toBe(false);
+  });
+
+  it('derives write-active from the permit entry for both sources', () => {
+    applyPermitEvent({ serverId: 'srv_1', locked: false, minutes: 15, expiresAtMs: 42, writeActive: true });
     expect(permitOf('srv_1').writeActive).toBe(true);
+    expect(isWriteActive('srv_1')).toBe(true);
+
+    applyWriteEvent({ serverId: 'srv_1', active: false });
+    expect(permitOf('srv_1').writeActive).toBe(false);
+    expect(isWriteActive('srv_1')).toBe(false);
+
+    // 还没有许可条目时先记下写状态：占位条目必须是锁定的，不能被伪造成解锁。
+    applyWriteEvent({ serverId: 'srv_2', active: true });
+    expect(permitOf('srv_2').writeActive).toBe(true);
+    expect(isWriteActive('srv_2')).toBe(true);
+    expect(permitOf('srv_2').locked).toBe(true);
+    expect(permitOf('srv_2').minutes).toBe(0);
+    expect(permitOf('srv_2').expiresAtMs).toBe(0);
+
+    // 之后到达的完整状态整条覆盖占位条目。
+    applyPermit({ serverId: 'srv_2', locked: false, minutes: 5, expiresAtMs: 7, writeActive: false });
+    expect(permitOf('srv_2').locked).toBe(false);
+    expect(permitOf('srv_2').minutes).toBe(5);
+    expect(isWriteActive('srv_2')).toBe(false);
   });
 
   it('formats countdowns without going negative', () => {
@@ -107,11 +133,11 @@ describe('guard store', () => {
   });
 
   it('tracks write activity and clears per-server state', () => {
-    applyPermit({ serverId: 'srv_1', locked: false, minutes: 5, expiresAtMs: 1, writeActive: false });
-    guardState.writes.srv_1 = true;
+    applyPermit({ serverId: 'srv_1', locked: false, minutes: 5, expiresAtMs: 1, writeActive: true });
     expect(isWriteActive('srv_1')).toBe(true);
     clearServer('srv_1');
-    expect(guardState.writes.srv_1).toBeUndefined();
+    expect(guardState.permits.srv_1).toBeUndefined();
+    expect(isWriteActive('srv_1')).toBe(false);
     expect(permitOf('srv_1').locked).toBe(true);
   });
 
@@ -179,10 +205,15 @@ describe('guard store', () => {
     expect(await executePreview()).toBeNull();
     expect(guardState.errorCode).toBe('PREVIEW_EXPIRED');
     expect(guardState.errorHint).toBe('重新预览');
-    // 失败后预览仍留在 store 里，调用方负责 discardPreview 再重新预览（后端已消费该 id）。
-    expect(guardState.preview?.previewId).toBe('p1');
+    expect(guardState.error).toBe('预览已过期');
+    // 后端在 write_execute 里先 take_preview，失败的 id 已被消费，所以失败即清空预览，
+    // 错误信息保留下来给 UI 展示，调用方直接重新预览即可。
+    expect(guardState.preview).toBeNull();
+    expect(guardState.previewServerId).toBe('');
+    // discardPreview 只清预览，不清错误。
     discardPreview();
     expect(guardState.preview).toBeNull();
+    expect(guardState.errorCode).toBe('PREVIEW_EXPIRED');
   });
 
   it('executes nothing without a preview', async () => {
@@ -209,12 +240,11 @@ describe('guard store', () => {
     expect(guardState.permitPanelOpen).toBe(false);
 
     applyPermit({ serverId: 'srv_1', locked: false, minutes: 5, expiresAtMs: 1, writeActive: true });
-    guardState.writes.srv_1 = true;
     openPermitPanel();
     clearAll();
     expect(guardState.permits).toEqual({});
-    expect(guardState.writes).toEqual({});
     expect(guardState.permitPanelOpen).toBe(false);
+    expect(isWriteActive('srv_1')).toBe(false);
   });
 
   it('applies events from a single shared subscription', () => {
@@ -229,7 +259,13 @@ describe('guard store', () => {
     expect(mocks.onWrite).toHaveBeenCalledTimes(1);
 
     const onPermit = mocks.onPermit.mock.calls[0][0];
-    onPermit({ serverId: 'srv_1', locked: false, minutes: 15, expiresAtMs: 42 });
+    onPermit({
+      serverId: 'srv_1',
+      locked: false,
+      minutes: 15,
+      expiresAtMs: 42,
+      writeActive: false,
+    });
     expect(permitOf('srv_1').locked).toBe(false);
     expect(permitOf('srv_1').expiresAtMs).toBe(42);
 
@@ -239,6 +275,7 @@ describe('guard store', () => {
     expect(permitOf('srv_1').writeActive).toBe(true);
     onWrite({ serverId: 'srv_1', active: false });
     expect(isWriteActive('srv_1')).toBe(false);
+    expect(permitOf('srv_1').writeActive).toBe(false);
 
     // 第一个订阅释放时监听仍然保留，重复释放不会误取消。
     release();

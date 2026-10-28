@@ -177,6 +177,9 @@ fn failed_unknown(action: &str, error: &SshError) -> SshError {
     SshError::write_failed(format!("{action}时连接中断：{}", error.message))
 }
 
+/// 审计行没落库时的统一提示：用户必须知道这次尝试在审计里看不到。
+const AUDIT_LOST_HINT: &str = "操作已结束但审计记录写入失败，请在审计列表中确认状态。";
+
 fn record(
     db: &Database,
     server_id: &str,
@@ -208,6 +211,42 @@ fn record(
     })
 }
 
+/// 操作本身已经以失败/未知收尾，但审计行没有写进去：保留操作自己的错误码与
+/// 消息，把审计失败追加进去，并把底层 DB 错误打到日志里。
+fn audit_write_failed(operation: SshError, audit: &SshError, may_have_run: bool) -> SshError {
+    eprintln!(
+        "[lightguard] audit insert failed for {}: {} ({})",
+        operation.code, audit.code, audit.message
+    );
+    let message = operation.message.trim_end_matches('。');
+    let hint = if may_have_run {
+        format!("操作可能已执行，请在文件列表中刷新核对。{AUDIT_LOST_HINT}")
+    } else {
+        AUDIT_LOST_HINT.to_string()
+    };
+    SshError {
+        message: format!("{message}；审计记录写入失败：{}", audit.message),
+        hint,
+        ..operation
+    }
+}
+
+/// 远端变更已经生效，但审计行没有落库：既没有审计 id，也就没有可回退的记录。
+/// 返回值必须同时说明"操作可能已完成"和"没有审计编号"，前端才不会给出回退入口。
+fn audit_lost_after_success(action: &str, audit: &SshError) -> SshError {
+    eprintln!(
+        "[lightguard] audit insert failed after {action}: {} ({})",
+        audit.code, audit.message
+    );
+    let mut error = SshError::write_failed(format!(
+        "{action}，但审计记录写入失败：{}；本次操作可能已完成，且没有审计编号，无法在审计中回退。",
+        audit.message
+    ));
+    error.hint = "操作可能已完成，但审计记录写入失败，没有审计编号；请在文件列表中刷新核对，避免重复执行。"
+        .to_string();
+    error
+}
+
 pub(crate) async fn execute_mkdir(
     state: &AppState,
     db: &Database,
@@ -235,10 +274,7 @@ pub(crate) async fn execute_mkdir(
                 permit_source,
                 None,
             )
-            .map_err(|error| SshError {
-                message: format!("文件夹已创建，但审计写入失败：{}", error.message),
-                ..error
-            })?;
+            .map_err(|audit| audit_lost_after_success("文件夹已创建", &audit))?;
             Ok(WriteResult {
                 audit_id,
                 path: path.to_string(),
@@ -246,7 +282,12 @@ pub(crate) async fn execute_mkdir(
         }
         Err(error) => {
             let result = outcome_for(&error);
-            let _ = record(
+            let operation_error = if result == "unknown" {
+                failed_unknown("创建文件夹", &error)
+            } else {
+                failed("创建文件夹", &error)
+            };
+            match record(
                 db,
                 server_id,
                 &server_name,
@@ -256,11 +297,13 @@ pub(crate) async fn execute_mkdir(
                 started,
                 permit_source,
                 None,
-            );
-            if result == "unknown" {
-                Err(failed_unknown("创建文件夹", &error))
-            } else {
-                Err(failed("创建文件夹", &error))
+            ) {
+                Ok(_) => Err(operation_error),
+                Err(audit) => Err(audit_write_failed(
+                    operation_error,
+                    &audit,
+                    result == "unknown",
+                )),
             }
         }
     }
@@ -294,10 +337,7 @@ pub(crate) async fn rollback_mkdir(
                 permit_source,
                 Some(audit_id),
             )
-            .map_err(|error| SshError {
-                message: format!("目录已删除，但审计写入失败：{}", error.message),
-                ..error
-            })?;
+            .map_err(|audit| audit_lost_after_success("文件夹已删除", &audit))?;
             Ok(WriteResult {
                 audit_id: new_id,
                 path: path.to_string(),
@@ -305,7 +345,12 @@ pub(crate) async fn rollback_mkdir(
         }
         Err(error) => {
             let result = outcome_for(&error);
-            let _ = record(
+            let operation_error = if result == "unknown" {
+                failed_unknown("删除文件夹", &error)
+            } else {
+                failed("删除文件夹", &error)
+            };
+            match record(
                 db,
                 server_id,
                 &server_name,
@@ -315,11 +360,13 @@ pub(crate) async fn rollback_mkdir(
                 started,
                 permit_source,
                 Some(audit_id),
-            );
-            if result == "unknown" {
-                Err(failed_unknown("删除文件夹", &error))
-            } else {
-                Err(failed("删除文件夹", &error))
+            ) {
+                Ok(_) => Err(operation_error),
+                Err(audit) => Err(audit_write_failed(
+                    operation_error,
+                    &audit,
+                    result == "unknown",
+                )),
             }
         }
     }
@@ -569,5 +616,62 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.code, "INVALID_INPUT");
         assert!(db.audit_list(10, 0).unwrap().is_empty());
+    }
+
+    /// 审计插入失败不能被 `let _ = record(...)` 吞掉：用户看到失败时，必须同时
+    /// 被告知审计里没有这一行。`audit` 表被删掉后插入必然失败。
+    #[tokio::test]
+    async fn mkdir_audit_failures_are_surfaced() {
+        let db = Database::in_memory();
+        db.drop_audit_table_for_test();
+        let state = AppState::new(std::path::PathBuf::from("."));
+
+        let error = execute_mkdir(&state, &db, "srv", "/data/x", "unlock:15m")
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.code, "WRITE_FAILED", "审计失败不能改掉写类错误码");
+        assert!(error.message.contains("审计记录写入失败"), "{}", error.message);
+        assert!(
+            error.hint.contains("操作已结束但审计记录写入失败"),
+            "{}",
+            error.hint
+        );
+        // 没有会话 → unknown：仍然要让前端知道"可能已执行"。
+        assert!(error.hint.contains("可能已执行"), "{}", error.hint);
+    }
+
+    #[tokio::test]
+    async fn rollback_audit_failures_are_surfaced() {
+        let db = Database::in_memory();
+        db.drop_audit_table_for_test();
+        let state = AppState::new(std::path::PathBuf::from("."));
+
+        let error = rollback_mkdir(&state, &db, "srv", 7, "/data/x", "unlock:5m")
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.code, "WRITE_FAILED");
+        assert!(error.message.contains("审计记录写入失败"), "{}", error.message);
+        assert!(
+            error.hint.contains("操作已结束但审计记录写入失败"),
+            "{}",
+            error.hint
+        );
+    }
+
+    /// 变更已生效但审计没落库时既没有审计 id 也没有回退入口，错误必须说清楚。
+    #[test]
+    fn lost_audit_after_success_names_the_missing_audit_id() {
+        let audit = SshError::internal("database is locked");
+        let error = audit_lost_after_success("文件夹已创建", &audit);
+        assert_eq!(error.code, "WRITE_FAILED");
+        assert!(error.message.contains("文件夹已创建"), "{}", error.message);
+        assert!(error.message.contains("审计记录写入失败"), "{}", error.message);
+        assert!(error.message.contains("没有审计编号"), "{}", error.message);
+        assert!(error.message.contains("可能已完成"), "{}", error.message);
+        assert!(error.hint.contains("没有审计编号"), "{}", error.hint);
+        assert!(!error.retryable);
+        assert_eq!(error.stage, None);
     }
 }

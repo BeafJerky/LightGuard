@@ -104,10 +104,12 @@ impl Database {
     }
 
     pub(crate) fn audit_has_rollback(&self, id: i64) -> Result<bool, DbError> {
+        // 只有成功的回退才算"已回退"：一次失败的 `rmdir`（ENOTEMPTY、权限不足）
+        // 不能把原始记录永久标成不可回退。
         let count: i64 = self
             .lock()?
             .query_row(
-                "SELECT count(*) FROM audit WHERE rollback_of = ?1",
+                "SELECT count(*) FROM audit WHERE rollback_of = ?1 AND result = 'success'",
                 [id],
                 |row| row.get(0),
             )
@@ -143,6 +145,19 @@ impl Database {
             .map_err(DbError::write)?;
             Ok(())
         })
+    }
+}
+
+/// 测试专用：删掉 `audit` 表，让后续 `audit_insert` 稳定失败。只在测试构建里
+/// 编译，不进入生产 API；`guard::write` 用它在不触碰会话的前提下验证"审计写不
+/// 进去"时错误不会被吞掉。
+#[cfg(test)]
+impl Database {
+    pub(crate) fn drop_audit_table_for_test(&self) {
+        self.lock()
+            .expect("lock sqlite")
+            .execute_batch("DROP TABLE audit")
+            .expect("drop audit table");
     }
 }
 
@@ -184,6 +199,45 @@ mod tests {
         .unwrap();
         assert!(db.audit_has_rollback(id).unwrap());
         assert_eq!(db.audit_list(10, 0).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn only_successful_rollbacks_block_another_attempt() {
+        let db = Database::in_memory();
+        let original = db.audit_insert(&entry(1_000)).unwrap();
+        assert!(!db.audit_has_rollback(original).unwrap());
+
+        // 一次失败的 `rmdir`（ENOTEMPTY、权限不足）不构成"已回退"。
+        db.audit_insert(&NewAudit {
+            op: "fs.mkdir.rollback".to_string(),
+            result: "failed".to_string(),
+            rollback_of: Some(original),
+            ..entry(2_000)
+        })
+        .unwrap();
+        assert!(
+            !db.audit_has_rollback(original).unwrap(),
+            "failed 回退不能永久挡住重试"
+        );
+
+        // 结果未知的回退同样不能算成功。
+        db.audit_insert(&NewAudit {
+            op: "fs.mkdir.rollback".to_string(),
+            result: "unknown".to_string(),
+            rollback_of: Some(original),
+            ..entry(3_000)
+        })
+        .unwrap();
+        assert!(!db.audit_has_rollback(original).unwrap());
+
+        db.audit_insert(&NewAudit {
+            op: "fs.mkdir.rollback".to_string(),
+            result: "success".to_string(),
+            rollback_of: Some(original),
+            ..entry(4_000)
+        })
+        .unwrap();
+        assert!(db.audit_has_rollback(original).unwrap());
     }
 
     #[test]

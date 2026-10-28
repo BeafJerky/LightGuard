@@ -10,6 +10,7 @@ use tauri::State;
 
 use crate::db::{AuditRow, Database, DbError, DbState};
 use crate::ssh::error::SshError;
+use crate::ssh::sftp::dto::FileListing;
 use crate::ssh::sftp::{client, list};
 use crate::ssh::state::AppState;
 
@@ -62,14 +63,13 @@ pub fn page_bounds(limit: i64, offset: i64) -> (i64, i64) {
 ///
 /// 规范只允许回退"本应用创建的空目录"：这里先确认目录存在、仍是原路径（父目录没被
 /// 换成符号链接）且没有内容，再交给 `rmdir` 做最终判定。预先检查不是为了替代
-/// `rmdir` 的原子拒绝，而是为了让拒绝有明确原因，并且不给注定失败的回退留下
-/// `fs.mkdir.rollback / failed` 审计行——那行会让 `audit_has_rollback` 从此为真。
-async fn empty_original_dir(
-    state: &AppState,
-    server_id: &str,
+/// `rmdir` 的原子拒绝，而是为了让拒绝有明确原因，也不会在审计里留下一次从未发生
+/// 过的远端尝试。判定是纯函数，测试可以直接喂各种列举结果。
+pub(crate) fn empty_original_dir(
     path: &str,
+    listed: Result<FileListing, SshError>,
 ) -> Result<(), SshError> {
-    let listing = match list::list(state, server_id, path).await {
+    let listing = match listed {
         Ok(listing) => listing,
         Err(error) if error.code == "FILE_NOT_FOUND" => {
             return Err(SshError::invalid_input("目标目录已不存在，无法回退"));
@@ -83,6 +83,14 @@ async fn empty_original_dir(
         return Err(SshError::invalid_input("目标目录非空，无法回退"));
     }
     Ok(())
+}
+
+async fn original_dir_still_empty(
+    state: &AppState,
+    server_id: &str,
+    path: &str,
+) -> Result<(), SshError> {
+    empty_original_dir(path, list::list(state, server_id, path).await)
 }
 
 #[tauri::command]
@@ -170,7 +178,7 @@ pub async fn write_rollback(
     client::session_handle(state.inner(), &row.server_id).await?;
     let lock = guard.begin_write(&row.server_id)?;
     let permit_source = format!("unlock:{minutes}m");
-    let outcome = match empty_original_dir(state.inner(), &row.server_id, &path).await {
+    let outcome = match original_dir_still_empty(state.inner(), &row.server_id, &path).await {
         Ok(()) => {
             write::rollback_mkdir(
                 state.inner(),
@@ -230,7 +238,10 @@ pub fn permit_lock(
 
 #[cfg(test)]
 mod tests {
-    use super::{absolute_dir, page_bounds};
+    use super::{absolute_dir, empty_original_dir, page_bounds, GuardService};
+    use crate::guard::write;
+    use crate::ssh::error::SshError;
+    use crate::ssh::sftp::dto::{FileEntry, FileKind, FileListing};
 
     #[test]
     fn audit_page_bounds_are_clamped() {
@@ -251,5 +262,83 @@ mod tests {
                 "dir {dir:?}"
             );
         }
+    }
+
+    fn listing(canonical_path: &str, entries: Vec<FileEntry>) -> FileListing {
+        FileListing {
+            path: "/data/x".to_string(),
+            canonical_path: canonical_path.to_string(),
+            entries,
+            truncated: false,
+        }
+    }
+
+    fn file_entry(name: &str) -> FileEntry {
+        FileEntry {
+            name: name.to_string(),
+            path: format!("/data/x/{name}"),
+            kind: FileKind::File,
+            size: 1,
+            mtime: None,
+            mode: 0o644,
+            mode_text: "-rw-r--r--".to_string(),
+            uid: None,
+            gid: None,
+            symlink_target: None,
+            target_kind: None,
+        }
+    }
+
+    #[test]
+    fn rollback_refuses_a_missing_original_dir() {
+        let error =
+            empty_original_dir("/data/x", Err(SshError::file_not_found("/data/x"))).unwrap_err();
+        assert_eq!(error.code, "INVALID_INPUT");
+        assert_eq!(error.message, "目标目录已不存在，无法回退");
+    }
+
+    #[test]
+    fn rollback_refuses_non_empty_or_moved_dirs() {
+        assert!(empty_original_dir("/data/x", Ok(listing("/data/x", vec![]))).is_ok());
+
+        let filled = empty_original_dir(
+            "/data/x",
+            Ok(listing("/data/x", vec![file_entry("a.txt")])),
+        )
+        .unwrap_err();
+        assert_eq!(filled.code, "INVALID_INPUT");
+        assert_eq!(filled.message, "目标目录非空，无法回退");
+
+        // 父目录被换成符号链接等情况下，服务端返回的规范路径不再等于原路径。
+        let moved = empty_original_dir("/data/x", Ok(listing("/data/y", vec![]))).unwrap_err();
+        assert_eq!(moved.code, "INVALID_INPUT");
+        assert_eq!(moved.message, "目标路径已变更，无法回退");
+
+        // 其它读取错误原样透出，不伪装成"拒绝回退"。
+        let denied =
+            empty_original_dir("/data/x", Err(SshError::permission_denied("/data/x"))).unwrap_err();
+        assert_eq!(denied.code, "PERMISSION_DENIED");
+    }
+
+    /// 命令层的顺序是"取预览 → 校验许可 → …"：预览在真正执行前就被取走，
+    /// 同一个 id 不能再次执行，即使随后解锁也一样。
+    #[test]
+    fn execute_consumes_the_preview_exactly_once() {
+        let guard = GuardService::new(None);
+        let id = guard.store_preview("srv", write::MKDIR_OP, serde_json::json!({ "path": "/data/x" }));
+
+        let preview = guard.take_preview(&id).unwrap();
+        assert_eq!(preview.server_id, "srv");
+        assert_eq!(preview.op, write::MKDIR_OP);
+        assert_eq!(preview.payload["path"], "/data/x");
+        assert_eq!(
+            guard.require_permit(&preview.server_id).unwrap_err().code,
+            "PERMIT_REQUIRED"
+        );
+
+        // 已消费的预览报 PREVIEW_EXPIRED，前端只能重新发起预览。
+        assert_eq!(guard.take_preview(&id).unwrap_err().code, "PREVIEW_EXPIRED");
+        guard.unlock("srv", 5).unwrap();
+        assert_eq!(guard.take_preview(&id).unwrap_err().code, "PREVIEW_EXPIRED");
     }
 }

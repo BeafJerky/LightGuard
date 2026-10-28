@@ -1,4 +1,6 @@
+pub mod commands;
 pub mod engine;
+pub mod login;
 pub mod notify;
 pub mod rules;
 pub mod settings;
@@ -13,13 +15,15 @@ use tauri::AppHandle;
 use tauri::Emitter;
 use tokio::task::JoinHandle;
 
-use crate::db::{Database, NewAlert};
+use crate::db::{AlertFilter, Database, NewAlert};
 use crate::ssh::collector::CollectorState;
+use crate::ssh::error::SshError;
 use crate::ssh::sampler::{self, Sample};
 use crate::ssh::session::ClientHandler;
 
 use self::engine::{Engine, Transition};
-use self::rules::{RULE_HOSTKEY, RULE_OFFLINE};
+use self::login::LoginReport;
+use self::rules::{RULE_HOSTKEY, RULE_LOGIN, RULE_LOGIN_SOURCE, RULE_OFFLINE};
 use self::settings::{parse_settings, SettingsView};
 
 pub(crate) fn now_ms() -> i64 {
@@ -37,17 +41,32 @@ pub struct LoginStatus {
     pub reason: String,
 }
 
-// 策略只看 severity：critical 跟随 `notifyFailure`，其余跟随 `notifyThreshold`。
-// `rule_id` 保留在签名里供调用方统一传参，不参与判定。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoginMonitor {
+    pub server_id: String,
+    pub available: bool,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlertsPage {
+    pub items: Vec<crate::db::AlertRow>,
+    pub active_count: i64,
+    pub login_monitor: Vec<LoginMonitor>,
+}
+
+// 提醒分类按规则而非仅按 severity：新登录来源是信息级、只进告警中心不弹通知；
+// 登录失败跟随 `notifyFailure`；critical 与其余阈值类规则仍按各自开关判定。
 pub(crate) fn should_notify(view: &SettingsView, rule_id: &str, severity: &str) -> bool {
-    let _ = rule_id;
-    if !view.notify_threshold && severity != "critical" {
+    if rule_id == RULE_LOGIN_SOURCE {
         return false;
     }
-    if !view.notify_failure && severity == "critical" {
-        return false;
+    if severity == "critical" || rule_id == RULE_LOGIN {
+        return view.notify_failure;
     }
-    true
+    view.notify_threshold
 }
 
 pub struct AlertService {
@@ -64,6 +83,7 @@ pub struct AlertService {
     offline: Mutex<HashMap<String, JoinHandle<()>>>,
     logins: Mutex<HashMap<String, JoinHandle<()>>>,
     login_status: Mutex<HashMap<String, LoginStatus>>,
+    login_baseline: Mutex<HashSet<String>>,
     connected: Mutex<HashSet<String>>,
 }
 
@@ -82,6 +102,7 @@ impl AlertService {
             offline: Mutex::new(HashMap::new()),
             logins: Mutex::new(HashMap::new()),
             login_status: Mutex::new(HashMap::new()),
+            login_baseline: Mutex::new(HashSet::new()),
             connected: Mutex::new(HashSet::new()),
         });
         service.reload_settings();
@@ -117,6 +138,7 @@ impl AlertService {
         self.cancel_offline(&server_id);
         self.resolve_rule(&server_id, RULE_OFFLINE);
 
+        let login_handle = Arc::clone(&handle);
         let service = Arc::clone(self);
         let id = server_id.clone();
         let task = tokio::spawn(async move {
@@ -141,12 +163,14 @@ impl AlertService {
                 }
             }
         });
+        self.start_login(&server_id, login_handle);
         lock_map(&self.samplers).insert(server_id, task);
     }
 
     pub fn on_session_closed(self: &Arc<Self>, server_id: &str) {
         lock_map(&self.connected).remove(server_id);
         self.stop_sampling(server_id);
+        self.stop_login(server_id);
         let (enabled, grace) = {
             let settings = read_lock(&self.settings);
             let rules = settings.alerts.effective(server_id);
@@ -171,6 +195,7 @@ impl AlertService {
     pub fn on_explicit_disconnect(&self, server_id: &str) {
         lock_map(&self.connected).remove(server_id);
         self.stop_sampling(server_id);
+        self.stop_login(server_id);
         self.cancel_offline(server_id);
         lock_map(&self.engine).clear_server(server_id);
         if let Some(db) = &self.db {
@@ -206,6 +231,7 @@ impl AlertService {
         lock_map(&self.connected).clear();
         lock_map(&self.engine).clear();
         lock_map(&self.login_status).clear();
+        lock_map(&self.login_baseline).clear();
         self.reload_settings();
         self.publish();
     }
@@ -373,6 +399,210 @@ impl AlertService {
         }
     }
 
+    fn start_login(self: &Arc<Self>, server_id: &str, handle: Arc<Handle<ClientHandler>>) {
+        if let Some(task) = lock_map(&self.logins).remove(server_id) {
+            task.abort();
+        }
+        let service = Arc::clone(self);
+        let id = server_id.to_string();
+        let task = tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(Duration::from_secs(60));
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                ticker.tick().await;
+                match sampler::exec_script(
+                    &handle,
+                    login::LOGIN_SCRIPT,
+                    Duration::from_secs(10),
+                    256 * 1024,
+                )
+                .await
+                {
+                    Ok(text) => service.ingest_login(&id, &login::parse_login(&text)),
+                    Err(_) => service.mark_login_unavailable(&id),
+                }
+            }
+        });
+        lock_map(&self.logins).insert(server_id.to_string(), task);
+    }
+
+    fn stop_login(&self, server_id: &str) {
+        if let Some(task) = lock_map(&self.logins).remove(server_id) {
+            task.abort();
+        }
+    }
+
+    fn mark_login_unavailable(&self, server_id: &str) {
+        let changed = {
+            let mut statuses = lock_map(&self.login_status);
+            let next = LoginStatus {
+                available: false,
+                reason: "无法读取登录日志（只读解析）".to_string(),
+            };
+            if statuses.get(server_id) == Some(&next) {
+                false
+            } else {
+                statuses.insert(server_id.to_string(), next);
+                true
+            }
+        };
+        if changed {
+            self.publish();
+        }
+    }
+
+    fn ingest_login(&self, server_id: &str, report: &LoginReport) {
+        let Some(db) = self.db.clone() else {
+            return;
+        };
+        let status_changed = {
+            let mut statuses = lock_map(&self.login_status);
+            let next = LoginStatus {
+                available: report.available,
+                reason: if report.available {
+                    report.source.clone()
+                } else {
+                    "未检测到登录日志（只读解析）".to_string()
+                },
+            };
+            let changed = statuses.get(server_id) != Some(&next);
+            statuses.insert(server_id.to_string(), next);
+            changed
+        };
+        if !report.available {
+            if status_changed {
+                self.publish();
+            }
+            return;
+        }
+
+        let baseline = {
+            let mut seen = lock_map(&self.login_baseline);
+            if seen.contains(server_id) {
+                true
+            } else {
+                seen.insert(server_id.to_string());
+                false
+            }
+        };
+        let server_name = self.server_name(server_id);
+        for ip in &report.accepted {
+            // 首个报告只用来建立基线：先入库来源，再决定是否告警，避免开屏即刷屏。
+            let first = db.login_source_touch(server_id, ip, now_ms()).unwrap_or(false);
+            if baseline && first {
+                let event = NewAlert {
+                    server_id: server_id.to_string(),
+                    server_name: server_name.clone(),
+                    rule_id: RULE_LOGIN_SOURCE.to_string(),
+                    severity: "info".to_string(),
+                    title: format!("新的登录来源 {ip}"),
+                    detail: String::new(),
+                    first_seen_at: now_ms(),
+                };
+                if db.alert_insert(&event).is_ok() {
+                    if should_notify(&read_lock(&self.settings), RULE_LOGIN_SOURCE, "info") {
+                        self.notify_host("info", &server_name, &event.title);
+                    }
+                    self.publish();
+                }
+            }
+        }
+        if baseline && status_changed {
+            self.publish();
+        }
+        if !read_lock(&self.settings).alerts.effective(server_id).login.enabled {
+            self.resolve_rule(server_id, RULE_LOGIN);
+            return;
+        }
+        if !baseline {
+            return;
+        }
+        if report.failed >= 5 {
+            let event = NewAlert {
+                server_id: server_id.to_string(),
+                server_name: server_name.clone(),
+                rule_id: RULE_LOGIN.to_string(),
+                severity: "warning".to_string(),
+                title: format!("15 分钟内失败登录 {} 次", report.failed),
+                detail: String::new(),
+                first_seen_at: now_ms(),
+            };
+            if db.alert_insert(&event).is_ok() {
+                if should_notify(&read_lock(&self.settings), RULE_LOGIN, "warning") {
+                    self.notify_host("warning", &server_name, &event.title);
+                }
+                self.publish();
+            }
+        } else {
+            self.resolve_rule(server_id, RULE_LOGIN);
+        }
+    }
+
+    pub fn list_alerts(&self, filter: &str, limit: i64, offset: i64) -> Result<AlertsPage, SshError> {
+        let Some(db) = &self.db else {
+            return Err(SshError::internal("本地数据库不可用"));
+        };
+        let statuses: &'static [&'static str] = match filter {
+            "open" => &["active"],
+            "handled" => &["resolved", "ignored"],
+            _ => &[],
+        };
+        let items = db
+            .alerts_list(&AlertFilter {
+                statuses,
+                limit: limit.clamp(1, 200),
+                offset: offset.max(0),
+            })
+            .map_err(|error| SshError::internal(error.to_string()))?;
+        let active_count = db
+            .alerts_active_count()
+            .map_err(|error| SshError::internal(error.to_string()))?;
+        let mut login_monitor: Vec<LoginMonitor> = lock_map(&self.login_status)
+            .iter()
+            .map(|(server_id, status)| LoginMonitor {
+                server_id: server_id.clone(),
+                available: status.available,
+                reason: status.reason.clone(),
+            })
+            .collect();
+        login_monitor.sort_by(|a, b| a.server_id.cmp(&b.server_id));
+        Ok(AlertsPage {
+            items,
+            active_count,
+            login_monitor,
+        })
+    }
+
+    pub fn ignore_alert(&self, alert_id: i64, reason: &str, until_ms: i64) -> Result<(), SshError> {
+        let reason = reason.trim();
+        if reason.is_empty() || reason.chars().count() > 200 {
+            return Err(SshError::invalid_input("忽略原因需为 1–200 个字符"));
+        }
+        validate_until(until_ms)?;
+        let Some(db) = &self.db else {
+            return Err(SshError::internal("本地数据库不可用"));
+        };
+        db.alert_ignore(alert_id, reason, until_ms)
+            .map_err(|error| SshError::internal(error.to_string()))?;
+        self.publish();
+        Ok(())
+    }
+
+    pub fn mute_server(
+        &self,
+        server_id: &str,
+        rule_id: Option<&str>,
+        until_ms: i64,
+    ) -> Result<(), SshError> {
+        validate_until(until_ms)?;
+        let Some(db) = &self.db else {
+            return Err(SshError::internal("本地数据库不可用"));
+        };
+        db.alert_mute_add(server_id, rule_id, until_ms)
+            .map_err(|error| SshError::internal(error.to_string()))?;
+        Ok(())
+    }
+
     fn stop_sampling(&self, server_id: &str) {
         if let Some(task) = lock_map(&self.samplers).remove(server_id) {
             task.abort();
@@ -410,6 +640,14 @@ impl AlertService {
             .filter(|name| !name.is_empty())
             .unwrap_or_else(|| server_id.to_string())
     }
+}
+
+fn validate_until(until_ms: i64) -> Result<(), SshError> {
+    let now = now_ms();
+    if until_ms <= now || until_ms > now + 7 * 24 * 60 * 60 * 1000 {
+        return Err(SshError::invalid_input("忽略/静音时长需在 1 分钟到 7 天之间"));
+    }
+    Ok(())
 }
 
 fn lock_map<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -613,5 +851,147 @@ mod tests {
         );
         assert!(should_notify(&notify_view(true, true), "cpu", "warning"));
         assert!(should_notify(&notify_view(true, false), "offline", "critical"));
+    }
+
+    #[test]
+    fn should_notify_classifies_login_rules() {
+        assert!(
+            !should_notify(&notify_view(false, true), RULE_LOGIN, "warning"),
+            "login failures follow the failure toggle, not the threshold toggle"
+        );
+        assert!(should_notify(&notify_view(true, false), RULE_LOGIN, "warning"));
+        assert!(
+            !should_notify(&notify_view(true, true), RULE_LOGIN_SOURCE, "info"),
+            "new login sources are silent by design, even with every toggle on"
+        );
+    }
+
+    fn login_report(failed: u32, accepted: &[&str]) -> LoginReport {
+        LoginReport {
+            available: true,
+            source: "journal".to_string(),
+            failed,
+            accepted: accepted.iter().map(|ip| ip.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn login_monitor_uses_first_report_as_baseline() {
+        let db = Arc::new(Database::in_memory());
+        let service = service_with(&db);
+        service.ingest_login("srv_1", &login_report(9, &["203.0.113.9"]));
+        assert_eq!(db.alerts_active_count().unwrap(), 0, "baseline is silent");
+        service.ingest_login("srv_1", &login_report(9, &["203.0.113.9"]));
+        let row = db.alert_active("srv_1", "login").unwrap().expect("login alert");
+        assert_eq!(row.severity, "warning");
+        service.ingest_login("srv_1", &login_report(1, &["203.0.113.9"]));
+        assert_eq!(db.alerts_active_count().unwrap(), 0);
+    }
+
+    #[test]
+    fn new_login_source_creates_info_alert() {
+        let db = Arc::new(Database::in_memory());
+        let service = service_with(&db);
+        service.ingest_login("srv_1", &login_report(0, &["203.0.113.9"]));
+        service.ingest_login(
+            "srv_1",
+            &login_report(0, &["203.0.113.9", "198.51.100.7"]),
+        );
+        let row = db
+            .alert_active("srv_1", "login_source")
+            .unwrap()
+            .expect("source alert");
+        assert_eq!(row.severity, "info");
+        assert!(row.title.contains("198.51.100.7"));
+    }
+
+    #[test]
+    fn unavailable_login_monitor_reports_reason_without_alerts() {
+        let db = Arc::new(Database::in_memory());
+        let service = service_with(&db);
+        service.ingest_login(
+            "srv_1",
+            &LoginReport {
+                available: false,
+                source: String::new(),
+                failed: 0,
+                accepted: Vec::new(),
+            },
+        );
+        assert_eq!(db.alerts_active_count().unwrap(), 0);
+        let page = service.list_alerts("open", 50, 0).unwrap();
+        assert_eq!(page.login_monitor.len(), 1);
+        assert!(!page.login_monitor[0].available);
+    }
+
+    #[test]
+    fn ignore_requires_reason_and_bounded_window() {
+        let db = Arc::new(Database::in_memory());
+        let service = service_with(&db);
+        service.record_sample("srv_1", "web-01", &cpu(95.0));
+        let id = db.alert_active("srv_1", "cpu").unwrap().unwrap().id;
+        assert_eq!(
+            service.ignore_alert(id, "   ", now_ms() + 60_000).unwrap_err().code,
+            "INVALID_INPUT"
+        );
+        assert_eq!(
+            service.ignore_alert(id, "维护中", now_ms() - 1).unwrap_err().code,
+            "INVALID_INPUT"
+        );
+        assert_eq!(
+            service
+                .ignore_alert(id, "维护中", now_ms() + 8 * 24 * 60 * 60 * 1000)
+                .unwrap_err()
+                .code,
+            "INVALID_INPUT"
+        );
+        service.ignore_alert(id, "维护中", now_ms() + 60_000).unwrap();
+        assert!(db.alert_active("srv_1", "cpu").unwrap().is_none());
+    }
+
+    #[test]
+    fn mute_validates_window_and_stores_rule() {
+        let db = Arc::new(Database::in_memory());
+        let service = service_with(&db);
+        assert_eq!(
+            service.mute_server("srv_1", None, now_ms() - 1).unwrap_err().code,
+            "INVALID_INPUT"
+        );
+        service
+            .mute_server("srv_1", Some("disk"), now_ms() + 60_000)
+            .unwrap();
+        let mutes = db.alert_mutes_for("srv_1").unwrap();
+        assert_eq!(mutes.len(), 1);
+        assert_eq!(mutes[0].rule_id.as_deref(), Some("disk"));
+    }
+
+    #[test]
+    fn list_alerts_clamps_paging_and_filters_statuses() {
+        let db = Arc::new(Database::in_memory());
+        let service = service_with(&db);
+        for index in 0..5 {
+            db.alert_insert(&NewAlert {
+                server_id: format!("srv_{index}"),
+                server_name: format!("web-0{index}"),
+                rule_id: "cpu".to_string(),
+                severity: "warning".to_string(),
+                title: format!("CPU {index}"),
+                detail: String::new(),
+                first_seen_at: 1_000 + index as i64,
+            })
+            .unwrap();
+        }
+        let page = service.list_alerts("open", 0, -10).unwrap();
+        assert_eq!(page.items.len(), 1, "limit clamps to 1 and offset clamps to 0");
+        assert_eq!(page.active_count, 5);
+        assert!(page.login_monitor.is_empty(), "no monitor entries without a poll");
+
+        let wide = service.list_alerts("open", 2_000, 0).unwrap();
+        assert_eq!(wide.items.len(), 5, "limit clamps to 200, never rejects");
+        assert_eq!(service.list_alerts("", 50, 0).unwrap().items.len(), 5);
+        assert!(
+            service.list_alerts("handled", 50, 0).unwrap().items.is_empty(),
+            "no handled rows yet"
+        );
     }
 }

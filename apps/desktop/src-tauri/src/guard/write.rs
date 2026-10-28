@@ -674,4 +674,101 @@ mod tests {
         assert!(!error.retryable);
         assert_eq!(error.stage, None);
     }
+
+    /// 真实服务器夹具：连接 → 建目录 → 重复建（失败落审计）→ 回退。
+    ///
+    /// 只有 `LG_SSH_HOST` / `LG_SSH_USER` / `LG_SSH_PASSWORD` 全部就绪时才运行；
+    /// 否则打印跳过提示后成功返回，保证 `cargo test --lib` 在无凭据环境下依然全绿。
+    #[tokio::test]
+    async fn real_guard_fixture_mkdir_duplicate_audit_and_rollback() {
+        use crate::db::Database;
+        use crate::ssh::credentials::CredentialStore;
+        use crate::ssh::dto::{AuthKind, ConnectInput};
+        use crate::ssh::session;
+
+        fn env() -> Option<(String, String, String, u16)> {
+            let host = std::env::var("LG_SSH_HOST").ok()?;
+            let user = std::env::var("LG_SSH_USER").ok()?;
+            let password = std::env::var("LG_SSH_PASSWORD").ok()?;
+            if host.is_empty() || user.is_empty() || password.is_empty() {
+                return None;
+            }
+            let port = std::env::var("LG_SSH_PORT")
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(22);
+            Some((host, user, password, port))
+        }
+
+        let Some((host, user, password, port)) = env() else {
+            eprintln!("skipping: LG_SSH_* not set");
+            return;
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = CredentialStore::with_master_key(dir.path().to_path_buf(), [7u8; 32]);
+        let outcome = session::connect(
+            ConnectInput {
+                server_id: "guard-it".to_string(),
+                host,
+                port,
+                user,
+                auth: AuthKind::Password,
+                secret: password,
+                passphrase: None,
+                remember: false,
+                verify_host_key: false,
+            },
+            dir.path(),
+            &store,
+        )
+        .await
+        .expect("connect");
+
+        let state = crate::test_support::headless_state(dir.path().to_path_buf());
+        state.sessions.lock().await.insert(
+            "guard-it".to_string(),
+            std::sync::Arc::new(tokio::sync::Mutex::new(outcome.entry)),
+        );
+
+        let db = Database::in_memory();
+        let guard = state.guard.clone();
+        guard.unlock("guard-it", 5).expect("unlock");
+        assert_eq!(guard.require_permit("guard-it").expect("permit"), 5);
+        let _write = guard.begin_write("guard-it").expect("write lock");
+
+        let base = std::env::var("LG_TEST_REMOTE_DIR")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "/vol1/1000/lg-filetest".to_string());
+        let base = base.trim_end_matches('/').to_string();
+        let name = format!("lg-guard-{}", crate::alerts::now_ms());
+        let target = format!("{base}/{name}");
+
+        let created = execute_mkdir(&state, &db, "guard-it", &target, "unlock:5m")
+            .await
+            .expect("mkdir");
+        let rows = db.audit_list(10, 0).expect("audit list");
+        assert_eq!(rows[0].id, created.audit_id);
+        assert_eq!(rows[0].op, MKDIR_OP);
+        assert_eq!(rows[0].result, "success");
+
+        // 同名目录再建一次：远端返回失败，落 failed 审计，且不产生第二个目录。
+        let duplicate = execute_mkdir(&state, &db, "guard-it", &target, "unlock:5m").await;
+        let error = duplicate.expect_err("duplicate mkdir must fail");
+        assert_eq!(error.code, "WRITE_FAILED", "{error:?}");
+        let rows = db.audit_list(10, 0).expect("audit list");
+        assert_eq!(rows[0].op, MKDIR_OP);
+        assert_eq!(rows[0].result, "failed");
+
+        rollback_mkdir(&state, &db, "guard-it", created.audit_id, &target, "unlock:5m")
+            .await
+            .expect("rollback");
+        assert!(db.audit_has_rollback(created.audit_id).expect("has rollback"));
+        let rows = db.audit_list(10, 0).expect("audit list");
+        assert_eq!(rows[0].op, MKDIR_ROLLBACK_OP);
+        assert_eq!(rows[0].result, "success");
+
+        state.sessions.lock().await.remove("guard-it");
+    }
 }

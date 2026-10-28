@@ -17,6 +17,7 @@ const drawerOpen = ref(false);
 const menuOpen = ref(false);
 const context = ref<{ entry: FileEntry; x: number; y: number } | null>(null);
 const addressInput = ref<HTMLInputElement | null>(null);
+const rootRef = ref<HTMLElement | null>(null);
 
 const folderCount = computed(() =>
   files.visibleRows.value.filter((entry) => (entry.targetKind ?? entry.kind) === 'dir').length,
@@ -66,9 +67,29 @@ function focusAddress() {
   addressInput.value?.select();
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+// FileList 给出的是视口坐标；.lgfiles 是 inline-size 容器（fixed 的包含块），
+// 因此这里换算成应用内坐标并夹在应用范围内，避免菜单被窗口裁剪。
 function openContext(payload: { entry: FileEntry; x: number; y: number }) {
   files.select(payload.entry);
-  context.value = payload;
+  const rect = rootRef.value?.getBoundingClientRect();
+  if (!rect) {
+    context.value = payload;
+    return;
+  }
+  context.value = {
+    entry: payload.entry,
+    x: clamp(payload.x - rect.left, 8, rect.width - 180),
+    y: clamp(payload.y - rect.top, 8, rect.height - 214),
+  };
+}
+
+function onRowSelect(entry: FileEntry) {
+  files.select(entry);
+  context.value = null;
 }
 
 async function contextAction(action: 'open' | 'preview' | 'download' | 'copy' | 'meta') {
@@ -77,17 +98,24 @@ async function contextAction(action: 'open' | 'preview' | 'download' | 'copy' | 
   if (!entry) return;
   if (action === 'open') await files.open(entry);
   else if (action === 'preview') {
+    files.previewOpen.value = true;
     files.select(entry);
     await files.loadPreview(entry);
   } else if (action === 'download') await files.download(entry);
   else if (action === 'copy') {
     try { await navigator.clipboard.writeText(entry.path); } catch { files.notice.value = '复制路径失败'; }
   } else {
+    files.previewOpen.value = true;
     files.select(entry);
+    if (files.preview.mode === 'none') files.preview.mode = 'meta';
   }
 }
 
 function onGlobalKey(event: KeyboardEvent) {
+  if (event.defaultPrevented) return;
+  // 快捷键只在焦点位于本应用窗口内时生效，避免抢走其他窗口的按键。
+  const win = rootRef.value?.closest('.lgdesk-win');
+  if (win && event.target instanceof Node && !win.contains(event.target)) return;
   if (event.ctrlKey && event.key.toLowerCase() === 'l') {
     event.preventDefault();
     focusAddress();
@@ -104,13 +132,23 @@ function onGlobalKey(event: KeyboardEvent) {
   }
 }
 
+function onPointerDown(event: PointerEvent) {
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  if (target.closest('.lgfiles-context, .lgfiles-menu, [data-menu-toggle]')) return;
+  context.value = null;
+  menuOpen.value = false;
+}
+
 onMounted(() => {
   void files.boot();
   window.addEventListener('keydown', onGlobalKey);
+  window.addEventListener('pointerdown', onPointerDown);
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalKey);
+  window.removeEventListener('pointerdown', onPointerDown);
 });
 
 watch(
@@ -122,7 +160,7 @@ watch(
 </script>
 
 <template>
-  <div class="lgfiles">
+  <div ref="rootRef" class="lgfiles">
     <div v-if="!files.canUse.value" class="lgfiles-blank">
       <LgIcon name="folder" :size="30" />
       <strong>{{ sessionLost ? '连接已断开' : '请先连接服务器' }}</strong>
@@ -150,7 +188,7 @@ watch(
             aria-label="当前路径"
             spellcheck="false"
             autocomplete="off"
-            @keydown.esc="resetAddress"
+            @keydown.esc.stop.prevent="resetAddress"
           />
         </form>
         <label class="lgfiles-search">
@@ -169,7 +207,7 @@ watch(
         <button type="button" class="lgfiles-icon-btn lgfiles-only-narrow" aria-label="目录树" @click="drawerOpen = !drawerOpen">
           <LgIcon name="menu" :size="15" />
         </button>
-        <button type="button" class="lgfiles-icon-btn" aria-label="更多" @click="menuOpen = !menuOpen">
+        <button type="button" class="lgfiles-icon-btn" aria-label="更多" data-menu-toggle @click="menuOpen = !menuOpen">
           <LgIcon name="more" :size="15" />
         </button>
         <div v-if="menuOpen" class="lgfiles-menu">
@@ -203,7 +241,7 @@ watch(
             :sort-key="files.view.sortKey"
             :sort-dir="files.view.sortDir"
             :offline="files.offline.value"
-            @select="files.select"
+            @select="onRowSelect"
             @open="files.open"
             @sort="files.toggleSort"
             @back="files.goUp()"

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 import FilesApp from './FilesApp.vue';
 import type { Server } from '../../types';
@@ -26,5 +26,20 @@ describe('FilesApp', () => {
       props: { server: server({ sessionId: 's1', status: 'offline' }) },
     });
     expect(wrapper.text()).toContain('连接已断开');
+  });
+
+  it('removes its window listeners when unmounted', () => {
+    const add = vi.spyOn(window, 'addEventListener');
+    const remove = vi.spyOn(window, 'removeEventListener');
+    const wrapper = mount(FilesApp, { props: { server: server() } });
+    wrapper.unmount();
+
+    const added = add.mock.calls.map(([type]) => type);
+    const removed = remove.mock.calls.map(([type]) => type);
+    expect(added).toEqual(expect.arrayContaining(['keydown', 'pointerdown']));
+    expect(removed).toEqual(expect.arrayContaining(['keydown', 'pointerdown']));
+
+    add.mockRestore();
+    remove.mockRestore();
   });
 });

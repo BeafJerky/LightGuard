@@ -1,6 +1,6 @@
 [package]
 name = "lightguard"
-version = "0.11.0"
+version = "0.12.0"
 description = "LightGuard - lightweight SSH server guard"
 authors = ["LightGuard"]
 edition = "2021"
@@ -26,6 +26,7 @@ keyring = "4.2.0"
 rusqlite = { version = "0.32", features = ["bundled"] }
 russh-sftp = "3.0.1"
 tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
 encoding_rs = "0.8"
 
 [dev-dependencies]

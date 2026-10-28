@@ -1,6 +1,6 @@
 import type { AuthKind, CloseBehavior, DesktopBarMode, ServerStatus } from './types';
 
-export const APP_VERSION = '0.11.0';
+export const APP_VERSION = '0.12.0';
 export const APP_BUILD = '2026.10.28';
 export const HISTORY_POINTS = 120;
 export const MAX_LOGS = 80;

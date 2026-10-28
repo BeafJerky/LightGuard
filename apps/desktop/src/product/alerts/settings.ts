@@ -123,5 +123,7 @@ export function normalizePermitSettings(value: unknown): { defaultMinutes: Permi
 
 export function effectiveRules(settings: AlertSettings, serverId: string): AlertRules {
   const override = settings.perServer[serverId];
-  return override ? normalizeAlertRules(override, settings.rules) : settings.rules;
+  // Always return an owned copy, like Rust `effective()`: a settings editor may
+  // mutate the result, and `settings.rules` can alias module-level defaults.
+  return normalizeAlertRules(override ?? {}, settings.rules);
 }

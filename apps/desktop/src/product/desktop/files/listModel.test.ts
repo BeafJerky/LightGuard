@@ -56,4 +56,15 @@ describe('file list model', () => {
     expect(moveSelection(rows, rows[0].path, 'up', 2)).toBe(rows[0].path);
     expect(moveSelection(rows, rows[rows.length - 1].path, 'end', 2)).toBe(rows[rows.length - 1].path);
   });
+
+  it('moves by rows and stays inside a row when columns are set', () => {
+    const rows = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((name) => entry(name));
+    expect(moveSelection(rows, rows[4].path, 'up', 6, 3)).toBe(rows[1].path);
+    expect(moveSelection(rows, rows[4].path, 'down', 6, 3)).toBe(rows[6].path);
+    expect(moveSelection(rows, rows[1].path, 'right', 6, 3)).toBe(rows[2].path);
+    expect(moveSelection(rows, rows[2].path, 'right', 6, 3)).toBe(rows[2].path);
+    expect(moveSelection(rows, rows[3].path, 'left', 6, 3)).toBe(rows[3].path);
+    expect(moveSelection(rows, rows[4].path, 'left', 6, 3)).toBe(rows[3].path);
+    expect(moveSelection(rows, rows[6].path, 'right', 6, 3)).toBe(rows[6].path);
+  });
 });

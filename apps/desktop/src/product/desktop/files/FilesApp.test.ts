@@ -91,6 +91,7 @@ async function openContextDownload(wrapper: Awaited<ReturnType<typeof mountOnlin
 describe('FilesApp', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.removeItem('lg.files.view');
   });
 
   it('asks to connect when there is no session', () => {
@@ -205,6 +206,44 @@ describe('FilesApp', () => {
       path: '/home/test/a.txt',
       kind: 'file',
     });
+    wrapper.unmount();
+  });
+
+  it('switches between details, list and icon views from the toolbar', async () => {
+    const wrapper = await mountOnline();
+    expect(wrapper.find('.lgfiles-list__head').exists()).toBe(true);
+
+    const openView = async () => {
+      await wrapper.find('button[aria-label="视图"]').trigger('click');
+      await flushPromises();
+    };
+
+    await openView();
+    const list = wrapper.findAll('.lgfiles-menu button').find((item) => item.text().includes('列表'))!;
+    expect(list.attributes('aria-checked')).toBe('false');
+    await list.trigger('click');
+    await flushPromises();
+    expect(wrapper.find('.lgfiles-list__head').exists()).toBe(false);
+    expect(wrapper.findAll('.lgfiles-list__row.is-compact').length).toBeGreaterThan(0);
+    expect(window.localStorage.getItem('lg.files.view')).toBe('list');
+
+    await openView();
+    const grid = wrapper.findAll('.lgfiles-menu button').find((item) => item.text().includes('小图标'))!;
+    await grid.trigger('click');
+    await flushPromises();
+    expect(wrapper.findAll('.lgfiles-grid__cell').length).toBeGreaterThan(0);
+    expect(window.localStorage.getItem('lg.files.view')).toBe('grid');
+
+    await openView();
+    const details = wrapper
+      .findAll('.lgfiles-menu button')
+      .find((item) => item.text().includes('详细信息'))!;
+    expect(details.attributes('aria-checked')).toBe('false');
+    await details.trigger('click');
+    await flushPromises();
+    expect(wrapper.find('.lgfiles-list__head').exists()).toBe(true);
+    expect(window.localStorage.getItem('lg.files.view')).toBe('details');
+
     wrapper.unmount();
   });
 });

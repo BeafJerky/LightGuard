@@ -3,12 +3,14 @@ import { fileTypeLabel } from './format';
 
 export type SortKey = 'name' | 'size' | 'mtime' | 'type' | 'mode' | 'owner';
 export type SortDirection = 'asc' | 'desc';
+export type ViewMode = 'grid' | 'list' | 'details';
 
 export interface ListViewState {
   sortKey: SortKey;
   sortDir: SortDirection;
   query: string;
   showHidden: boolean;
+  mode: ViewMode;
 }
 
 export function toggleSort(view: Pick<ListViewState, 'sortKey' | 'sortDir'>, key: SortKey) {
@@ -39,7 +41,10 @@ function compare(a: FileEntry, b: FileEntry, key: SortKey): number {
   }
 }
 
-export function visibleEntries(entries: FileEntry[], view: ListViewState): FileEntry[] {
+export function visibleEntries(
+  entries: FileEntry[],
+  view: Pick<ListViewState, 'sortKey' | 'sortDir' | 'query' | 'showHidden'>,
+): FileEntry[] {
   const query = view.query.trim().toLowerCase();
   const filtered = entries.filter((entry) => {
     if (!view.showHidden && entry.name.startsWith('.')) return false;
@@ -54,19 +59,37 @@ export function visibleEntries(entries: FileEntry[], view: ListViewState): FileE
   });
 }
 
+export type MoveAction =
+  | 'up'
+  | 'down'
+  | 'left'
+  | 'right'
+  | 'page-up'
+  | 'page-down'
+  | 'home'
+  | 'end';
+
+// `columns` is the number of items per row; icon views move by whole rows for
+// up/down and stay inside the current row for left/right.
 export function moveSelection(
   entries: FileEntry[],
   currentPath: string,
-  action: 'up' | 'down' | 'page-up' | 'page-down' | 'home' | 'end',
+  action: MoveAction,
   pageSize: number,
+  columns = 1,
 ): string | null {
   if (entries.length === 0) return null;
   const index = entries.findIndex((entry) => entry.path === currentPath);
   const base = index < 0 ? 0 : index;
   const page = Math.max(1, pageSize);
+  const cols = Math.max(1, columns);
+  const rowStart = Math.floor(base / cols) * cols;
+  const rowEnd = Math.min(entries.length - 1, rowStart + cols - 1);
   const next = {
-    up: Math.max(0, base - 1),
-    down: Math.min(entries.length - 1, base + 1),
+    up: Math.max(0, base - cols),
+    down: Math.min(entries.length - 1, base + cols),
+    left: Math.max(rowStart, base - 1),
+    right: Math.min(rowEnd, base + 1),
     'page-up': Math.max(0, base - page),
     'page-down': Math.min(entries.length - 1, base + page),
     home: 0,

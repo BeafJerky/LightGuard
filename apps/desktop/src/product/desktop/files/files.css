@@ -183,6 +183,62 @@
   text-overflow: ellipsis;
 }
 
+/* 列表视图：仅图标、名称与大小，行高更紧凑。 */
+.lgfiles-list__row.is-compact {
+  grid-template-columns: minmax(0, 1fr) 90px;
+}
+
+/* 小图标视图：按视口宽度自动排布，行容器整行虚拟化。 */
+.lgfiles-grid__row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: grid;
+  gap: 8px;
+  padding: 0 8px 8px;
+  box-sizing: border-box;
+}
+
+.lgfiles-grid__cell {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+  border: 1px solid transparent;
+  border-radius: var(--lg-radius-sm);
+  color: var(--lg-text-secondary);
+  text-align: center;
+  cursor: default;
+}
+
+.lgfiles-grid__cell:hover {
+  background: var(--lg-bg-soft);
+}
+
+.lgfiles-grid__cell.is-selected {
+  border-color: var(--lg-primary);
+  background: var(--lg-primary-soft);
+  color: var(--lg-text);
+}
+
+.lgfiles-grid__name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.lgfiles-grid__meta {
+  min-height: 12px;
+  color: var(--lg-text-muted);
+  font-size: 10px;
+}
+
 .lgfiles-list__truncated {
   margin: 0;
   padding: 4px 10px;
@@ -492,8 +548,28 @@
 
 .lgfiles-menu {
   position: absolute;
-  top: 38px;
-  right: 8px;
+  top: calc(100% + 4px);
+  right: 0;
+}
+
+.lgfiles-menu-anchor {
+  position: relative;
+  display: flex;
+}
+
+.lgfiles-menu__item {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
+}
+
+.lgfiles-menu__item.is-checked {
+  color: var(--lg-primary);
+}
+
+.lgfiles-menu__blank {
+  display: block;
 }
 
 .lgfiles-context button,

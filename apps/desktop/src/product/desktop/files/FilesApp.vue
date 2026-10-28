@@ -15,11 +15,17 @@ const files = useFiles(props.server);
 
 const address = ref('');
 const drawerOpen = ref(false);
-const menuOpen = ref(false);
+const menuOpen = ref<'view' | 'more' | ''>('');
 const context = ref<{ entry: FileEntry; x: number; y: number } | null>(null);
 const pendingDownload = ref<FileEntry | null>(null);
 const addressInput = ref<HTMLInputElement | null>(null);
 const rootRef = ref<HTMLElement | null>(null);
+
+const viewOptions = [
+  { mode: 'grid' as const, label: '小图标' },
+  { mode: 'list' as const, label: '列表' },
+  { mode: 'details' as const, label: '详细信息' },
+];
 
 const folderCount = computed(() =>
   files.visibleRows.value.filter((entry) => (entry.targetKind ?? entry.kind) === 'dir').length,
@@ -50,10 +56,19 @@ watch(
     drawerOpen.value = false;
     context.value = null;
     pendingDownload.value = null;
-    menuOpen.value = false;
+    menuOpen.value = '';
   },
   { immediate: true },
 );
+
+function toggleMenu(name: 'view' | 'more') {
+  menuOpen.value = menuOpen.value === name ? '' : name;
+}
+
+function chooseMode(mode: 'grid' | 'list' | 'details') {
+  files.setMode(mode);
+  menuOpen.value = '';
+}
 
 function submitAddress() {
   const target = address.value.trim();
@@ -160,7 +175,7 @@ function onGlobalKey(event: KeyboardEvent) {
     void files.go(1);
   } else if (event.key === 'Escape') {
     context.value = null;
-    menuOpen.value = false;
+    menuOpen.value = '';
     dismissDownload();
     if (files.previewOpen.value) files.closePreview();
   }
@@ -171,7 +186,7 @@ function onPointerDown(event: PointerEvent) {
   if (!(target instanceof Element)) return;
   if (target.closest('.lgfiles-context, .lgfiles-menu, [data-menu-toggle]')) return;
   context.value = null;
-  menuOpen.value = false;
+  menuOpen.value = '';
 }
 
 onMounted(() => {
@@ -229,6 +244,34 @@ watch(
           <LgIcon name="search" :size="13" />
           <input v-model="files.view.query" aria-label="筛选当前目录" placeholder="筛选当前目录" />
         </label>
+        <div class="lgfiles-menu-anchor">
+          <button
+            type="button"
+            class="lgfiles-icon-btn"
+            :class="{ 'is-on': menuOpen === 'view' }"
+            aria-label="视图"
+            data-menu-toggle
+            @click="toggleMenu('view')"
+          >
+            <LgIcon name="grid" :size="15" />
+          </button>
+          <div v-if="menuOpen === 'view'" class="lgfiles-menu" role="menu" aria-label="视图">
+            <button
+              v-for="option in viewOptions"
+              :key="option.mode"
+              type="button"
+              class="lgfiles-menu__item"
+              :class="{ 'is-checked': files.view.mode === option.mode }"
+              role="menuitemradio"
+              :aria-checked="files.view.mode === option.mode"
+              @click="chooseMode(option.mode)"
+            >
+              <LgIcon v-if="files.view.mode === option.mode" name="check" :size="11" />
+              <span v-else class="lgfiles-menu__blank" />
+              {{ option.label }}
+            </button>
+          </div>
+        </div>
         <button
           type="button"
           class="lgfiles-icon-btn"
@@ -241,14 +284,23 @@ watch(
         <button type="button" class="lgfiles-icon-btn lgfiles-only-narrow" aria-label="目录树" @click="drawerOpen = !drawerOpen">
           <LgIcon name="menu" :size="15" />
         </button>
-        <button type="button" class="lgfiles-icon-btn" aria-label="更多" data-menu-toggle @click="menuOpen = !menuOpen">
-          <LgIcon name="more" :size="15" />
-        </button>
-        <div v-if="menuOpen" class="lgfiles-menu">
-          <button type="button" @click="files.setShowHidden(!files.view.showHidden); menuOpen = false">
-            {{ files.view.showHidden ? '隐藏隐藏文件' : '显示隐藏文件' }}
+        <div class="lgfiles-menu-anchor">
+          <button
+            type="button"
+            class="lgfiles-icon-btn"
+            :class="{ 'is-on': menuOpen === 'more' }"
+            aria-label="更多"
+            data-menu-toggle
+            @click="toggleMenu('more')"
+          >
+            <LgIcon name="more" :size="15" />
           </button>
-          <button type="button" @click="files.refresh(); menuOpen = false">清空缓存并刷新</button>
+          <div v-if="menuOpen === 'more'" class="lgfiles-menu">
+            <button type="button" @click="files.setShowHidden(!files.view.showHidden); menuOpen = ''">
+              {{ files.view.showHidden ? '隐藏隐藏文件' : '显示隐藏文件' }}
+            </button>
+            <button type="button" @click="files.refresh(); menuOpen = ''">清空缓存并刷新</button>
+          </div>
         </div>
       </div>
 
@@ -274,6 +326,7 @@ watch(
             :truncated="files.truncated.value"
             :sort-key="files.view.sortKey"
             :sort-dir="files.view.sortDir"
+            :mode="files.view.mode"
             :offline="files.offline.value"
             @select="onRowSelect"
             @open="files.open"

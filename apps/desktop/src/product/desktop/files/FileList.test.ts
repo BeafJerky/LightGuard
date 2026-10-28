@@ -28,6 +28,7 @@ function props(overrides: Record<string, unknown> = {}) {
     truncated: false,
     sortKey: 'name' as const,
     sortDir: 'asc' as const,
+    mode: 'details' as const,
     offline: false,
     resetKey: '',
     ...overrides,
@@ -110,5 +111,30 @@ describe('FileList', () => {
 
     await viewport.trigger('keydown', { key: 'F5' });
     expect(wrapper.emitted('refresh')).toHaveLength(1);
+  });
+
+  it('renders a compact list without the details header', async () => {
+    const wrapper = mount(FileList, {
+      props: props({ mode: 'list', entries: [entry('a.txt'), entry('b.txt')] }),
+    });
+
+    expect(wrapper.find('.lgfiles-list__head').exists()).toBe(false);
+    expect(wrapper.findAll('.lgfiles-list__row.is-compact')).toHaveLength(2);
+    expect(wrapper.find('.lgfiles-list__cell.is-time').exists()).toBe(false);
+    expect(wrapper.find('[data-path="/tmp/b.txt"]').text()).toContain('b.txt');
+  });
+
+  it('renders an icon grid with selectable cells', async () => {
+    const wrapper = mount(FileList, {
+      props: props({ mode: 'grid', entries: [entry('a.txt'), entry('b.txt')] }),
+    });
+
+    expect(wrapper.find('.lgfiles-list__head').exists()).toBe(false);
+    expect(wrapper.findAll('.lgfiles-grid__cell')).toHaveLength(2);
+    const cell = wrapper.find('[data-path="/tmp/b.txt"]');
+    await cell.trigger('click');
+    await cell.trigger('dblclick');
+    expect(wrapper.emitted('select')?.[0]?.[0]).toMatchObject({ name: 'b.txt' });
+    expect(wrapper.emitted('open')?.[0]?.[0]).toMatchObject({ name: 'b.txt' });
   });
 });

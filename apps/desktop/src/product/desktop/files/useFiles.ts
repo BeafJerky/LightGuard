@@ -20,7 +20,9 @@ import {
   toggleSort,
   visibleEntries,
   type ListViewState,
+  type MoveAction,
   type SortKey,
+  type ViewMode,
 } from './listModel';
 import { basename, parentOf } from './remotePath';
 import { TreeCache, treeChildren, type TreeItem } from './treeCache';
@@ -96,6 +98,27 @@ function transferId(): string {
   return `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
 
+const VIEW_KEY = 'lg.files.view';
+
+function loadViewMode(): ViewMode {
+  if (typeof window === 'undefined') return 'details';
+  try {
+    const stored = window.localStorage.getItem(VIEW_KEY);
+    return stored === 'grid' || stored === 'list' || stored === 'details' ? stored : 'details';
+  } catch {
+    return 'details';
+  }
+}
+
+function saveViewMode(mode: ViewMode): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(VIEW_KEY, mode);
+  } catch {
+    // Private windows can reject storage; the choice then lasts for the session only.
+  }
+}
+
 export function useFiles(server: Server, client: SshBackend = ssh) {
   const homePath = ref('');
   const roots = ref<TreeState[]>([]);
@@ -115,6 +138,7 @@ export function useFiles(server: Server, client: SshBackend = ssh) {
     sortDir: 'asc',
     query: '',
     showHidden: false,
+    mode: loadViewMode(),
   });
 
   let cache = new TreeCache((path) => loadEntries(path));
@@ -462,6 +486,12 @@ export function useFiles(server: Server, client: SshBackend = ssh) {
     view.showHidden = show;
   }
 
+  function setMode(mode: ViewMode): void {
+    if (view.mode === mode) return;
+    view.mode = mode;
+    saveViewMode(mode);
+  }
+
   watch(
     () => server.sessionId,
     (next, previous) => {
@@ -532,11 +562,12 @@ export function useFiles(server: Server, client: SshBackend = ssh) {
     cancelDownload,
     removeDownload,
     setShowHidden,
+    setMode,
     selectTree,
     openTree,
     resolveKind,
     basename,
-    moveSelection: (action: 'up' | 'down' | 'page-up' | 'page-down' | 'home' | 'end', page: number) =>
-      moveSelection(visibleRows.value, selectedPath.value, action, page),
+    moveSelection: (action: MoveAction, page: number, columns = 1) =>
+      moveSelection(visibleRows.value, selectedPath.value, action, page, columns),
   };
 }

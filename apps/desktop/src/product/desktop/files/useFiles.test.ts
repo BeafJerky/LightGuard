@@ -224,7 +224,9 @@ describe('useFiles', () => {
     expect(files.previewOpen.value).toBe(true);
     expect(files.preview.mode).toBe('text');
     expect(sftpPreviewText).toHaveBeenCalledTimes(2);
-  });  it('drops an open whose symlink probe finishes after another selection', async () => {
+  });
+
+  it('drops an open whose symlink probe finishes after another selection', async () => {
     const pending = deferred<FileEntry>();
     const sftpStat = vi.fn(() => pending.promise);
     const files = useFiles(server(), backend({ sftpStat }));
@@ -238,6 +240,25 @@ describe('useFiles', () => {
     expect(files.preview.entry?.name).toBe('b.txt');
     expect(files.preview.text).toBeNull();
     expect(files.previewOpen.value).toBe(false);
+  });
+
+  it('defaults to the details view and remembers the chosen mode', () => {
+    window.localStorage.removeItem('lg.files.view');
+    const files = useFiles(server(), backend());
+    expect(files.view.mode).toBe('details');
+
+    files.setMode('grid');
+
+    expect(files.view.mode).toBe('grid');
+    expect(window.localStorage.getItem('lg.files.view')).toBe('grid');
+    expect(useFiles(server(), backend()).view.mode).toBe('grid');
+    window.localStorage.removeItem('lg.files.view');
+  });
+
+  it('falls back to details for an unknown stored mode', () => {
+    window.localStorage.setItem('lg.files.view', 'icons');
+    expect(useFiles(server(), backend()).view.mode).toBe('details');
+    window.localStorage.removeItem('lg.files.view');
   });
 
   it('disables up at the filesystem root', async () => {

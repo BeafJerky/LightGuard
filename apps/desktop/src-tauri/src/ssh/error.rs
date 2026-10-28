@@ -132,6 +132,73 @@ impl SshError {
             None,
         )
     }
+
+    pub fn sftp_failed(message: impl Into<String>) -> Self {
+        Self::new(
+            "SFTP_FAILED",
+            message,
+            "请确认服务器已启用 SFTP 子系统，然后重试。",
+            Some("sftp"),
+        )
+    }
+
+    pub fn path_invalid(message: impl Into<String>) -> Self {
+        Self::new("PATH_INVALID", message, "请检查路径后重试。", None)
+    }
+
+    pub fn file_not_found(message: impl Into<String>) -> Self {
+        Self::new(
+            "FILE_NOT_FOUND",
+            message,
+            "文件可能已被移动或删除，请刷新目录。",
+            None,
+        )
+    }
+
+    pub fn permission_denied(message: impl Into<String>) -> Self {
+        Self::new(
+            "PERMISSION_DENIED",
+            message,
+            "当前登录用户没有读取权限。",
+            None,
+        )
+    }
+
+    pub fn file_too_large(message: impl Into<String>) -> Self {
+        Self::new(
+            "FILE_TOO_LARGE",
+            message,
+            "请下载到本地后查看。",
+            None,
+        )
+    }
+
+    pub fn file_binary() -> Self {
+        Self::new(
+            "FILE_BINARY",
+            "该文件不是文本文件。",
+            "可以在属性中查看元信息，或下载后打开。",
+            None,
+        )
+    }
+
+    pub fn transfer_failed(message: impl Into<String>) -> Self {
+        Self::new(
+            "TRANSFER_FAILED",
+            message,
+            "请重试；目录打包失败时可改用终端手动打包。",
+            Some("transfer"),
+        )
+    }
+
+    pub fn unsupported() -> Self {
+        Self::new(
+            "UNSUPPORTED",
+            "该功能仅桌面版可用。",
+            "请在 LightGuard 桌面客户端中使用。",
+            None,
+        )
+    }
 }
 
 impl std::fmt::Display for SshError {

@@ -120,12 +120,21 @@ pub async fn stat_with(client: &SftpSession, path: &str) -> Result<FileEntry, Ss
 
     let mut entry = file_entry(basename(path), path.to_string(), &metadata);
     if entry.kind == FileKind::Symlink {
-        // A dangling link is still a valid entry: a failed probe only leaves
-        // `symlink_target`/`target_kind` empty.
-        entry.symlink_target = client.read_link(path).await.ok();
-        if let Ok(resolved) = client.metadata(path).await {
-            entry.target_kind = Some(FileKind::from_sftp(resolved.file_type()));
-            entry.size = resolved.size.unwrap_or(entry.size);
+        // A dangling link is still a valid entry: a failed or timed-out probe
+        // only leaves `symlink_target`/`target_kind` empty. Both calls share one
+        // budget so a peer that stops answering cannot hang the caller.
+        let probe = with_timeout(LIST_TIMEOUT, "解析符号链接超时", async {
+            let target = client.read_link(path).await.ok();
+            let resolved = client.metadata(path).await.ok();
+            Ok::<_, SshError>((target, resolved))
+        })
+        .await;
+        if let Ok((target, resolved)) = probe {
+            entry.symlink_target = target;
+            if let Some(resolved) = resolved {
+                entry.target_kind = Some(FileKind::from_sftp(resolved.file_type()));
+                entry.size = resolved.size.unwrap_or(entry.size);
+            }
         }
     }
     Ok(entry)
@@ -241,6 +250,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn stat_keeps_link_entry_when_target_probe_fails() {
+        let client = fake_session().await;
+        // `/home/user/broken`: LSTAT succeeds, READLINK and STAT return an error.
+        // The link is still a valid entry; only the probe results are missing.
+        let entry = stat_with(&client, "/home/user/broken")
+            .await
+            .expect("broken link is still an entry");
+
+        assert_eq!(entry.name, "broken");
+        assert_eq!(entry.path, "/home/user/broken");
+        assert_eq!(entry.kind, FileKind::Symlink);
+        assert_eq!(entry.mode_text, "lrwxrwxrwx");
+        assert_eq!(entry.size, 0);
+        assert_eq!(entry.symlink_target, None);
+        assert_eq!(entry.target_kind, None);
+    }
+
+    #[tokio::test]
     async fn maps_missing_and_denied_paths() {
         let client = fake_session().await;
 
@@ -295,6 +322,8 @@ mod tests {
             "/home/user/sub" => Some(attrs(0o040755, 4_096)),
             // A link reports its own kind and length, not the target's.
             "/home/user/link" => Some(attrs(0o120777, 0)),
+            // Dangling link: it exists, its target does not.
+            "/home/user/broken" => Some(attrs(0o120777, 0)),
             _ => None,
         }
     }
@@ -303,6 +332,8 @@ mod tests {
         match path {
             // `link` resolves to a directory, so following it changes kind and size.
             "/home/user/link" => Some(attrs(0o040755, 4_096)),
+            // `broken` cannot be resolved, so a following STAT fails.
+            "/home/user/broken" => None,
             other => lstat_attrs(other),
         }
     }

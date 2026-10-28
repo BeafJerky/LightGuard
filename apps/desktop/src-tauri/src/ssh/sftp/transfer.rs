@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use russh::ChannelMsg;
+use russh::{ChannelMsg, Sig};
 use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::OpenFlags;
 use tauri_plugin_dialog::DialogExt;
@@ -17,6 +17,10 @@ const CHUNK: usize = 64 * 1024;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
 const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 const STDERR_LIMIT: usize = 4 * 1024;
+/// How often a stalled file read re-checks the cancel flag.
+const CANCEL_POLL: Duration = Duration::from_millis(200);
+/// How long to wait for a late exit-status after the tar stream ended.
+const STATUS_GRACE: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransferOutcome {
@@ -72,6 +76,14 @@ async fn discard(part: &Path) {
     let _ = tokio::fs::remove_file(part).await;
 }
 
+/// Appends remote stderr to the capped buffer.
+fn collect_stderr(stderr: &mut Vec<u8>, data: &[u8]) {
+    if stderr.len() < STDERR_LIMIT {
+        let room = STDERR_LIMIT - stderr.len();
+        stderr.extend_from_slice(&data[..data.len().min(room)]);
+    }
+}
+
 pub async fn download_file(
     client: &SftpSession,
     remote_path: &str,
@@ -97,43 +109,73 @@ pub async fn download_file(
     let mut buffer = vec![0u8; CHUNK];
     let mut transferred = 0u64;
     let mut last_emit = Instant::now();
+    let mut ticker = tokio::time::interval(CANCEL_POLL);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     progress(0, total);
 
+    // The idle deadline is tracked explicitly because the read future is
+    // re-armed every time the cancel ticker fires.
+    let mut read_started = Instant::now();
     loop {
         if cancel.load(Ordering::SeqCst) {
             drop(sink);
             discard(&part).await;
             return Ok(TransferOutcome::Canceled { bytes: transferred });
         }
-        let read = match tokio::time::timeout(IDLE_TIMEOUT, source.read(&mut buffer)).await {
-            Ok(Ok(count)) => count,
-            Ok(Err(error)) => {
-                drop(sink);
-                discard(&part).await;
-                return Err(SshError::transfer_failed(format!(
-                    "读取远端文件失败：{error}"
-                )));
-            }
-            Err(_) => {
-                drop(sink);
-                discard(&part).await;
-                return Err(SshError::transfer_failed("传输空闲超时（60 秒）"));
-            }
-        };
-        if read == 0 {
-            break;
-        }
-        if let Err(error) = sink.write_all(&buffer[..read]).await {
+        let remaining = IDLE_TIMEOUT.saturating_sub(read_started.elapsed());
+        if remaining.is_zero() {
             drop(sink);
             discard(&part).await;
-            return Err(SshError::transfer_failed(format!(
-                "写入本地文件失败：{error}"
-            )));
+            return Err(SshError::transfer_failed("传输空闲超时（60 秒）"));
         }
-        transferred += read as u64;
-        if last_emit.elapsed() >= PROGRESS_INTERVAL {
-            progress(transferred, total);
-            last_emit = Instant::now();
+        // The read future is cancel-safe (the SFTP file keeps its queued request
+        // across polls), so the ticker may interrupt a stalled read to poll the
+        // cancel flag. Each read keeps its own 60 s idle deadline.
+        let step = tokio::select! {
+            _ = ticker.tick() => {
+                if cancel.load(Ordering::SeqCst) {
+                    Step::Canceled
+                } else {
+                    continue;
+                }
+            }
+            read = tokio::time::timeout(remaining, source.read(&mut buffer)) => match read {
+                Ok(Ok(count)) => {
+                    read_started = Instant::now();
+                    Step::Chunk(count)
+                }
+                Ok(Err(error)) => {
+                    Step::Failed(SshError::transfer_failed(format!("读取远端文件失败：{error}")))
+                }
+                Err(_) => Step::Failed(SshError::transfer_failed("传输空闲超时（60 秒）")),
+            },
+        };
+        match step {
+            Step::Canceled => {
+                drop(sink);
+                discard(&part).await;
+                return Ok(TransferOutcome::Canceled { bytes: transferred });
+            }
+            Step::Failed(error) => {
+                drop(sink);
+                discard(&part).await;
+                return Err(error);
+            }
+            Step::Chunk(0) => break,
+            Step::Chunk(read) => {
+                if let Err(error) = sink.write_all(&buffer[..read]).await {
+                    drop(sink);
+                    discard(&part).await;
+                    return Err(SshError::transfer_failed(format!(
+                        "写入本地文件失败：{error}"
+                    )));
+                }
+                transferred += read as u64;
+                if last_emit.elapsed() >= PROGRESS_INTERVAL {
+                    progress(transferred, total);
+                    last_emit = Instant::now();
+                }
+            }
         }
     }
 
@@ -159,10 +201,48 @@ pub async fn download_file(
     finalize(target, &part, transferred).await
 }
 
+/// One iteration of the single-file read loop: either a chunk arrived, the user
+/// cancelled, or the read failed. `Canceled` is produced by the cancel ticker,
+/// which is what makes cancellation independent of the pending read.
+enum Step {
+    Chunk(usize),
+    Canceled,
+    Failed(SshError),
+}
+
 enum Stop {
     Cancel,
     Idle,
+    Signal(String),
+    /// `None` means the channel ended (Eof/Close/None) without a status; the
+    /// caller must not treat that as success.
     Done(Option<u32>),
+}
+
+/// Renders an exit signal for the error message. `russh::Sig` exposes no public
+/// name accessor, so the wire names are mapped here.
+fn signal_label(signal: &Sig, detail: &str) -> String {
+    let name = match signal {
+        Sig::ABRT => "ABRT",
+        Sig::ALRM => "ALRM",
+        Sig::FPE => "FPE",
+        Sig::HUP => "HUP",
+        Sig::ILL => "ILL",
+        Sig::INT => "INT",
+        Sig::KILL => "KILL",
+        Sig::PIPE => "PIPE",
+        Sig::QUIT => "QUIT",
+        Sig::SEGV => "SEGV",
+        Sig::TERM => "TERM",
+        Sig::USR1 => "USR1",
+        Sig::Custom(name) => name.as_str(),
+    };
+    let detail = detail.trim();
+    if detail.is_empty() {
+        name.to_string()
+    } else {
+        format!("{name}（{detail}）")
+    }
 }
 
 pub async fn download_dir(
@@ -202,7 +282,7 @@ pub async fn download_dir(
     let mut ticker = tokio::time::interval(Duration::from_millis(200));
     progress(0, None);
 
-    let stop = loop {
+    let mut stop = loop {
         tokio::select! {
             _ = ticker.tick() => {
                 if cancel.load(Ordering::SeqCst) {
@@ -228,17 +308,65 @@ pub async fn download_dir(
                     }
                 }
                 Some(ChannelMsg::ExtendedData { data, .. }) => {
-                    if stderr.len() < STDERR_LIMIT {
-                        let room = STDERR_LIMIT - stderr.len();
-                        stderr.extend_from_slice(&data[..data.len().min(room)]);
-                    }
+                    collect_stderr(&mut stderr, &data);
                 }
                 Some(ChannelMsg::ExitStatus { exit_status }) => break Stop::Done(Some(exit_status)),
+                Some(ChannelMsg::ExitSignal { signal_name, error_message, .. }) => {
+                    break Stop::Signal(signal_label(&signal_name, &error_message));
+                }
                 Some(ChannelMsg::Close) | Some(ChannelMsg::Eof) | None => break Stop::Done(None),
                 Some(_) => {}
             }
         }
     };
+
+    // Some servers end the stream (Eof/Close) before reporting a status. Give a
+    // late exit-status/exit-signal a bounded chance to arrive: only an explicit
+    // zero exit code proves the archive is complete, so `Done(None)` must never
+    // be finalized.
+    if matches!(stop, Stop::Done(None)) {
+        let deadline = tokio::time::Instant::now() + STATUS_GRACE;
+        stop = loop {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                break Stop::Done(None);
+            }
+            match tokio::time::timeout(remaining, channel.wait()).await {
+                Err(_) => break Stop::Done(None),
+                Ok(Some(ChannelMsg::Data { data })) => {
+                    if let Err(error) = sink.write_all(&data).await {
+                        drop(sink);
+                        discard(&part).await;
+                        return Err(SshError::transfer_failed(format!(
+                            "写入本地文件失败：{error}"
+                        )));
+                    }
+                    transferred += data.len() as u64;
+                    if last_emit.elapsed() >= PROGRESS_INTERVAL {
+                        progress(transferred, None);
+                        last_emit = Instant::now();
+                    }
+                }
+                Ok(Some(ChannelMsg::ExtendedData { data, .. })) => {
+                    collect_stderr(&mut stderr, &data);
+                }
+                Ok(Some(ChannelMsg::ExitStatus { exit_status })) => {
+                    break Stop::Done(Some(exit_status));
+                }
+                Ok(Some(ChannelMsg::ExitSignal {
+                    signal_name,
+                    error_message,
+                    ..
+                })) => {
+                    break Stop::Signal(signal_label(&signal_name, &error_message));
+                }
+                Ok(Some(ChannelMsg::Close)) | Ok(Some(ChannelMsg::Eof)) | Ok(None) => {
+                    break Stop::Done(None);
+                }
+                Ok(Some(_)) => {}
+            }
+        };
+    }
 
     match stop {
         Stop::Cancel => {
@@ -253,6 +381,18 @@ pub async fn download_dir(
             discard(&part).await;
             Err(SshError::transfer_failed("远端打包空闲超时（60 秒）"))
         }
+        Stop::Signal(label) => {
+            channel.close().await.ok();
+            drop(sink);
+            discard(&part).await;
+            let detail = String::from_utf8_lossy(&stderr);
+            let detail = detail.trim();
+            Err(SshError::transfer_failed(if detail.is_empty() {
+                format!("远端 tar 被信号 {label} 终止")
+            } else {
+                format!("远端 tar 被信号 {label} 终止：{detail}")
+            }))
+        }
         Stop::Done(code) => {
             let flushed = sink.flush().await;
             let synced = match flushed {
@@ -264,8 +404,9 @@ pub async fn download_dir(
                 discard(&part).await;
                 return Err(SshError::transfer_failed(format!("写入磁盘失败：{error}")));
             }
-            if let Some(exit_status) = code {
-                if exit_status != 0 {
+            match code {
+                Some(0) => {}
+                Some(exit_status) => {
                     discard(&part).await;
                     let detail = String::from_utf8_lossy(&stderr);
                     let detail = detail.trim();
@@ -273,6 +414,16 @@ pub async fn download_dir(
                         format!("远端 tar 退出码 {exit_status}")
                     } else {
                         format!("远端 tar 退出码 {exit_status}：{detail}")
+                    }));
+                }
+                None => {
+                    discard(&part).await;
+                    let detail = String::from_utf8_lossy(&stderr);
+                    let detail = detail.trim();
+                    return Err(SshError::transfer_failed(if detail.is_empty() {
+                        "远端未报告打包退出状态，归档可能不完整".to_string()
+                    } else {
+                        format!("远端未报告打包退出状态，归档可能不完整：{detail}")
                     }));
                 }
             }
@@ -313,6 +464,7 @@ mod tests {
     use std::collections::HashMap;
     use std::future::Future;
     use std::path::Path;
+    use std::sync::atomic::AtomicUsize;
     use std::sync::{Arc, Mutex};
 
     use russh_sftp::client::SftpSession;
@@ -460,6 +612,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cancel_during_a_stalled_read_returns_promptly() {
+        // READ replies are held back for 5 s, so a cancel that can only be seen
+        // between chunks would block until that read finished.
+        let peer = FakePeer::delayed_read(Duration::from_secs(5));
+        let client = peer.session().await;
+        let directory = tempfile::tempdir().expect("temp dir");
+        let target = directory.path().join("report.bin");
+
+        let cancel = Arc::new(AtomicBool::new(false));
+        let worker = {
+            let cancel = cancel.clone();
+            let target = target.clone();
+            tokio::spawn(async move {
+                download_file(&client, REMOTE, &target, &cancel, |_, _| {}).await
+            })
+        };
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while peer.reads() == 0 {
+            assert!(Instant::now() < deadline, "download never issued a READ");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        // The peer is holding the reply, so the client read is still pending.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(part_path(&target).exists(), "download must be mid-read");
+
+        let flipped = Instant::now();
+        cancel.store(true, Ordering::SeqCst);
+        let outcome = worker.await.expect("join").expect("cancel is not an error");
+        let latency = flipped.elapsed();
+
+        assert!(
+            latency < Duration::from_millis(900),
+            "cancel took {latency:?}, expected well under a second"
+        );
+        assert_eq!(outcome, TransferOutcome::Canceled { bytes: 0 });
+        assert!(!target.exists(), "canceled download leaves no target");
+        assert!(!part_path(&target).exists(), "part file must be deleted");
+    }
+
+    #[tokio::test]
     async fn read_failure_removes_the_part_file() {
         let peer = FakePeer::failing_read();
         let client = peer.session().await;
@@ -533,8 +726,10 @@ mod tests {
 
     struct FakePeer {
         opened: Arc<Mutex<Vec<OpenFlags>>>,
+        reads: Arc<AtomicUsize>,
         files: HashMap<String, Vec<u8>>,
         fail_read: bool,
+        read_delay: Duration,
     }
 
     impl FakePeer {
@@ -543,8 +738,10 @@ mod tests {
             files.insert(REMOTE.to_string(), payload());
             Self {
                 opened: Arc::new(Mutex::new(Vec::new())),
+                reads: Arc::new(AtomicUsize::new(0)),
                 files,
                 fail_read: false,
+                read_delay: Duration::ZERO,
             }
         }
 
@@ -555,12 +752,23 @@ mod tests {
             }
         }
 
+        /// A peer whose READ replies arrive only after `delay`, so the client
+        /// read stays pending while we flip the cancel flag.
+        fn delayed_read(delay: Duration) -> Self {
+            Self {
+                read_delay: delay,
+                ..Self::new()
+            }
+        }
+
         async fn session(&self) -> SftpSession {
             let (client, server) = tokio::io::duplex(64 * 1024);
             let peer = Peer {
                 opened: self.opened.clone(),
+                reads: self.reads.clone(),
                 files: self.files.clone(),
                 fail_read: self.fail_read,
+                read_delay: self.read_delay,
             };
             russh_sftp::server::run(server, peer).await;
             SftpSession::new(client).await.expect("fake SFTP handshake")
@@ -569,14 +777,20 @@ mod tests {
         fn opened(&self) -> Vec<OpenFlags> {
             self.opened.lock().expect("open log").clone()
         }
+
+        fn reads(&self) -> usize {
+            self.reads.load(Ordering::SeqCst)
+        }
     }
 
     /// In-memory SFTP peer: answers STAT, OPEN, READ and CLOSE only, so the
     /// download must stream through the real wire protocol with a read handle.
     struct Peer {
         opened: Arc<Mutex<Vec<OpenFlags>>>,
+        reads: Arc<AtomicUsize>,
         files: HashMap<String, Vec<u8>>,
         fail_read: bool,
+        read_delay: Duration,
     }
 
     impl Handler for Peer {
@@ -632,12 +846,17 @@ mod tests {
             len: u32,
         ) -> impl Future<Output = Result<Data, Self::Error>> + Send {
             let fail = self.fail_read;
+            let delay = self.read_delay;
+            self.reads.fetch_add(1, Ordering::SeqCst);
             let data = self.files.get(&handle).map(|bytes| {
                 let start = (offset as usize).min(bytes.len());
                 let end = (start + len as usize).min(bytes.len());
                 bytes[start..end].to_vec()
             });
             async move {
+                if !delay.is_zero() {
+                    tokio::time::sleep(delay).await;
+                }
                 if fail {
                     return Err(StatusCode::Failure);
                 }

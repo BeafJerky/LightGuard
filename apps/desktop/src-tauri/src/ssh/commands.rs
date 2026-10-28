@@ -88,6 +88,7 @@ pub async fn ssh_disconnect(
 ) -> Result<(), SshError> {
     validate_server_id(&server_id)?;
     let removed = state.sessions.lock().await.remove(&server_id);
+    super::sftp::client::drop_for_server(state.inner(), &server_id).await;
     close_server_terminals(state.inner(), &server_id).await;
     if let Some(session) = removed {
         let entry = session.lock().await;
@@ -344,6 +345,8 @@ pub async fn ssh_reset_local_data(state: State<'_, Arc<AppState>>) -> Result<(),
         terminal::close(entry).await;
     }
 
+    super::sftp::client::clear_all(state.inner()).await;
+
     CredentialStore::from_config(&state.config_dir).clear()?;
     HostKeyStore::new(state.config_dir.join("known_hosts.json")).clear()
 }
@@ -367,6 +370,7 @@ async fn replace_session(
     server_id: &str,
     entry: SessionEntry,
 ) {
+    super::sftp::client::drop_for_server(state.inner(), server_id).await;
     close_server_terminals(state.inner(), server_id).await;
     let session = Arc::new(Mutex::new(entry));
     let previous = {
@@ -414,6 +418,7 @@ fn watch_session(
                 same
             };
             if current {
+                super::sftp::client::drop_for_server(&state, &server_id).await;
                 close_server_terminals(&state, &server_id).await;
                 let _ = app.emit(
                     "ssh://status",

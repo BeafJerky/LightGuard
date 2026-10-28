@@ -118,6 +118,8 @@ export function useFiles(server: Server, client: SshBackend = ssh) {
   });
 
   let cache = new TreeCache((path) => loadEntries(path));
+  let navToken = 0;
+  let previewToken = 0;
 
   const offline = computed(() => server.status === 'offline' || server.status === 'error');
   const usable = computed(() => client.available && Boolean(server.sessionId));
@@ -129,7 +131,11 @@ export function useFiles(server: Server, client: SshBackend = ssh) {
   );
   const canBack = computed(() => historyIndex.value > 0);
   const canForward = computed(() => historyIndex.value >= 0 && historyIndex.value < history.value.length - 1);
-  const canUp = computed(() => Boolean(parentOf(currentPath.value)));
+  const parentPath = computed(() => {
+    const parent = parentOf(currentPath.value);
+    return parent && parent !== currentPath.value ? parent : null;
+  });
+  const canUp = computed(() => parentPath.value !== null);
 
   const preview = reactive<PreviewState>({
     mode: 'none',
@@ -145,8 +151,9 @@ export function useFiles(server: Server, client: SshBackend = ssh) {
     return result.entries;
   }
 
-  async function load(path: string): Promise<FileListing> {
+  async function load(path: string, token: number): Promise<FileListing | null> {
     const result = await client.sftpList(server.id, path);
+    if (token !== navToken) return null;
     listing.value = result;
     entries.value = result.entries;
     currentPath.value = result.canonicalPath;
@@ -158,36 +165,40 @@ export function useFiles(server: Server, client: SshBackend = ssh) {
 
   async function navigate(path: string, push = true): Promise<boolean> {
     if (!usable.value) return false;
+    const token = ++navToken;
     loading.value = true;
     error.value = null;
     try {
-      const result = await load(path);
+      const result = await load(path, token);
+      if (!result) return false;
       if (push) {
         history.value = [...history.value.slice(0, historyIndex.value + 1), result.canonicalPath];
         historyIndex.value = history.value.length - 1;
-      } else if (historyIndex.value >= 0) {
-        history.value[historyIndex.value] = result.canonicalPath;
       }
       view.query = '';
+      loading.value = false;
       return true;
     } catch (caught) {
+      if (token !== navToken) return false;
       error.value = toSshError(caught);
-      return false;
-    } finally {
       loading.value = false;
+      return false;
     }
   }
 
   async function go(delta: number): Promise<boolean> {
     const index = historyIndex.value + delta;
     if (index < 0 || index >= history.value.length) return false;
-    const ok = await navigate(history.value[index], false);
-    if (ok) historyIndex.value = index;
-    return ok;
+    const target = history.value[index];
+    const ok = await navigate(target, false);
+    if (!ok) return false;
+    history.value[index] = currentPath.value;
+    historyIndex.value = index;
+    return true;
   }
 
   async function goUp(): Promise<boolean> {
-    const parent = parentOf(currentPath.value);
+    const parent = parentPath.value;
     return parent ? navigate(parent) : false;
   }
 
@@ -292,6 +303,7 @@ export function useFiles(server: Server, client: SshBackend = ssh) {
   }
 
   async function loadPreview(entry: FileEntry): Promise<void> {
+    const token = ++previewToken;
     preview.entry = entry;
     preview.text = null;
     preview.image = null;
@@ -299,20 +311,24 @@ export function useFiles(server: Server, client: SshBackend = ssh) {
     preview.loading = true;
     try {
       if (isImagePreviewable(entry.name) && entry.kind !== 'other') {
-        preview.image = await client.sftpPreviewImage(server.id, entry.path);
+        const image = await client.sftpPreviewImage(server.id, entry.path);
+        if (token !== previewToken) return;
+        preview.image = image;
         preview.mode = 'image';
       } else if (isTextPreviewable(entry.name) && entry.kind !== 'other') {
-        preview.text = await client.sftpPreviewText(server.id, entry.path);
+        const text = await client.sftpPreviewText(server.id, entry.path);
+        if (token !== previewToken) return;
+        preview.text = text;
         preview.mode = 'text';
       } else {
         preview.mode = 'meta';
       }
     } catch (caught) {
+      if (token !== previewToken) return;
       preview.error = toSshError(caught);
       preview.mode = 'meta';
-    } finally {
-      preview.loading = false;
     }
+    preview.loading = false;
   }
 
   function togglePreview(): void {
@@ -324,6 +340,8 @@ export function useFiles(server: Server, client: SshBackend = ssh) {
 
   function closePreview(): void {
     previewOpen.value = false;
+    previewToken += 1;
+    preview.loading = false;
   }
 
   async function refresh(): Promise<void> {
@@ -427,15 +445,28 @@ export function useFiles(server: Server, client: SshBackend = ssh) {
     () => server.sessionId,
     (next, previous) => {
       if (next === previous) return;
+      navToken += 1;
+      previewToken += 1;
       cache = new TreeCache((path) => loadEntries(path));
       roots.value = [];
       history.value = [];
       historyIndex.value = -1;
+      homePath.value = '';
       currentPath.value = '';
       entries.value = [];
       listing.value = null;
       selectedPath.value = '';
+      loading.value = false;
+      error.value = null;
+      notice.value = '';
+      view.query = '';
       previewOpen.value = false;
+      preview.mode = 'none';
+      preview.entry = null;
+      preview.text = null;
+      preview.image = null;
+      preview.error = null;
+      preview.loading = false;
       if (next && canUse.value) void boot();
     },
   );

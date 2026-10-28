@@ -278,6 +278,19 @@ mod tests {
         rules
     }
 
+    fn memory_only_rules(sustain_seconds: u32) -> AlertRules {
+        let mut rules = AlertRules::default();
+        rules.cpu.enabled = false;
+        rules.memory = ResourceRule {
+            enabled: true,
+            threshold: 90,
+            sustain_seconds,
+        };
+        rules.disk.enabled = false;
+        rules.load.enabled = false;
+        rules
+    }
+
     fn unmuted(_: &str) -> bool {
         false
     }
@@ -478,5 +491,119 @@ mod tests {
             &unmuted,
         );
         assert!(matches!(events.as_slice(), [Transition::Open { .. }]));
+    }
+
+    #[test]
+    fn mute_after_open_still_emits_touch() {
+        // mute 只压制 Open：已开启的规则在静音期间继续被越线 tick 推进（Touch）。
+        let rules = cpu_only_rules(60);
+        let muted = |rule_id: &str| rule_id == "cpu";
+        let mut engine = Engine::new();
+        for _ in 0..5 {
+            assert!(engine
+                .step("srv", &cpu_sample(95.0), &rules, &unmuted)
+                .is_empty());
+        }
+        assert!(
+            matches!(
+                engine.step("srv", &cpu_sample(95.0), &rules, &unmuted).as_slice(),
+                [Transition::Open { .. }]
+            ),
+            "six breaching ticks must open the rule"
+        );
+        let events = engine.step("srv", &cpu_sample(95.0), &rules, &muted);
+        assert!(
+            matches!(events.as_slice(), [Transition::Touch { rule_id, .. }] if rule_id.as_str() == "cpu"),
+            "a muted-but-open rule must still emit Touch, got {events:?}"
+        );
+    }
+
+    #[test]
+    fn muted_rule_still_resolves_on_recovery() {
+        // mute 不抑制恢复：静音期间三个 calm 样本照常发出 Resolve。
+        let rules = cpu_only_rules(10);
+        let muted = |rule_id: &str| rule_id == "cpu";
+        let mut engine = Engine::new();
+        assert!(
+            matches!(
+                engine.step("srv", &cpu_sample(95.0), &rules, &unmuted).as_slice(),
+                [Transition::Open { .. }]
+            ),
+            "the rule must be open before recovery"
+        );
+        assert!(engine
+            .step("srv", &cpu_sample(80.0), &rules, &muted)
+            .is_empty());
+        assert!(engine
+            .step("srv", &cpu_sample(80.0), &rules, &muted)
+            .is_empty());
+        let events = engine.step("srv", &cpu_sample(80.0), &rules, &muted);
+        assert_eq!(
+            events,
+            vec![Transition::Resolve {
+                rule_id: "cpu".into()
+            }],
+            "mute must not suppress recovery"
+        );
+    }
+
+    #[test]
+    fn nan_memory_reading_is_neutral() {
+        // Task 10 契约：缺失读数以 NaN 到达，既不算越线也不算恢复样本。
+        let rules = memory_only_rules(60);
+        let nan_tick = |engine: &mut Engine| engine.step(
+            "srv",
+            &sample(Some(1.0), f64::NAN, 0.1, 4, Vec::new()),
+            &rules,
+            &unmuted,
+        );
+        let mut engine = Engine::new();
+        for _ in 0..6 {
+            assert!(
+                nan_tick(&mut engine).is_empty(),
+                "NaN must never open or advance the alert"
+            );
+        }
+        assert!(
+            engine
+                .step("srv", &sample(Some(1.0), 95.0, 0.1, 4, Vec::new()), &rules, &unmuted)
+                .is_empty(),
+            "NaN ticks must not count toward the sustain streak"
+        );
+
+        // 已开启的告警：三个 NaN 样本不算 calm，不得 Resolve，状态仍保持。
+        let mut engine = Engine::new();
+        for _ in 0..6 {
+            engine.step(
+                "srv",
+                &sample(Some(1.0), 95.0, 0.1, 4, Vec::new()),
+                &rules,
+                &unmuted,
+            );
+        }
+        for _ in 0..3 {
+            assert!(
+                nan_tick(&mut engine).is_empty(),
+                "NaN must not be treated as a calm sample"
+            );
+        }
+        // NaN 归零 streak，所以读数恢复后需要重新攒满 need 才会 Touch；
+        // 到达时是 Touch（告警仍处开启态），而不是重新 Open。
+        let mut events = Vec::new();
+        for tick in 0..6 {
+            events = engine.step(
+                "srv",
+                &sample(Some(1.0), 95.0, 0.1, 4, Vec::new()),
+                &rules,
+                &unmuted,
+            );
+            if tick < 5 {
+                assert!(events.is_empty(), "touch needs a fresh sustain window");
+            }
+        }
+        assert!(
+            matches!(events.as_slice(), [Transition::Touch { rule_id, .. }] if rule_id.as_str() == "memory"),
+            "the alert must still be open after NaN ticks, got {events:?}"
+        );
     }
 }

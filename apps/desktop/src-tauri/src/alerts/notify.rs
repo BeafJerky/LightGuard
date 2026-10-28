@@ -50,27 +50,56 @@ fn set_pixel(rgba: &mut [u8], width: u32, height: u32, x: u32, y: u32, color: [u
     if x >= width || y >= height {
         return;
     }
-    let offset = ((y * width + x) * 4) as usize;
-    rgba[offset..offset + 4].copy_from_slice(&color);
+    let Some(offset) = (y as usize)
+        .checked_mul(width as usize)
+        .and_then(|row| row.checked_add(x as usize))
+        .and_then(|index| index.checked_mul(4))
+    else {
+        return;
+    };
+    let Some(end) = offset.checked_add(4) else {
+        return;
+    };
+    let Some(pixel) = rgba.get_mut(offset..end) else {
+        return;
+    };
+    pixel.copy_from_slice(&color);
 }
 
-pub fn draw_badge(base: &[u8], width: u32, height: u32, count: u32) -> Vec<u8> {
-    let mut rgba = base.to_vec();
-    let label = badge_label(count);
-    if label.is_empty() || width == 0 || height == 0 {
-        return rgba;
-    }
+#[derive(Clone, Copy)]
+struct BadgeGeometry {
+    start_x: u32,
+    start_y: u32,
+    diameter: u32,
+}
 
+fn badge_geometry(width: u32, height: u32) -> Option<BadgeGeometry> {
+    if width == 0 || height == 0 {
+        return None;
+    }
     let min_side = width.min(height);
     let diameter = (min_side * 5 / 8).max(3).min(min_side);
-    let start_x = width - diameter;
-    let start_y = height - diameter;
-    // 角标贴住右下角：只有内侧（左上）圆角，外侧直角必须覆盖到角落像素。
-    let radius = (diameter as f64 / 4.0).max(1.0);
-    let arc_x = start_x as f64 + radius;
-    let arc_y = start_y as f64 + radius;
-    for y in start_y..start_y + diameter {
-        for x in start_x..start_x + diameter {
+    Some(BadgeGeometry {
+        start_x: width - diameter,
+        start_y: height - diameter,
+        diameter,
+    })
+}
+
+/// 角标贴住右下角：只有内侧（左上）圆角，外侧直角覆盖到角落像素。
+fn badge_mask(width: u32, height: u32) -> Vec<bool> {
+    let Some(badge) = badge_geometry(width, height) else {
+        return Vec::new();
+    };
+    let Some(total) = (width as usize).checked_mul(height as usize) else {
+        return Vec::new();
+    };
+    let mut mask = vec![false; total];
+    let radius = (badge.diameter as f64 / 4.0).max(1.0);
+    let arc_x = badge.start_x as f64 + radius;
+    let arc_y = badge.start_y as f64 + radius;
+    for y in badge.start_y..badge.start_y + badge.diameter {
+        for x in badge.start_x..badge.start_x + badge.diameter {
             if (x as f64) < arc_x && (y as f64) < arc_y {
                 let dx = x as f64 - arc_x;
                 let dy = y as f64 - arc_y;
@@ -78,7 +107,48 @@ pub fn draw_badge(base: &[u8], width: u32, height: u32, count: u32) -> Vec<u8> {
                     continue;
                 }
             }
-            set_pixel(&mut rgba, width, height, x, y, BADGE_RGBA);
+            mask[y as usize * width as usize + x as usize] = true;
+        }
+    }
+    mask
+}
+
+/// 字形整体在小角标内按两轴等比缩放，四周至少留 1 px 内边距。
+fn glyph_scale(glyph_count: u32, diameter: u32) -> (u32, u32, u32) {
+    let spacing = 1;
+    let run_w = glyph_count * GLYPH_W + glyph_count.saturating_sub(1) * spacing;
+    let available = diameter.saturating_sub(2);
+    let width_scale = available / run_w.max(1);
+    let height_scale = available / GLYPH_H;
+    let scale = width_scale.min(height_scale).max(1);
+    (scale, run_w * scale, GLYPH_H * scale)
+}
+
+pub fn draw_badge(base: &[u8], width: u32, height: u32, count: u32) -> Vec<u8> {
+    let mut rgba = base.to_vec();
+    let label = badge_label(count);
+    let Some(badge) = badge_geometry(width, height) else {
+        return rgba;
+    };
+    if label.is_empty() {
+        return rgba;
+    }
+
+    // 先算掩码，红色底与白色字形都只落在掩码像素上，圆角外不会漏色。
+    let mask = badge_mask(width, height);
+    let is_painted = |x: u32, y: u32| -> bool {
+        if x >= width || y >= height {
+            return false;
+        }
+        mask.get(y as usize * width as usize + x as usize)
+            .copied()
+            .unwrap_or(false)
+    };
+    for y in badge.start_y..badge.start_y + badge.diameter {
+        for x in badge.start_x..badge.start_x + badge.diameter {
+            if is_painted(x, y) {
+                set_pixel(&mut rgba, width, height, x, y, BADGE_RGBA);
+            }
         }
     }
 
@@ -87,14 +157,9 @@ pub fn draw_badge(base: &[u8], width: u32, height: u32, count: u32) -> Vec<u8> {
         return rgba;
     }
     let glyph_count = glyphs.len() as u32;
-    let mut scale = 1u32;
-    while glyph_count * (GLYPH_W + 1) * (scale + 1) <= diameter.saturating_sub(2) {
-        scale += 1;
-    }
-    let total_w = glyph_count * GLYPH_W * scale + (glyph_count - 1) * scale;
-    let total_h = GLYPH_H * scale;
-    let origin_x = start_x + diameter.saturating_sub(total_w) / 2;
-    let origin_y = start_y + diameter.saturating_sub(total_h) / 2;
+    let (scale, total_w, total_h) = glyph_scale(glyph_count, badge.diameter);
+    let origin_x = badge.start_x + badge.diameter.saturating_sub(total_w) / 2;
+    let origin_y = badge.start_y + badge.diameter.saturating_sub(total_h) / 2;
     for (index, rows) in glyphs.iter().enumerate() {
         let glyph_x = origin_x + index as u32 * (GLYPH_W + 1) * scale;
         for (row, bits) in rows.iter().enumerate() {
@@ -104,14 +169,12 @@ pub fn draw_badge(base: &[u8], width: u32, height: u32, count: u32) -> Vec<u8> {
                 }
                 for dy in 0..scale {
                     for dx in 0..scale {
-                        set_pixel(
-                            &mut rgba,
-                            width,
-                            height,
-                            glyph_x + column * scale + dx,
-                            origin_y + row as u32 * scale + dy,
-                            LABEL_RGBA,
-                        );
+                        let px = glyph_x + column * scale + dx;
+                        let py = origin_y + row as u32 * scale + dy;
+                        if !is_painted(px, py) {
+                            continue;
+                        }
+                        set_pixel(&mut rgba, width, height, px, py, LABEL_RGBA);
                     }
                 }
             }
@@ -223,5 +286,76 @@ mod tests {
             .filter(|pixel| pixel[0] == 0xFF && pixel[1] == 0xFF && pixel[2] == 0xFF)
             .count();
         assert!(white >= 5, "expected white glyph pixels, got {white}");
+    }
+
+    fn count_pixels(rgba: &[u8], color: [u8; 4]) -> usize {
+        rgba.chunks_exact(4).filter(|pixel| *pixel == color).count()
+    }
+
+    #[test]
+    fn severity_labels_are_localized() {
+        assert_eq!(severity_label("critical"), "严重");
+        assert_eq!(severity_label("warning"), "警告");
+        assert_eq!(severity_label("info"), "提示");
+        assert_eq!(severity_label("unknown"), "提示");
+        for raw in ["critical", "warning", "info", "unknown"] {
+            let label = severity_label(raw);
+            assert_ne!(label, raw, "raw severity leaked into the label");
+            assert!(
+                label.chars().all(|c| !c.is_ascii_alphabetic()),
+                "label {label:?} contains English letters"
+            );
+        }
+    }
+
+    #[test]
+    fn white_glyphs_stay_inside_badge_mask() {
+        let width = 32;
+        let height = 32;
+        let mask = badge_mask(width, height);
+        assert!(
+            mask.iter().filter(|painted| **painted).count() > 0,
+            "badge mask is empty"
+        );
+        for count in [7u32, 12, 100] {
+            let base = vec![0u8; (width * height * 4) as usize];
+            let painted = draw_badge(&base, width, height, count);
+            assert!(
+                count_pixels(&painted, BADGE_RGBA) > 0,
+                "no badge red painted for {count}"
+            );
+            let white_pixels = painted.chunks_exact(4).enumerate().filter(|(_, pixel)| {
+                pixel[0] == 0xFF && pixel[1] == 0xFF && pixel[2] == 0xFF
+            });
+            let mut whites = 0usize;
+            for (index, _) in white_pixels {
+                whites += 1;
+                assert!(
+                    mask.get(index).copied().unwrap_or(false),
+                    "white glyph pixel at ({}, {}) escapes the badge mask for {count}",
+                    index % width as usize,
+                    index / width as usize
+                );
+            }
+            assert!(whites > 0, "expected white glyph pixels for {count}");
+        }
+    }
+
+    #[test]
+    fn small_icon_still_paints_badge() {
+        let base = vec![0u8; 16 * 16 * 4];
+        let painted = draw_badge(&base, 16, 16, 100);
+        assert_eq!(painted.len(), base.len());
+        assert!(
+            count_pixels(&painted, BADGE_RGBA) > 0,
+            "16x16 icon should still show a badge"
+        );
+    }
+
+    #[test]
+    fn short_buffer_does_not_panic() {
+        let base = vec![0u8; 8];
+        let painted = draw_badge(&base, 32, 32, 7);
+        assert_eq!(painted.len(), base.len());
     }
 }

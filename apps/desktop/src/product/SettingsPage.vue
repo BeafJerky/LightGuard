@@ -25,7 +25,42 @@ import {
 import { ssh, toSshError } from './ssh';
 import { switchScopeTheme } from './theme';
 import { confirm, toast } from './ui';
-import type { AlertSettings, CloseBehavior, DesktopBarMode, ThemeChoices } from './types';
+import type {
+  AlertSettings,
+  CloseBehavior,
+  DesktopBarMode,
+  DesktopDockMode,
+  ThemeChoices,
+} from './types';
+
+type SettingsTab = 'appearance' | 'general' | 'security' | 'alerts' | 'data';
+
+const tabs: Array<{ id: SettingsTab; label: string; icon: string }> = [
+  { id: 'appearance', label: '外观', icon: 'sun' },
+  { id: 'general', label: '通用', icon: 'refresh' },
+  { id: 'security', label: '安全', icon: 'shield' },
+  { id: 'alerts', label: '通知', icon: 'bell' },
+  { id: 'data', label: '数据与关于', icon: 'database' },
+];
+
+const tab = ref<SettingsTab>('appearance');
+
+const activeLabel = computed(
+  () => tabs.find((item) => item.id === tab.value)?.label ?? '设置',
+);
+
+function onTabKeydown(event: KeyboardEvent) {
+  const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+  if (!step) return;
+  event.preventDefault();
+  const index = tabs.findIndex((item) => item.id === tab.value);
+  const next = tabs[(index + step + tabs.length) % tabs.length];
+  if (!next) return;
+  tab.value = next.id;
+  (event.currentTarget as HTMLElement)
+    .querySelector<HTMLElement>(`[data-tab="${next.id}"]`)
+    ?.focus();
+}
 
 const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 
@@ -138,6 +173,24 @@ function setDesktopBar(value: DesktopBarMode) {
   });
 }
 
+const dockOptions: Array<{ value: DesktopDockMode; label: string }> = [
+  { value: 'floating', label: '悬浮' },
+  { value: 'full', label: '通栏' },
+];
+
+function setDesktopDock(value: DesktopDockMode) {
+  updateSettings({ desktopDock: value });
+  toast({
+    title: 'Dock 样式已更新',
+    message:
+      value === 'floating'
+        ? '悬浮 Dock 已启用，桌面窗口可以延伸到 Dock 下方'
+        : '通栏 Dock 已启用，窗口底部会预留 Dock 空间',
+    tone: 'info',
+    duration: 2400,
+  });
+}
+
 function setCloseBehavior(value: CloseBehavior) {
   updateSettings({ closeBehavior: value });
   toast({
@@ -217,7 +270,29 @@ async function onReset() {
 
 <template>
   <div class="settings-page">
-    <section class="settings-grid">
+    <div class="settings-tabs" role="tablist" aria-label="设置分类" @keydown="onTabKeydown">
+      <button
+        v-for="item in tabs"
+        :id="`settings-tab-${item.id}`"
+        :key="item.id"
+        type="button"
+        role="tab"
+        :data-tab="item.id"
+        :aria-selected="tab === item.id"
+        :class="{ 'is-active': tab === item.id }"
+        @click="tab = item.id"
+      >
+        <LgIcon :name="item.icon" :size="14" />
+        <span>{{ item.label }}</span>
+      </button>
+    </div>
+
+    <section
+      v-if="tab === 'appearance'"
+      class="settings-grid"
+      role="tabpanel"
+      :aria-label="activeLabel"
+    >
       <LgSurface tone="solid" padding="lg" class="settings-card settings-card--wide">
         <header class="settings-card__head">
           <span class="settings-card__icon"><LgIcon name="sun" :size="17" /></span>
@@ -419,12 +494,38 @@ async function onReset() {
           </div>
         </div>
 
+        <div class="setting-row">
+          <div class="setting-text">
+            <strong>服务器桌面 Dock</strong>
+            <span>悬浮为底部居中胶囊，窗口可延伸到 Dock 下方；通栏贴底横跨整个桌面，窗口底部自动预留空间。</span>
+          </div>
+          <div class="settings-segment" role="group" aria-label="服务器桌面 Dock">
+            <button
+              v-for="option in dockOptions"
+              :key="option.value"
+              type="button"
+              :class="{ 'is-active': state.settings.desktopDock === option.value }"
+              :aria-pressed="state.settings.desktopDock === option.value"
+              @click="setDesktopDock(option.value)"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+        </div>
+
         <p class="settings-note">
           <LgIcon name="info" :size="13" />
           两套选择分别保存。切换控制台主题不会改变服务器桌面，反之亦然；进入对应界面时才会应用各自主题。
         </p>
       </LgSurface>
+    </section>
 
+    <section
+      v-if="tab === 'general'"
+      class="settings-grid"
+      role="tabpanel"
+      :aria-label="activeLabel"
+    >
       <LgSurface tone="solid" padding="lg" class="settings-card">
         <header class="settings-card__head">
           <span class="settings-card__icon"><LgIcon name="refresh" :size="17" /></span>
@@ -503,6 +604,15 @@ async function onReset() {
         </div>
       </LgSurface>
 
+      <RenderSettingsPanel :table-rows="2000" />
+    </section>
+
+    <section
+      v-if="tab === 'security'"
+      class="settings-grid"
+      role="tabpanel"
+      :aria-label="activeLabel"
+    >
       <LgSurface tone="solid" padding="lg" class="settings-card settings-card--wide">
         <header class="settings-card__head">
           <span class="settings-card__icon"><LgIcon name="shield" :size="17" /></span>
@@ -567,7 +677,7 @@ async function onReset() {
         </div>
       </LgSurface>
 
-      <LgSurface tone="solid" padding="lg" class="settings-card">
+      <LgSurface tone="solid" padding="lg" class="settings-card settings-card--wide">
         <header class="settings-card__head">
           <span class="settings-card__icon"><LgIcon name="shield" :size="17" /></span>
           <div class="settings-card__title">
@@ -611,8 +721,15 @@ async function onReset() {
           <LgTag size="small" :bordered="false" type="info">只读</LgTag>
         </div>
       </LgSurface>
+    </section>
 
-      <LgSurface tone="solid" padding="lg" class="settings-card">
+    <section
+      v-if="tab === 'alerts'"
+      class="settings-grid"
+      role="tabpanel"
+      :aria-label="activeLabel"
+    >
+      <LgSurface tone="solid" padding="lg" class="settings-card settings-card--wide">
         <header class="settings-card__head">
           <span class="settings-card__icon"><LgIcon name="bell" :size="17" /></span>
           <div class="settings-card__title">
@@ -669,7 +786,14 @@ async function onReset() {
           @update="onAlertSettings"
         />
       </LgSurface>
+    </section>
 
+    <section
+      v-if="tab === 'data'"
+      class="settings-grid"
+      role="tabpanel"
+      :aria-label="activeLabel"
+    >
       <LgSurface tone="solid" padding="lg" class="settings-card settings-card--wide">
         <header class="settings-card__head">
           <span class="settings-card__icon"><LgIcon name="database" :size="17" /></span>
@@ -682,7 +806,7 @@ async function onReset() {
         <BackupPanel />
       </LgSurface>
 
-      <LgSurface tone="solid" padding="lg" class="settings-card">
+      <LgSurface tone="solid" padding="lg" class="settings-card settings-card--wide">
         <header class="settings-card__head">
           <span class="settings-card__icon"><LgIcon name="info" :size="17" /></span>
           <div class="settings-card__title">
@@ -707,8 +831,6 @@ async function onReset() {
           <LgButton size="small" type="error" secondary @click="onReset">清空</LgButton>
         </div>
       </LgSurface>
-
-      <RenderSettingsPanel :table-rows="2000" />
     </section>
   </div>
 </template>
@@ -718,6 +840,49 @@ async function onReset() {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.settings-tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-self: flex-start;
+  gap: 4px;
+  padding: 3px;
+  border: var(--lg-border-width) solid var(--lg-border);
+  border-radius: var(--lg-radius-full);
+  background: var(--lg-surface);
+}
+
+.settings-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--lg-radius-full);
+  background: transparent;
+  color: var(--lg-text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    background var(--lg-dur-fast) var(--lg-ease),
+    color var(--lg-dur-fast) var(--lg-ease);
+}
+
+.settings-tabs button:hover {
+  color: var(--lg-text);
+}
+
+.settings-tabs button.is-active {
+  background: var(--lg-primary);
+  color: var(--lg-on-primary);
+  font-weight: 600;
+}
+
+.settings-tabs button:focus-visible {
+  outline: 2px solid var(--lg-focus);
+  outline-offset: 1px;
 }
 
 .settings-grid {

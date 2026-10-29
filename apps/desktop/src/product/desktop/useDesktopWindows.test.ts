@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { useDesktopWindows } from './useDesktopWindows';
 
-function setup(width = 1440, height = 900, inset = 0) {
+function setup(width = 1440, height = 900, inset = 0, dockInset = 54) {
   const bounds = { width, height };
   const topInset = { value: inset };
+  const bottomInset = { value: dockInset };
   const api = useDesktopWindows(
     () => bounds,
     () => topInset.value,
+    () => bottomInset.value,
   );
-  return { ...api, bounds, topInset };
+  return { ...api, bounds, topInset, bottomInset };
 }
 
 describe('desktop window bounds fitting', () => {
@@ -74,6 +76,41 @@ describe('desktop window bounds fitting', () => {
     expect(win.restore).not.toBeNull();
     expect(win.restore!.x).toBeLessThanOrEqual(900 - win.restore!.w);
     expect(win.restore!.y).toBeLessThanOrEqual(700 - 54 - win.restore!.h);
+  });
+
+  it('opens new windows inside the floating dock area', () => {
+    const height = 420;
+    const floating = setup(1440, height, 0, 6);
+    floating.open('about');
+    const floatWin = floating.windows.value[0];
+
+    const full = setup(1440, height, 0, 54);
+    full.open('about');
+    const fullWin = full.windows.value[0];
+
+    expect(floatWin.y + floatWin.h).toBeLessThanOrEqual(height - 12);
+    expect(floatWin.y).toBeGreaterThan(fullWin.y);
+  });
+
+  it('re-fits windows when the dock switches between floating and full', () => {
+    const { open, windows, fitToBounds, bottomInset } = setup(1440, 900);
+    open('performance');
+    const win = windows.value[0];
+    win.y = 5000;
+    win.h = 400;
+
+    fitToBounds();
+    expect(win.y).toBe(900 - 54 - 400);
+
+    bottomInset.value = 6;
+    fitToBounds();
+    win.y = 5000;
+    fitToBounds();
+    expect(win.y).toBe(900 - 6 - 400);
+
+    bottomInset.value = 54;
+    fitToBounds();
+    expect(win.y).toBe(900 - 54 - 400);
   });
 
   it('ignores transient degenerate measurements', () => {

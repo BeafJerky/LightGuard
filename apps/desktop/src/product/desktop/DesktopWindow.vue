@@ -13,6 +13,7 @@ const props = defineProps<{
   session: string;
   startedAt: string;
   topInset?: number;
+  bottomInset?: number;
 }>();
 
 const emit = defineEmits<{
@@ -69,7 +70,7 @@ function onPointerMove(event: PointerEvent) {
   const y = clamp(
     drag.originY + event.clientY - drag.startY,
     topInset,
-    Math.max(topInset, height - props.win.h - 54),
+    Math.max(topInset, height - props.win.h - (props.bottomInset ?? 54)),
   );
   emit('move', Math.round(x), Math.round(y));
 }
@@ -86,7 +87,7 @@ function onResizeMove(event: PointerEvent) {
   const bounds = root.value?.parentElement?.getBoundingClientRect();
   const width = bounds?.width ?? window.innerWidth;
   const height = bounds?.height ?? window.innerHeight;
-  const maxHeight = height - 54;
+  const maxHeight = height - (props.bottomInset ?? 54);
   const { direction, originX, originY, originW, originH, startX, startY } = resizeDrag;
   const dx = event.clientX - startX;
   const dy = event.clientY - startY;
@@ -265,7 +266,7 @@ onBeforeUnmount(() => {
 }
 
 .lgdesk-win.is-maximized {
-  inset: calc(var(--desk-bar-inset, 0px) + 6px) 6px 60px 6px;
+  inset: calc(var(--desk-bar-inset, 0px) + 6px) 6px calc(var(--desk-dock-bottom, 54px) + 6px) 6px;
   width: auto;
   height: auto;
   border-radius: var(--lg-radius-sm);
@@ -469,7 +470,7 @@ onBeforeUnmount(() => {
 @media (max-width: 719px) {
   .lgdesk-win,
   .lgdesk-win.is-maximized {
-    inset: calc(var(--desk-bar-inset, 0px) + 6px) 6px 62px 6px;
+    inset: calc(var(--desk-bar-inset, 0px) + 6px) 6px calc(var(--desk-dock-bottom, 54px) + 6px) 6px;
     width: auto !important;
     height: auto !important;
     border-radius: var(--lg-radius-sm);

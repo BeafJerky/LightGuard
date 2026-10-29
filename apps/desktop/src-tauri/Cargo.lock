@@ -2673,7 +2673,7 @@ dependencies = [
 
 [[package]]
 name = "lightguard"
-version = "0.12.0"
+version = "0.12.1"
 dependencies = [
  "aes-gcm 0.10.3",
  "base64 0.22.1",

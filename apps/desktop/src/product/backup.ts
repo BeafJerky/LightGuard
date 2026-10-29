@@ -1,4 +1,4 @@
-import { APP_VERSION, isCloseBehavior, isDesktopBarMode } from './data';
+import { APP_VERSION, isCloseBehavior, isDesktopBarMode, isDesktopDockMode } from './data';
 import { normalizeAlertSettings, normalizePermitSettings } from './alerts/settings';
 import type {
   AppSettings,
@@ -147,6 +147,7 @@ function normalizeSettings(value: unknown): AppSettings {
     idleLock: Number.isFinite(idleLock) && idleLock >= 0 && idleLock <= 240 ? Math.round(idleLock) : 30,
     closeBehavior: isCloseBehavior(value.closeBehavior) ? value.closeBehavior : 'ask',
     desktopBar: isDesktopBarMode(value.desktopBar) ? value.desktopBar : 'floating',
+    desktopDock: isDesktopDockMode(value.desktopDock) ? value.desktopDock : 'full',
     permit: normalizePermitSettings(value.permit),
     alerts: normalizeAlertSettings(value.alerts),
   };

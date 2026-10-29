@@ -238,6 +238,38 @@ describe('desktop status bar mode', () => {
   });
 });
 
+describe('desktop dock mode', () => {
+  it('defaults to a full-width dock', async () => {
+    const store = await loadStore();
+    expect(store.state.settings.desktopDock).toBe('full');
+  });
+
+  it('restores a saved floating dock and rejects unknown values', async () => {
+    window.localStorage.setItem(
+      STORE_KEY,
+      JSON.stringify({ version: 2, settings: { desktopDock: 'floating' }, servers: [], logs: [] }),
+    );
+    let store = await loadStore();
+    expect(store.state.settings.desktopDock).toBe('floating');
+
+    window.localStorage.setItem(
+      STORE_KEY,
+      JSON.stringify({ version: 2, settings: { desktopDock: 'wide' }, servers: [], logs: [] }),
+    );
+    store = await loadStore();
+    expect(store.state.settings.desktopDock).toBe('full');
+  });
+
+  it('persists a switched dock mode for the next launch', async () => {
+    const store = await loadStore();
+    store.updateSettings({ desktopDock: 'floating' });
+    store.persistNow();
+
+    const parsed = JSON.parse(window.localStorage.getItem(STORE_KEY) as string);
+    expect(parsed.settings.desktopDock).toBe('floating');
+  });
+});
+
 describe('permit and alert settings', () => {
   it('normalizes nested values from persisted state', async () => {
     window.localStorage.setItem(

@@ -52,6 +52,11 @@ const { width: shellWidth, height: shellHeight } = useElementSize(shell);
 const FULL_BAR_HEIGHT = 46;
 const fullBar = computed(() => state.settings.desktopBar === 'full');
 const barInset = computed(() => (fullBar.value ? FULL_BAR_HEIGHT : 0));
+// 通栏时 Dock 占布局，窗口要让出 54px；悬浮时 Dock 覆盖在窗口之上，只留 6px 边距。
+const DOCK_FULL_HEIGHT = 54;
+const DOCK_FLOATING_INSET = 6;
+const dockFloating = computed(() => state.settings.desktopDock === 'floating');
+const dockInset = computed(() => (dockFloating.value ? DOCK_FLOATING_INSET : DOCK_FULL_HEIGHT));
 const iconRows = computed(() => {
   const height = shellHeight.value || (typeof window === 'undefined' ? 900 : window.innerHeight);
   return Math.max(1, Math.floor((height - 138) / 92));
@@ -75,9 +80,13 @@ const {
   move,
   resize,
   fitToBounds,
-} = useDesktopWindows(bounds, () => barInset.value);
+} = useDesktopWindows(
+  bounds,
+  () => barInset.value,
+  () => dockInset.value,
+);
 
-watch([shellWidth, shellHeight, barInset], () => fitToBounds());
+watch([shellWidth, shellHeight, barInset, dockInset], () => fitToBounds());
 
 const selectedIcon = ref(-1);
 const startOpen = ref(false);
@@ -420,8 +429,12 @@ async function onRetry() {
   <div
     ref="shell"
     class="serverdesk"
-    :class="{ 'is-bar-full': fullBar, 'is-permit-unlocked': !permit.locked }"
-    :style="{ '--desk-bar-inset': `${barInset}px` }"
+    :class="{
+      'is-bar-full': fullBar,
+      'is-dock-floating': dockFloating,
+      'is-permit-unlocked': !permit.locked,
+    }"
+    :style="{ '--desk-bar-inset': `${barInset}px`, '--desk-dock-bottom': `${dockInset}px` }"
   >
     <div class="desk-wallpaper" aria-hidden="true" @click="onWallpaperClick" />
 
@@ -490,6 +503,7 @@ async function onRetry() {
       :session="session"
       :started-at="startedAt"
       :top-inset="barInset"
+      :bottom-inset="dockInset"
       @focus="focus(win.app)"
       @minimize="minimize(win.app)"
       @maximize="toggleMaximize(win.app)"
@@ -1363,6 +1377,27 @@ async function onRetry() {
   min-width: 0;
 }
 
+/* 悬浮 Dock：底部居中胶囊，脱离布局流，窗口可以延伸到它后方（macOS 式覆盖）。 */
+.serverdesk.is-dock-floating .desk-taskbar {
+  position: absolute;
+  right: auto;
+  bottom: 8px;
+  left: 50%;
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  width: auto;
+  max-width: calc(100% - 24px);
+  height: 46px;
+  margin: 0;
+  padding: 0 8px;
+  transform: translateX(-50%);
+  border: var(--lg-border-width) solid var(--lg-border-strong);
+  border-radius: var(--lg-radius-full);
+  background: color-mix(in srgb, var(--lg-surface) 86%, transparent);
+  box-shadow: 0 12px 30px rgb(0 0 0 / 22%), var(--lg-shadow-sm);
+}
+
 .desk-taskbar__center {
   justify-content: center;
 }
@@ -1373,6 +1408,7 @@ async function onRetry() {
 
 .desk-taskbar__start {
   display: grid;
+  flex: 0 0 auto;
   place-items: center;
   width: 38px;
   height: 38px;
@@ -1392,6 +1428,7 @@ async function onRetry() {
 
 .desk-taskbar__search {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 7px;
   height: 34px;
@@ -1401,6 +1438,7 @@ async function onRetry() {
   background: var(--lg-surface-2);
   color: var(--lg-text-muted);
   font-size: 11px;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -1412,6 +1450,7 @@ async function onRetry() {
 .desk-taskbar__app {
   position: relative;
   display: grid;
+  flex: 0 0 auto;
   place-items: center;
   width: 38px;
   height: 38px;
@@ -1451,6 +1490,25 @@ async function onRetry() {
   opacity: 0.55;
 }
 
+.desk-taskbar__icon:not(.desk-taskbar__permit-btn) {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--lg-radius-sm);
+  background: transparent;
+  color: var(--lg-text-muted);
+  cursor: pointer;
+}
+
+.desk-taskbar__icon:not(.desk-taskbar__permit-btn):hover {
+  background: var(--lg-surface-2);
+  color: var(--lg-text);
+}
+
 .desk-taskbar__tile {
   display: grid;
   place-items: center;
@@ -1466,12 +1524,14 @@ async function onRetry() {
 
 .desk-clock {
   display: flex;
+  flex: 0 0 auto;
   flex-direction: column;
   align-items: flex-end;
   padding: 0 4px 0 8px;
   color: var(--lg-text-secondary);
   font-family: var(--lg-font-mono);
   line-height: 1.2;
+  white-space: nowrap;
 }
 
 .desk-clock strong {
@@ -1755,6 +1815,12 @@ async function onRetry() {
     height: 50px;
     gap: 4px;
     padding: 0 6px;
+  }
+
+  .serverdesk.is-dock-floating .desk-taskbar {
+    max-width: calc(100% - 12px);
+    padding: 0 6px;
+    gap: 4px;
   }
 
   .desk-taskbar__search {

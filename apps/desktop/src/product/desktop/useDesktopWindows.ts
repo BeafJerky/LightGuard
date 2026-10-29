@@ -28,8 +28,14 @@ interface Rect {
   h: number;
 }
 
-function fitRect(rect: Rect, width: number, height: number, topInset: number) {
-  const usableH = Math.max(120, height - TASKBAR_HEIGHT);
+function fitRect(
+  rect: Rect,
+  width: number,
+  height: number,
+  topInset: number,
+  bottomInset: number,
+) {
+  const usableH = Math.max(120, height - bottomInset);
   const maxW = Math.max(160, width);
   const maxH = Math.max(120, usableH - topInset);
   rect.w = clamp(rect.w, Math.min(MIN_W, maxW), maxW);
@@ -41,6 +47,7 @@ function fitRect(rect: Rect, width: number, height: number, topInset: number) {
 export function useDesktopWindows(
   getBounds: () => { width: number; height: number },
   getTopInset: () => number = () => 0,
+  getBottomInset: () => number = () => TASKBAR_HEIGHT,
 ) {
   const windows = ref<DesktopWindowState[]>([]);
   const active = ref<DesktopAppKey | null>(null);
@@ -60,9 +67,14 @@ export function useDesktopWindows(
     const w = clamp(meta.width, 320, Math.max(320, W - 40));
     const h = clamp(meta.height, 260, Math.max(260, H - 110));
     const topInset = Math.max(0, getTopInset());
+    const bottomInset = Math.max(0, getBottomInset());
     const offset = (windows.value.length % 5) * 26;
     const x = clamp(Math.round((W - w) / 2) - 50 + offset, 10, Math.max(10, W - w - 10));
-    const y = clamp(64 + offset, topInset + 10, Math.max(topInset + 10, H - h - 66));
+    const y = clamp(
+      64 + offset,
+      topInset + 10,
+      Math.max(topInset + 10, H - h - (bottomInset + 12)),
+    );
     windows.value.push({
       app: key,
       x,
@@ -140,9 +152,10 @@ export function useDesktopWindows(
     // 窗口隐藏或全屏切换的瞬间会量到接近 0 的尺寸，此时收敛会把布局压坏
     if (width < 200 || height < 160) return;
     const topInset = Math.max(0, getTopInset());
+    const bottomInset = Math.max(0, getBottomInset());
     for (const win of windows.value) {
-      fitRect(win, width, height, topInset);
-      if (win.restore) fitRect(win.restore, width, height, topInset);
+      fitRect(win, width, height, topInset, bottomInset);
+      if (win.restore) fitRect(win.restore, width, height, topInset, bottomInset);
     }
   }
 

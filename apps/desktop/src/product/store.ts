@@ -7,7 +7,16 @@ import {
   normalizeAlertSettings,
   normalizePermitSettings,
 } from './alerts/settings';
-import { APP_VERSION, AUTH_LABELS, MAX_LOGS, isCloseBehavior, isDesktopBarMode, round, uid } from './data';
+import {
+  APP_VERSION,
+  AUTH_LABELS,
+  MAX_LOGS,
+  isCloseBehavior,
+  isDesktopBarMode,
+  isDesktopDockMode,
+  round,
+  uid,
+} from './data';
 import {
   applySnapshot,
   fromPersisted,
@@ -65,6 +74,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   idleLock: 30,
   closeBehavior: 'ask',
   desktopBar: 'floating',
+  desktopDock: 'full',
   permit: { defaultMinutes: 15 },
   alerts: DEFAULT_ALERT_SETTINGS,
 };
@@ -99,6 +109,9 @@ function readSettings(value: unknown): AppSettings {
       ? raw.closeBehavior
       : DEFAULT_SETTINGS.closeBehavior,
     desktopBar: isDesktopBarMode(raw.desktopBar) ? raw.desktopBar : DEFAULT_SETTINGS.desktopBar,
+    desktopDock: isDesktopDockMode(raw.desktopDock)
+      ? raw.desktopDock
+      : DEFAULT_SETTINGS.desktopDock,
     permit: normalizePermitSettings(raw.permit),
     alerts: normalizeAlertSettings(raw.alerts),
   };

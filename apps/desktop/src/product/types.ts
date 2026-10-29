@@ -193,6 +193,8 @@ export type CloseAction = Exclude<CloseBehavior, 'ask'>;
 
 export type DesktopBarMode = 'floating' | 'full';
 
+export type DesktopDockMode = 'floating' | 'full';
+
 export type PermitMinutes = 5 | 15 | 30;
 
 export interface ResourceRule {
@@ -243,6 +245,7 @@ export interface AppSettings {
   idleLock: number;
   closeBehavior: CloseBehavior;
   desktopBar: DesktopBarMode;
+  desktopDock: DesktopDockMode;
   permit: { defaultMinutes: PermitMinutes };
   alerts: AlertSettings;
 }

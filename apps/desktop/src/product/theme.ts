@@ -1,4 +1,4 @@
-import { ref } from 'vue';
+import { nextTick, ref } from 'vue';
 import type { ThemeId } from '@lightguard/lightui';
 import type { ThemeChoices } from './types';
 import { setTheme, state } from './store';
@@ -12,13 +12,6 @@ type ViewTransitionDocument = Document & {
 
 export const themeSwitching = ref(false);
 let switching = false;
-
-function reflow() {
-  // 在回调内同步改动后，Vue 的 DOM 更新落在微任务里；等待一帧让新主题先落盘再结束过渡。
-  return new Promise<void>((resolve) => {
-    requestAnimationFrame(() => resolve());
-  });
-}
 
 function withMask(apply: () => void) {
   if (switching) return;
@@ -52,7 +45,9 @@ export function switchScopeTheme(scope: keyof ThemeChoices, id: ThemeId) {
   }
   const transition = doc.startViewTransition(async () => {
     apply();
-    await reflow();
+    // 只等 Vue 的 DOM 更新落盘（微任务）。不能等 requestAnimationFrame：
+    // View Transition 在回调 resolve 前不派发帧，等帧会和过渡互相锁死，界面卡住。
+    await nextTick();
   });
   transition.finished.catch(() => {});
   transition.ready.catch(() => {});

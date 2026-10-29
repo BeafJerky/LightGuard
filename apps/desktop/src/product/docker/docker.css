@@ -790,7 +790,7 @@
 }
 
 /* 抽屉里的复制按钮需要与前面的键值对保持 4px 间距。 */
-.lgdocker-kv .lgdocker-iconbtn{
+.lgdocker-kv .lgdocker-iconbtn {
   margin-left: 4px;
 }
 

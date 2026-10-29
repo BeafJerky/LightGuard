@@ -117,8 +117,10 @@ pub fn audit_path(params: &str) -> Option<String> {
 }
 
 pub fn rollback_block_reason(row: &AuditRow, has_rollback: bool) -> Option<&'static str> {
-    if row.op != MKDIR_OP {
-        return Some("只有新建文件夹支持回退");
+    let supported = row.op == MKDIR_OP
+        || matches!(row.op.as_str(), "docker.container.start" | "docker.container.stop");
+    if !supported {
+        return Some("该操作不支持回退");
     }
     if row.result != "success" {
         return Some("只有成功执行的操作支持回退");
@@ -677,6 +679,29 @@ mod tests {
         assert!(error.hint.contains("没有审计编号"), "{}", error.hint);
         assert!(!error.retryable);
         assert_eq!(error.stage, None);
+    }
+
+    #[test]
+    fn rollback_allows_container_start_and_stop() {
+        let row = AuditRow {
+            id: 7,
+            at_ms: 1,
+            server_id: "srv".to_string(),
+            server_name: "nas".to_string(),
+            op: "docker.container.start".to_string(),
+            params: "{}".to_string(),
+            result: "success".to_string(),
+            duration_ms: 1,
+            permit_source: "unlock:5m".to_string(),
+            rollback_of: None,
+        };
+        assert_eq!(rollback_block_reason(&row, false), None);
+        assert!(rollback_block_reason(
+            &AuditRow { op: "docker.container.restart".to_string(), ..row.clone() },
+            false,
+        )
+        .is_some());
+        assert!(rollback_block_reason(&AuditRow { result: "failed".to_string(), ..row }, false).is_some());
     }
 
     /// 真实服务器夹具：连接 → 建目录 → 重复建（失败落审计）→ 回退。

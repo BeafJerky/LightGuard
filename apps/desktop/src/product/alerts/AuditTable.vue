@@ -48,16 +48,23 @@ onMounted(() => {
 
 async function onRollback(row: AuditEntry): Promise<void> {
   const target = auditParamsSummary(row.params);
+  const docker = row.op.startsWith('docker.container.');
   const ok = await confirm({
-    title: '回退新建文件夹',
-    message: `将删除 ${target}（仅空目录）。回退会写入新的审计记录，且需要有效许可。`,
+    title: docker ? '回退容器操作' : '回退新建文件夹',
+    message: docker
+      ? `将对 ${target} 执行相反操作（启动与停止互换）。回退会写入新的审计记录，且需要有效许可。`
+      : `将删除 ${target}（仅空目录）。回退会写入新的审计记录，且需要有效许可。`,
     confirmLabel: '回退',
     tone: 'danger',
   });
   if (!ok) return;
   failure.value = '';
   if (await rollbackAudit(row.id)) {
-    toast({ title: '已回退', message: '空目录已删除，审计已记录', tone: 'success' });
+    toast({
+      title: '已回退',
+      message: docker ? '已执行相反操作，审计已记录' : '空目录已删除，审计已记录',
+      tone: 'success',
+    });
     await load(true);
     return;
   }
@@ -117,7 +124,7 @@ async function onRollback(row: AuditEntry): Promise<void> {
           @click.stop="onRollback(row)"
         >
           <LgIcon name="refresh" :size="12" />
-          回退（删除空目录）
+          {{ row.op.startsWith('docker.container.') ? '回退（启动/停止互换）' : '回退（删除空目录）' }}
         </button>
       </div>
     </template>

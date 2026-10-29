@@ -187,6 +187,46 @@ pub fn auth_error(output: &ExecOutput) -> Option<SshError> {
     None
 }
 
+/// dockerd 校验失败时会把配置里的代理/镜像地址原样回显，转发给用户前先抹掉其中的凭据。
+/// 空白分隔逐段处理，段内只认 `http://` / `https://` 开头的核心，标点原样保留。
+pub fn redact_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for segment in text.split_inclusive(char::is_whitespace) {
+        out.push_str(&redact_segment(segment));
+    }
+    out
+}
+
+/// 只允许包在 URL 外面的标点被剥离，剥离后重新拼回去。
+fn is_wrapping(ch: char) -> bool {
+    matches!(
+        ch,
+        '"' | '\'' | '(' | ')' | '[' | ']' | ',' | ';' | ':' | '.'
+    )
+}
+
+fn redact_segment(segment: &str) -> String {
+    let head = segment.len() - segment.trim_start_matches(is_wrapping).len();
+    let tail = segment.len() - segment.trim_end_matches(is_wrapping).len();
+    if head + tail >= segment.len() {
+        return segment.to_string();
+    }
+    let core = &segment[head..segment.len() - tail];
+    if !(core.starts_with("http://") || core.starts_with("https://")) {
+        return segment.to_string();
+    }
+    let redacted = redact_url(core);
+    if redacted == core {
+        return segment.to_string();
+    }
+    format!(
+        "{}{}{}",
+        &segment[..head],
+        redacted,
+        &segment[segment.len() - tail..]
+    )
+}
+
 pub fn failure_for(kind: &str, output: &ExecOutput, password: Option<&[u8]>) -> SshError {
     let text = sanitize_output(&output.stderr_text(), password_str(password));
     let text = if text.is_empty() {
@@ -200,7 +240,7 @@ pub fn failure_for(kind: &str, output: &ExecOutput, password: Option<&[u8]>) -> 
                 let detail = if text.is_empty() {
                     "配置未通过 dockerd 校验".to_string()
                 } else {
-                    text
+                    redact_text(&text)
                 };
                 SshError::daemon_invalid(format!("daemon.json 校验失败：{detail}"))
             }
@@ -564,13 +604,13 @@ async fn finish(
             if wait_health(handle, Duration::from_secs(30)).await {
                 return Ok(());
             }
-            if let Some(backup) = plan.backup.as_deref() {
+            let confirmed = if let Some(backup) = plan.backup.as_deref() {
                 on_line("新配置未能启动 Docker，正在恢复原配置…");
-                restore(handle, backup, password).await;
-            }
-            Err(SshError::daemon_invalid(
-                "新配置未能启动 Docker，已恢复原配置",
-            ))
+                restore(handle, backup, password).await
+            } else {
+                false
+            };
+            Err(SshError::daemon_invalid(restore_failure_message(confirmed)))
         }
         _ => Ok(()),
     }
@@ -610,15 +650,39 @@ async fn wait_service(handle: &Handle<ClientHandler>, expected: bool, timeout: D
     false
 }
 
-async fn restore(handle: &Handle<ClientHandler>, backup: &str, password: Option<&[u8]>) {
-    let _ = run_sudo(
+/// 只有回滚脚本成功退出、且回滚后的健康检查通过，才算"已恢复"；
+/// 否则调用方必须如实说明恢复未获确认。
+async fn restore(handle: &Handle<ClientHandler>, backup: &str, password: Option<&[u8]>) -> bool {
+    let output = run_sudo(
         handle,
         &restore_script(backup),
         password,
         Duration::from_secs(120),
     )
     .await;
-    let _ = wait_health(handle, Duration::from_secs(30)).await;
+    if !matches!(output, Ok(ref output) if output.code == Some(0)) {
+        return false;
+    }
+    wait_health(handle, Duration::from_secs(30)).await
+}
+
+/// 回滚结果决定错误文案：未确认时不能说"已恢复"。
+pub fn restore_failure_message(confirmed: bool) -> &'static str {
+    if confirmed {
+        "新配置未能启动 Docker，已恢复原配置"
+    } else {
+        "新配置未能启动 Docker，恢复原配置未获确认；请手动检查 /etc/docker/daemon.json 与 Docker 服务状态"
+    }
+}
+
+/// 命令返回后的结果分类：`Some(0)` 成功；用户取消后没有退出码仍算失败；
+/// 其余没有退出码的情况说明连接在收尾前断开，命令可能已经执行，只能算未知。
+pub fn outcome_kind(code: Option<u32>, canceled: bool) -> &'static str {
+    match code {
+        Some(0) => "success",
+        None if !canceled => "unknown",
+        _ => "failed",
+    }
 }
 
 pub(crate) async fn execute(
@@ -633,6 +697,8 @@ pub(crate) async fn execute(
     let handle = client::session_handle(state, &payload.server_id).await?;
     let plan = prepare(&handle, payload, password, on_line).await?;
     let verb = verb_for(&payload.kind);
+    // 连接在命令收尾前断开时命令可能已经跑完，按"结果未知"记账。
+    let mut unknown = false;
     let outcome = match run_sudo(
         &handle,
         &plan.script,
@@ -650,10 +716,13 @@ pub(crate) async fn execute(
             if let Some(error) = auth_error(&output) {
                 return Err(error);
             }
-            if output.code == Some(0) {
-                finish(&handle, payload, &plan, password, on_line).await
-            } else {
-                Err(failure_for(&payload.kind, &output, password))
+            match outcome_kind(output.code, output.canceled) {
+                "success" => finish(&handle, payload, &plan, password, on_line).await,
+                "unknown" => {
+                    unknown = true;
+                    Err(SshError::docker_failed("连接在命令收尾前断开，结果未知"))
+                }
+                _ => Err(failure_for(&payload.kind, &output, password)),
             }
         }
         // 连接中断发生在执行途中：按"结果未知"落审计。
@@ -661,6 +730,7 @@ pub(crate) async fn execute(
     };
     let (result, message) = match outcome {
         Ok(()) => ("success", format!("{verb}成功")),
+        Err(error) if unknown => ("unknown", error.message),
         Err(error) => (outcome_for(&error), error.message),
     };
     let server_name = db
@@ -735,6 +805,7 @@ pub fn base64(input: &str) -> String {
 
 /// 写入流程：备份 → 临时文件 → dockerd 校验 → 原子替换 → 重启。
 /// 重启失败时立刻恢复备份并再次重启；成功后只保留最近三份备份。
+/// 校验日志与配置临时文件都用 mktemp，避免可预测的固定路径。
 pub fn apply_script(rendered: &str, backup: &str) -> String {
     format!(
         r#"set -u
@@ -744,19 +815,20 @@ mkdir -p /etc/docker || exit 2
 HAD=0
 if [ -f "$DAEMON" ]; then cp -p "$DAEMON" "$BACKUP" || exit 2; HAD=1; fi
 TMP=$(mktemp /etc/docker/.daemon.json.XXXXXX) || exit 2
-trap 'rm -f "$TMP"' EXIT
+LOG=$(mktemp /tmp/lightguard-dockerd.XXXXXX) || exit 2
+trap 'rm -f "$TMP" "$LOG"' EXIT
 printf '%s' '{encoded}' | base64 -d > "$TMP" || exit 2
 if command -v dockerd >/dev/null 2>&1; then
-  if dockerd --validate --config-file "$TMP" >/tmp/lightguard-dockerd.log 2>&1; then
+  if dockerd --validate --config-file "$TMP" > "$LOG" 2>&1; then
     :
-  elif grep -q 'unknown flag' /tmp/lightguard-dockerd.log 2>/dev/null; then
+  elif grep -q 'unknown flag' "$LOG" 2>/dev/null; then
     :
   else
-    cat /tmp/lightguard-dockerd.log >&2
+    cat "$LOG" >&2
     exit 3
   fi
 fi
-rm -f /tmp/lightguard-dockerd.log
+rm -f "$LOG"
 chmod 644 "$TMP"
 mv -f "$TMP" "$DAEMON" || exit 2
 trap - EXIT
@@ -831,9 +903,59 @@ mod tests {
         assert!(script.contains("service docker restart"));
         assert!(script.contains("cp -p \"$BACKUP\" \"$DAEMON\""));
         assert!(script.contains("| base64 -d > \"$TMP\""));
+        assert!(script.contains("mktemp"));
+        assert!(!script.contains("/tmp/lightguard-dockerd.log"));
         assert!(
             restore_script("/etc/docker/daemon.json.lg-1.bak").contains("service docker restart")
         );
+    }
+
+    #[test]
+    fn daemon_restore_is_only_claimed_when_confirmed() {
+        let confirmed = restore_failure_message(true);
+        assert!(confirmed.contains("已恢复"));
+        let unconfirmed = restore_failure_message(false);
+        assert!(!unconfirmed.contains("已恢复"));
+        assert!(unconfirmed.contains("未获确认"));
+        assert!(unconfirmed.contains("/etc/docker/daemon.json"));
+        assert!(unconfirmed.contains("Docker 服务状态"));
+    }
+
+    #[test]
+    fn missing_exit_code_is_unknown_unless_canceled() {
+        assert_eq!(outcome_kind(Some(0), false), "success");
+        assert_eq!(outcome_kind(None, false), "unknown");
+        assert_eq!(outcome_kind(None, true), "failed");
+        assert_eq!(outcome_kind(Some(1), false), "failed");
+        assert_eq!(outcome_kind(Some(3), false), "failed");
+    }
+
+    #[test]
+    fn daemon_validation_errors_redact_url_credentials() {
+        let error = failure_for(
+            "daemon.update",
+            &output("", "dockerd: invalid proxy http://u:p@proxy:3128", Some(3)),
+            None,
+        );
+        assert!(error.message.contains("http://***@proxy:3128"));
+        assert!(!error.message.contains("u:p@"));
+
+        let path = failure_for(
+            "daemon.update",
+            &output(
+                "",
+                "unable to configure the Docker daemon with file /etc/docker/daemon.json",
+                Some(3),
+            ),
+            None,
+        );
+        assert!(path.message.contains("/etc/docker/daemon.json"));
+
+        assert_eq!(
+            redact_text("a (\"https://u:p@mirror.example.com/x\"), b"),
+            "a (\"https://***@mirror.example.com/x\"), b"
+        );
+        assert_eq!(redact_text("plain output"), "plain output");
     }
 
     #[test]

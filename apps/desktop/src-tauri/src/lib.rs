@@ -1,5 +1,6 @@
 pub mod alerts;
 pub mod db;
+pub mod docker;
 pub mod guard;
 pub mod ssh;
 

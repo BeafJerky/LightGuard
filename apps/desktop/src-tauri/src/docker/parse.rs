@@ -3,7 +3,12 @@
 
 use serde_json::Value;
 
-use crate::docker::dto::{DockerContainer, DockerStatsSample};
+use crate::docker::dto::{
+    DockerContainer, DockerContainerDetail, DockerEnvVar, DockerMount, DockerNetwork, DockerPort,
+    DockerStatsSample,
+};
+use crate::docker::validate::mask_env_value;
+use crate::ssh::error::SshError;
 
 pub fn containers(stdout: &str) -> Vec<DockerContainer> {
     stdout.lines().filter_map(parse_container).collect()
@@ -66,6 +71,137 @@ pub fn merge_stats(containers: &mut [DockerContainer], stats: &[DockerStatsSampl
         container.net_rx = sample.net_rx.clone();
         container.net_tx = sample.net_tx.clone();
     }
+}
+
+const MAX_ENV_ROWS: usize = 200;
+
+pub fn container_detail(json: &str) -> Result<DockerContainerDetail, SshError> {
+    let value: Value = serde_json::from_str(json)
+        .map_err(|error| SshError::docker_failed(format!("容器详情解析失败：{error}")))?;
+    let item = value
+        .as_array()
+        .and_then(|rows| rows.first())
+        .unwrap_or(&value);
+    if item.is_null() || !item.is_object() {
+        return Err(SshError::docker_failed("容器不存在或已删除"));
+    }
+
+    let command = item
+        .pointer("/Config/Cmd")
+        .and_then(Value::as_array)
+        .map(|rows| {
+            rows.iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .unwrap_or_default();
+
+    let mut env = Vec::new();
+    let mut env_truncated = false;
+    if let Some(rows) = item.pointer("/Config/Env").and_then(Value::as_array) {
+        for row in rows {
+            let Some(pair) = row.as_str() else { continue };
+            if env.len() >= MAX_ENV_ROWS {
+                env_truncated = true;
+                break;
+            }
+            let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+            env.push(DockerEnvVar {
+                key: key.to_string(),
+                value: mask_env_value(key, value),
+            });
+        }
+    }
+
+    let mut mounts = Vec::new();
+    if let Some(rows) = item.get("Mounts").and_then(Value::as_array) {
+        for row in rows {
+            mounts.push(DockerMount {
+                source: pointer_text(row, "/Source"),
+                destination: pointer_text(row, "/Destination"),
+                mode: pointer_text(row, "/Mode"),
+                read_only: !row.get("RW").and_then(Value::as_bool).unwrap_or(true),
+            });
+        }
+    }
+
+    let mut networks = Vec::new();
+    if let Some(map) = item
+        .pointer("/NetworkSettings/Networks")
+        .and_then(Value::as_object)
+    {
+        for (name, row) in map {
+            networks.push(DockerNetwork {
+                name: name.clone(),
+                ip: pointer_text(row, "/IPAddress"),
+                gateway: pointer_text(row, "/Gateway"),
+                mac: pointer_text(row, "/MacAddress"),
+            });
+        }
+    }
+
+    let mut ports = Vec::new();
+    if let Some(map) = item
+        .pointer("/NetworkSettings/Ports")
+        .and_then(Value::as_object)
+    {
+        for (key, bindings) in map {
+            let (container_port, protocol) = key.split_once('/').unwrap_or((key.as_str(), ""));
+            let mut bound = false;
+            if let Some(rows) = bindings.as_array() {
+                for row in rows {
+                    let host_ip = pointer_text(row, "/HostIp");
+                    let host_port = pointer_text(row, "/HostPort");
+                    if host_ip.is_empty() && host_port.is_empty() {
+                        continue;
+                    }
+                    bound = true;
+                    ports.push(DockerPort {
+                        host_ip,
+                        host_port,
+                        container_port: container_port.to_string(),
+                        protocol: protocol.to_string(),
+                    });
+                }
+            }
+            if !bound {
+                ports.push(DockerPort {
+                    host_ip: String::new(),
+                    host_port: String::new(),
+                    container_port: container_port.to_string(),
+                    protocol: protocol.to_string(),
+                });
+            }
+        }
+    }
+    ports.sort_by(|left, right| left.container_port.cmp(&right.container_port));
+
+    Ok(DockerContainerDetail {
+        id: pointer_text(item, "/Id"),
+        name: pointer_text(item, "/Name").trim_start_matches('/').to_string(),
+        image: pointer_text(item, "/Config/Image"),
+        command,
+        state: pointer_text(item, "/State/Status"),
+        status: pointer_text(item, "/State/Status"),
+        health: pointer_text(item, "/State/Health/Status"),
+        restart_policy: pointer_text(item, "/HostConfig/RestartPolicy/Name"),
+        created_at: pointer_text(item, "/Created"),
+        started_at: pointer_text(item, "/State/StartedAt"),
+        ports,
+        mounts,
+        networks,
+        env,
+        env_truncated,
+    })
+}
+
+fn pointer_text(value: &Value, pointer: &str) -> String {
+    value
+        .pointer(pointer)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
 }
 
 pub(crate) fn text(value: &Value, key: &str) -> String {
@@ -149,5 +285,64 @@ mod tests {
     #[test]
     fn stats_ignore_rows_without_id() {
         assert!(stats("{\"CPUPerc\":\"1%\"}\n").is_empty());
+    }
+
+    const INSPECT: &str = r#"[{
+      "Id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "Created":"2026-10-01T02:00:00.000000000Z",
+      "Name":"/shop-web-1",
+      "Config":{
+        "Image":"nginx:1.27",
+        "Cmd":["nginx","-g","daemon off;"],
+        "Env":["PATH=/usr/bin","DB_PASSWORD=hunter2","API_TOKEN=abc123","PORT=80"]
+      },
+      "State":{"Status":"running","StartedAt":"2026-10-01T02:00:05.000000000Z","Health":{"Status":"healthy"}},
+      "HostConfig":{"RestartPolicy":{"Name":"always"}},
+      "Mounts":[{"Source":"/data/html","Destination":"/usr/share/nginx/html","Mode":"rw","RW":true}],
+      "NetworkSettings":{
+        "Ports":{"80/tcp":[{"HostIp":"0.0.0.0","HostPort":"8080"}],"443/tcp":null},
+        "Networks":{"bridge":{"IPAddress":"172.17.0.2","Gateway":"172.17.0.1","MacAddress":"02:42:ac:11:00:02"}}
+      }
+    }]"#;
+
+    #[test]
+    fn parses_detail_and_masks_sensitive_env() {
+        let detail = container_detail(INSPECT).unwrap();
+        assert_eq!(detail.id, "a".repeat(64));
+        assert_eq!(detail.name, "shop-web-1");
+        assert_eq!(detail.image, "nginx:1.27");
+        assert_eq!(detail.command, "nginx -g daemon off;");
+        assert_eq!(detail.state, "running");
+        assert_eq!(detail.health, "healthy");
+        assert_eq!(detail.restart_policy, "always");
+        assert_eq!(detail.mounts.len(), 1);
+        assert_eq!(detail.mounts[0].destination, "/usr/share/nginx/html");
+        assert!(detail.mounts[0].read_only == false);
+        assert_eq!(detail.ports.len(), 2);
+        assert_eq!(detail.ports[0].container_port, "443");
+        assert_eq!(detail.ports[0].host_port, "", "unmapped port has no host");
+        assert_eq!(detail.ports[1].host_port, "8080");
+        assert_eq!(detail.networks[0].ip, "172.17.0.2");
+        let password = detail.env.iter().find(|row| row.key == "DB_PASSWORD").unwrap();
+        assert_eq!(password.value, "••••");
+        let token = detail.env.iter().find(|row| row.key == "API_TOKEN").unwrap();
+        assert_eq!(token.value, "••••");
+        let port = detail.env.iter().find(|row| row.key == "PORT").unwrap();
+        assert_eq!(port.value, "80");
+        let json = serde_json::to_string(&detail).unwrap();
+        assert!(!json.contains("hunter2"));
+        assert!(!json.contains("abc123"));
+    }
+
+    #[test]
+    fn rejects_invalid_inspect_json_and_missing_container() {
+        assert_eq!(
+            container_detail("not-json").unwrap_err().code,
+            "DOCKER_FAILED"
+        );
+        assert_eq!(
+            container_detail("null").unwrap_err().code,
+            "DOCKER_FAILED"
+        );
     }
 }

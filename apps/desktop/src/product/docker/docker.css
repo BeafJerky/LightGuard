@@ -1,0 +1,389 @@
+.lgdocker {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  background: var(--lg-bg);
+  color: var(--lg-text);
+  container-type: inline-size;
+  container-name: docker;
+}
+
+.lgdocker-nav {
+  display: flex;
+  flex: 0 0 168px;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 8px 10px;
+  border-right: var(--lg-border-width) solid var(--lg-border);
+  background: var(--lg-surface);
+}
+
+.lgdocker-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 6px 10px;
+  border-bottom: var(--lg-border-width) solid var(--lg-border);
+}
+
+.lgdocker-brand__icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--lg-info-soft, color-mix(in srgb, var(--lg-info) 16%, transparent));
+  color: var(--lg-info);
+}
+
+.lgdocker-brand div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.lgdocker-brand strong {
+  font-size: 12.5px;
+}
+
+.lgdocker-brand span {
+  overflow: hidden;
+  color: var(--lg-text-muted);
+  font-size: 9.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.lgdocker-nav__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lgdocker-nav__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--lg-text-secondary);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lgdocker-nav__item:hover:not(:disabled) {
+  background: var(--lg-hover);
+  color: var(--lg-text);
+}
+
+.lgdocker-nav__item.is-active {
+  background: color-mix(in srgb, var(--lg-info) 14%, transparent);
+  color: var(--lg-info);
+  font-weight: 600;
+}
+
+.lgdocker-nav__item:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.lgdocker-nav__item.is-soon {
+  opacity: 0.55;
+}
+
+.lgdocker-nav__item em {
+  margin-left: auto;
+  color: var(--lg-text-muted);
+  font-size: 8.5px;
+  font-style: normal;
+}
+
+.lgdocker-nav__foot {
+  margin: auto 6px 0;
+  color: var(--lg-text-muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.lgdocker.is-narrow {
+  flex-direction: column;
+}
+
+.lgdocker.is-narrow .lgdocker-nav {
+  flex: 0 0 auto;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-right: 0;
+  border-bottom: var(--lg-border-width) solid var(--lg-border);
+  overflow-x: auto;
+}
+
+.lgdocker.is-narrow .lgdocker-brand,
+.lgdocker.is-narrow .lgdocker-nav__foot {
+  display: none;
+}
+
+.lgdocker.is-narrow .lgdocker-nav__list {
+  flex-direction: row;
+  gap: 4px;
+}
+
+.lgdocker.is-narrow .lgdocker-nav__item {
+  flex: 0 0 auto;
+  min-height: 26px;
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+.lgdocker.is-narrow .lgdocker-nav__item em {
+  display: none;
+}
+
+.lgdocker-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.lgdocker-lockbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border-bottom: var(--lg-border-width) solid var(--lg-border);
+  background: color-mix(in srgb, var(--lg-warning) 14%, var(--lg-bg));
+  color: var(--lg-warning);
+  font-size: 10.5px;
+}
+
+.lgdocker-lockbar span {
+  flex: 1;
+}
+
+.lgdocker-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+}
+
+.lgdocker-pagehead {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.lgdocker-pagehead > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.lgdocker-pagehead h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.lgdocker-pagehead p {
+  margin: 2px 0 0;
+  color: var(--lg-text-muted);
+  font-size: 10.5px;
+}
+
+.lgdocker-btn {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border: var(--lg-border-width) solid var(--lg-border);
+  border-radius: 6px;
+  background: var(--lg-surface-2);
+  color: var(--lg-text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.lgdocker-btn:hover:not(:disabled) {
+  background: var(--lg-hover);
+  color: var(--lg-text);
+}
+
+.lgdocker-btn:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.lgdocker-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.lgdocker-kpi {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  padding: 11px 12px;
+  border: var(--lg-border-width) solid var(--lg-border);
+  border-radius: var(--lg-radius-md);
+  background: var(--lg-surface);
+  box-shadow: var(--lg-shadow-sm);
+}
+
+.lgdocker-kpi span {
+  color: var(--lg-text-muted);
+  font-size: 10px;
+}
+
+.lgdocker-kpi strong {
+  overflow: hidden;
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.lgdocker-kpi em {
+  color: var(--lg-text-muted);
+  font-size: 9.5px;
+  font-style: normal;
+}
+
+.lgdocker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.lgdocker-panel {
+  padding: 12px;
+  border: var(--lg-border-width) solid var(--lg-border);
+  border-radius: var(--lg-radius-md);
+  background: var(--lg-surface);
+}
+
+.lgdocker-panel h3 {
+  margin: 0 0 9px;
+  font-size: 11.5px;
+  font-weight: 650;
+}
+
+.lgdocker-kv {
+  display: flex;
+  margin: 0;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.lgdocker-kv div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lgdocker-kv dt {
+  color: var(--lg-text-muted);
+  font-size: 10px;
+}
+
+.lgdocker-kv dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--lg-text-secondary);
+  font-size: 10.5px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lgdocker-kv dd.is-mono {
+  font-family: var(--lg-font-mono);
+  font-size: 9.5px;
+}
+
+.lgdocker-empty,
+.lgdocker-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 22px 16px;
+  border: var(--lg-border-width) dashed var(--lg-border-strong);
+  border-radius: var(--lg-radius-md);
+  background: var(--lg-surface);
+  color: var(--lg-text-muted);
+  font-size: 11px;
+}
+
+.lgdocker-empty {
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+}
+
+.lgdocker-empty strong {
+  color: var(--lg-text-secondary);
+  font-size: 12px;
+}
+
+.lgdocker-empty span {
+  font-size: 10.5px;
+}
+
+.lgdocker-error {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--lg-danger) 40%, var(--lg-border));
+  color: var(--lg-danger);
+}
+
+.lgdocker-error div {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lgdocker-error span {
+  color: var(--lg-text-secondary);
+  font-size: 10.5px;
+}
+
+@container docker (max-width: 640px) {
+  .lgdocker-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .lgdocker-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container docker (max-width: 460px) {
+  .lgdocker-nav {
+    flex-basis: 112px;
+  }
+
+  .lgdocker-nav__item em {
+    display: none;
+  }
+}

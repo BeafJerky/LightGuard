@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue';
 import { useElementSize, usePreferredDark, usePreferredReducedMotion } from '@vueuse/core';
 import {
   LgButton,
@@ -21,6 +21,7 @@ import {
   type DesktopAppKey,
 } from './apps';
 import { useDesktopWindows } from './useDesktopWindows';
+import { dockerApi } from '../docker/api';
 import PermitControl from '../guard/PermitControl.vue';
 import {
   closePermitPanel,
@@ -88,13 +89,20 @@ const {
 
 watch([shellWidth, shellHeight, barInset, dockInset], () => fitToBounds());
 
+// 容器终端在 Docker 应用里发起，但标签页属于终端应用；用注入把“打开应用”交给子组件。
+provide('lg:open-app', open);
+
 const selectedIcon = ref(-1);
 const startOpen = ref(false);
 const trayOpen = ref(false);
 const startQuery = ref('');
 
 const visibleApps = computed(() =>
-  DESKTOP_APPS.filter((app) => app.key !== 'files' || backendAvailable),
+  DESKTOP_APPS.filter((app) => {
+    if (app.key === 'files') return backendAvailable;
+    if (app.key === 'docker') return dockerApi.available;
+    return true;
+  }),
 );
 const iconItems = computed(() =>
   visibleApps.value.map((app) => ({ name: app.icon, label: app.title, tile: app.tile })),

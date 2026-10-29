@@ -74,6 +74,16 @@ const GLYPHS: Record<string, Glyph> = {
     ctx.moveTo(8, 12);
     ctx.lineTo(16, 12);
   },
+  layers(ctx) {
+    ctx.moveTo(12, 3);
+    ctx.lineTo(21, 8);
+    ctx.lineTo(12, 13);
+    ctx.lineTo(3, 8);
+    ctx.closePath();
+    ctx.moveTo(3, 13);
+    ctx.lineTo(12, 18);
+    ctx.lineTo(21, 13);
+  },
 };
 
 export function drawIconGlyph(

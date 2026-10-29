@@ -67,6 +67,7 @@ function draw(ctx: CanvasRenderingContext2D, frame: CanvasFrame) {
     'tile-processes': theme.color.danger,
     'tile-connection': theme.color.success,
     'tile-terminal': theme.color.textSecondary,
+    'tile-docker': theme.color.info,
   };
 
   cells.value.forEach((cell, index) => {

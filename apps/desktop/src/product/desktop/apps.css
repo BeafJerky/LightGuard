@@ -638,7 +638,8 @@
 .tile-processes,
 .tile-connection,
 .tile-files,
-.tile-terminal {
+.tile-terminal,
+.tile-docker {
   /* 图标底色由主题 token 派生，7 套主题与深浅模式保持一致。 */
   border: var(--lg-border-width) solid color-mix(in srgb, var(--tile-color) 34%, var(--lg-border));
   background: linear-gradient(
@@ -682,6 +683,10 @@
 
 .tile-terminal {
   --tile-color: var(--lg-text-secondary);
+}
+
+.tile-docker {
+  --tile-color: var(--lg-info);
 }
 
 @container (max-width: 700px) {

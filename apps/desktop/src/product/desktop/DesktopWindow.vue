@@ -229,7 +229,10 @@ onBeforeUnmount(() => {
       </div>
     </header>
 
-    <div class="lgdesk-win__body" :class="{ 'is-terminal': win.app === 'terminal' }">
+    <div
+      class="lgdesk-win__body"
+      :class="{ 'is-terminal': win.app === 'terminal', 'is-docker': win.app === 'docker' }"
+    >
       <DesktopAppHost
         :app="win.app"
         :server="server"
@@ -465,6 +468,12 @@ onBeforeUnmount(() => {
 .lgdesk-win__body.is-terminal :deep(.lgapp-terminal) {
   flex: 1 1 auto;
   height: auto;
+}
+
+.lgdesk-win__body.is-docker {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 @media (max-width: 719px) {

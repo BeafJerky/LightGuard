@@ -506,10 +506,15 @@ mod tests {
 
     #[test]
     fn merges_tags_by_image_id() {
-        let raw = r#"{"Containers":"N/A","CreatedAt":"2026-10-01 10:00:00 +0800 CST","ID":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","Repository":"nginx","Size":"187MB","Tag":"latest"}
+        let raw = concat!(
+            r#"{"Containers":"N/A","CreatedAt":"2026-10-01 10:00:00 +0800 CST","ID":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","Repository":"nginx","Size":"187MB","Tag":"latest"}
 {"Containers":"N/A","CreatedAt":"2026-10-01 10:00:00 +0800 CST","ID":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","Repository":"nginx","Size":"187MB","Tag":"1.27"}
+"#,
+            // 重复 tag 行：用于验证按 image ID 分组时不会重复追加。
+            r#"{"Containers":"N/A","CreatedAt":"2026-10-01 10:00:00 +0800 CST","ID":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","Repository":"nginx","Size":"187MB","Tag":"latest"}
 {"Containers":"2","CreatedAt":"2026-09-01 10:00:00 +0800 CST","ID":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","Repository":"<none>","Size":"10MB","Tag":"<none>"}
-"#;
+"#,
+        );
         let rows = images(raw);
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].id, "c".repeat(64));
@@ -518,6 +523,7 @@ mod tests {
         assert!(!rows[0].dangling);
         assert!(rows[1].dangling);
         assert!(rows[1].tags.is_empty());
+        assert_eq!(rows[1].repo, "", "dangling image repo is cleared");
         assert_eq!(rows[1].containers, 2);
     }
 
@@ -554,6 +560,13 @@ mod tests {
         assert_eq!(usage.build_cache_size, "0B");
         assert_eq!(usage.reclaimable, "500MB (41%)");
         assert!(df("").is_none());
+        // 只有 Containers 行时没有 Images 段，视为无可用明细。
+        let containers_only = r#"{"Type":"Containers","Size":"20MB","Reclaimable":"10MB (50%)"}"#;
+        assert!(df(containers_only).is_none());
+        let single = df(r#"{"Type":"Images","Size":"2GB","Reclaimable":"1GB (50%)"}"#).unwrap();
+        assert_eq!(single.images_size, "2GB");
+        assert_eq!(single.containers_size, "—");
+        assert_eq!(single.reclaimable, "1GB (50%)");
     }
 
     #[test]

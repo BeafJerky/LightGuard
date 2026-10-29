@@ -264,7 +264,7 @@ function finishSystem(): void {
               <fieldset class="lgdocker-settings__group" :disabled="!proxySupported">
                 <legend>代理</legend>
                 <p v-if="!proxySupported" class="lgdocker-muted">
-                  当前 Docker 版本低于 23.0，不支持 daemon.json 中的 proxies 配置。
+                  Docker 版本未知或低于 23.0（需要 Docker 23+ 的 daemon.json proxies），暂不支持代理配置。
                 </p>
                 <div v-for="row in proxyRows" :key="row.key" class="lgdocker-settings__proxy">
                   <label class="lgdocker-field">

@@ -70,6 +70,7 @@ pub fn parse_probe(output: &ExecOutput) -> DockerCapabilities {
         .unwrap_or_default();
     let daemon_running = installed && info_exit == 0;
     let socket_ok = daemon_running;
+    let permission_denied = installed && permission && !socket_ok;
     let proxy_supported = major_version(&version) >= 23;
     let message = if !installed {
         "未安装 Docker"
@@ -85,6 +86,7 @@ pub fn parse_probe(output: &ExecOutput) -> DockerCapabilities {
         installed,
         daemon_running,
         socket_ok,
+        permission_denied,
         systemd,
         auto_start,
         compose,
@@ -164,6 +166,7 @@ mod tests {
         ));
         assert!(probe.installed);
         assert!(!probe.socket_ok);
+        assert!(probe.permission_denied);
         assert!(probe.message.contains("权限"));
 
         let stopped = parse_probe(&output(
@@ -171,5 +174,7 @@ mod tests {
             "",
         ));
         assert!(stopped.message.contains("未运行"));
+        // 服务停止不是权限问题：前端仍要给出「启动 Docker 服务」入口。
+        assert!(!stopped.permission_denied);
     }
 }

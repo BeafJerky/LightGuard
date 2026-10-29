@@ -17,6 +17,7 @@ import {
   type ContainerLayout,
 } from './containers';
 import { shortText } from './format';
+import { permissionHint } from './status';
 import { useDockerWrite } from './useDockerAction';
 import ContainerCard from './ContainerCard.vue';
 import ContainerTable from './ContainerTable.vue';
@@ -209,6 +210,7 @@ onMounted(load);
     <div v-else-if="error && unavailable" class="lgdocker-empty">
       <strong>{{ errorCode === 'DOCKER_UNAVAILABLE' ? 'Docker 不可用' : '没有 Docker 权限' }}</strong>
       <span>{{ error }}</span>
+      <span v-if="permissionHint(errorCode)">{{ permissionHint(errorCode) }}</span>
       <button type="button" class="lgdocker-btn" @click="load()">重试</button>
     </div>
 

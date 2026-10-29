@@ -6,6 +6,7 @@ import { toSshError } from '../ssh';
 import { toast } from '../ui';
 import { dockerApi, type RegistrySearchItem } from './api';
 import { QUICK_REGISTRY, pullReference } from './images';
+import { permissionHint } from './status';
 import { useDockerWrite } from './useDockerAction';
 import DockerActionDialog from './DockerActionDialog.vue';
 import RegistrySettings from './RegistrySettings.vue';
@@ -20,6 +21,7 @@ const results = ref<RegistrySearchItem[]>([]);
 const searched = ref(false);
 const searching = ref(false);
 const error = ref('');
+const errorCode = ref('');
 
 const pullOpen = ref(false);
 const pullName = ref('');
@@ -47,10 +49,13 @@ async function search(): Promise<void> {
   if (!keyword) return;
   searching.value = true;
   error.value = '';
+  errorCode.value = '';
   try {
     results.value = await dockerApi.registrySearch(props.server.id, keyword);
   } catch (caught) {
-    error.value = toSshError(caught).message;
+    const sshError = toSshError(caught);
+    error.value = sshError.message;
+    errorCode.value = sshError.code;
     results.value = [];
   } finally {
     searched.value = true;
@@ -63,6 +68,7 @@ function resetSearch(): void {
   results.value = [];
   searched.value = false;
   error.value = '';
+  errorCode.value = '';
 }
 
 function openPull(name: string): void {
@@ -157,7 +163,11 @@ function closeAction(): void {
 
     <div v-else-if="error" class="lgdocker-error" role="alert">
       <LgIcon name="alert" :size="15" />
-      <div><strong>搜索失败</strong><span>{{ error }}</span></div>
+      <div>
+        <strong>搜索失败</strong>
+        <span>{{ error }}</span>
+        <span v-if="permissionHint(errorCode)">{{ permissionHint(errorCode) }}</span>
+      </div>
       <button type="button" class="lgdocker-btn" @click="openPull(term.trim())">直接拉取</button>
     </div>
 

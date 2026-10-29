@@ -12,6 +12,8 @@ export function useDocker(server: Server, api: DockerApi = dockerApi) {
 
   const installed = computed(() => capabilities.value?.installed ?? false);
   const running = computed(() => capabilities.value?.daemonRunning ?? false);
+  // 「服务未运行」与「没有 socket 权限」是两件事：后者只能用组权限解决，不能提示启动服务。
+  const permissionDenied = computed(() => capabilities.value?.permissionDenied ?? false);
 
   async function load(includeDf = true, silent = false): Promise<void> {
     if (!silent) {
@@ -33,5 +35,16 @@ export function useDocker(server: Server, api: DockerApi = dockerApi) {
     }
   }
 
-  return { api, capabilities, overview, loading, error, notice, installed, running, load };
+  return {
+    api,
+    capabilities,
+    overview,
+    loading,
+    error,
+    notice,
+    installed,
+    running,
+    permissionDenied,
+    load,
+  };
 }

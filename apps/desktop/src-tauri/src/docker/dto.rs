@@ -6,6 +6,8 @@ pub struct DockerCapabilities {
     pub installed: bool,
     pub daemon_running: bool,
     pub socket_ok: bool,
+    /// 探测到 socket 权限不足：与「服务未运行」区分，前端只能提示组权限。
+    pub permission_denied: bool,
     pub systemd: bool,
     /// `systemctl is-enabled docker` 的原始输出；systemctl 不可用时为空串。
     pub auto_start: String,

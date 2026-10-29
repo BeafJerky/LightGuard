@@ -10,6 +10,8 @@ export interface DockerCapabilities {
   installed: boolean;
   daemonRunning: boolean;
   socketOk: boolean;
+  /** 探测到 socket 权限不足（与「服务未运行」区分）：只能提示组权限，不能启动服务。 */
+  permissionDenied: boolean;
   systemd: boolean;
   /** `systemctl is-enabled docker` 原始值：enabled / disabled / 空串。 */
   autoStart: string;

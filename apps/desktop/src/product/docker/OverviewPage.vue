@@ -5,12 +5,14 @@ import type { Server } from '../types';
 import { toast } from '../ui';
 import { useDocker } from './useDocker';
 import { useDockerSystem } from './useDockerAction';
+import { PERMISSION_HINT } from './status';
 import DockerActionDialog from './DockerActionDialog.vue';
 import SystemAuthDialog from './SystemAuthDialog.vue';
 
 const props = defineProps<{ server: Server }>();
 
-const { capabilities, overview, loading, error, installed, running, load } = useDocker(props.server);
+const { capabilities, overview, loading, error, installed, running, permissionDenied, load } =
+  useDocker(props.server);
 
 const {
   preview: servicePreview,
@@ -106,7 +108,7 @@ onBeforeUnmount(() => {
       </div>
       <div class="lgdocker-pagehead__actions">
         <button
-          v-if="installed && !loading"
+          v-if="installed && !loading && !permissionDenied"
           type="button"
           class="lgdocker-btn"
           :class="{ 'is-danger': running }"
@@ -137,6 +139,12 @@ onBeforeUnmount(() => {
     <div v-else-if="!installed" class="lgdocker-empty">
       <strong>未安装 Docker</strong>
       <span>请在服务器上安装 Docker，或确认当前账号可以访问 docker 命令。</span>
+    </div>
+
+    <div v-else-if="permissionDenied" class="lgdocker-empty">
+      <strong>没有 Docker socket 权限</strong>
+      <span>{{ capabilities?.message || '当前账号没有 Docker socket 权限' }}</span>
+      <span>{{ PERMISSION_HINT }}</span>
     </div>
 
     <div v-else-if="!running" class="lgdocker-empty">

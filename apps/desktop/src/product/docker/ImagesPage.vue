@@ -7,6 +7,7 @@ import { toast } from '../ui';
 import { dockerApi, type DockerImage } from './api';
 import { dockerTime } from './format';
 import { filterImages, imageReference, tagSummary } from './images';
+import { permissionHint } from './status';
 import { useDockerWrite } from './useDockerAction';
 import DockerActionDialog from './DockerActionDialog.vue';
 
@@ -18,6 +19,7 @@ const dockerRoot = inject<Ref<HTMLElement | null>>('lg:docker-root', ref(null));
 const images = ref<DockerImage[]>([]);
 const loading = ref(true);
 const error = ref('');
+const errorCode = ref('');
 const keyword = ref('');
 const menuFor = ref('');
 
@@ -44,10 +46,13 @@ const summary = computed(() => {
 async function load(): Promise<void> {
   loading.value = true;
   error.value = '';
+  errorCode.value = '';
   try {
     images.value = await dockerApi.images(props.server.id);
   } catch (caught) {
-    error.value = toSshError(caught).message;
+    const sshError = toSshError(caught);
+    error.value = sshError.message;
+    errorCode.value = sshError.code;
     images.value = [];
   } finally {
     loading.value = false;
@@ -119,7 +124,11 @@ onBeforeUnmount(() => {
 
     <div v-else-if="error" class="lgdocker-error" role="alert">
       <LgIcon name="alert" :size="15" />
-      <div><strong>无法读取镜像</strong><span>{{ error }}</span></div>
+      <div>
+        <strong>无法读取镜像</strong>
+        <span>{{ error }}</span>
+        <span v-if="permissionHint(errorCode)">{{ permissionHint(errorCode) }}</span>
+      </div>
       <button type="button" class="lgdocker-btn" @click="load()">重试</button>
     </div>
 

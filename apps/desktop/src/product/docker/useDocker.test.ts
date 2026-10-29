@@ -7,6 +7,7 @@ function capabilities(patch: Partial<DockerCapabilities> = {}): DockerCapabiliti
     installed: true,
     daemonRunning: true,
     socketOk: true,
+    permissionDenied: false,
     systemd: true,
     autoStart: 'enabled',
     compose: true,
@@ -74,6 +75,24 @@ describe('use docker', () => {
     expect(docker.running.value).toBe(false);
     expect(docker.overview.value).toBeNull();
     expect(stopped.overview).not.toHaveBeenCalled();
+  });
+
+  it('marks socket permission separately from a stopped daemon', async () => {
+    const denied = api({
+      capabilities: vi.fn(async () =>
+        capabilities({
+          daemonRunning: false,
+          socketOk: false,
+          permissionDenied: true,
+          message: '当前账号没有 Docker socket 权限',
+        }),
+      ),
+    });
+    const docker = useDocker({ id: 'srv_1' } as never, denied);
+    await docker.load();
+    expect(docker.running.value).toBe(false);
+    expect(docker.permissionDenied.value).toBe(true);
+    expect(denied.overview).not.toHaveBeenCalled();
   });
 
   it('keeps the last overview when a silent refresh fails', async () => {

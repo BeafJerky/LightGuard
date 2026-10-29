@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import { LgIcon } from '@lightguard/lightui';
 import type { DockerContainer } from './api';
-import { containerActions, type ContainerActionKind } from './actions';
+import { containerActions, type ContainerMenuKind } from './actions';
 import { dockerTime, percent, shortText, stateLabel, stateTone } from './format';
 
 defineProps<{ rows: DockerContainer[]; activeId?: string }>();
 const emit = defineEmits<{
   detail: [row: DockerContainer];
-  action: [row: DockerContainer, kind: ContainerActionKind];
+  action: [row: DockerContainer, kind: ContainerMenuKind];
 }>();
 
-function run(row: DockerContainer, kind: ContainerActionKind): void {
+function run(row: DockerContainer, kind: ContainerMenuKind): void {
   emit('action', row, kind);
 }
 

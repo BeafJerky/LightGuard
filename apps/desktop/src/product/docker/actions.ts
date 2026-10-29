@@ -4,8 +4,10 @@ export type ContainerActionKind =
   | 'container.restart'
   | 'container.remove';
 
+export type ContainerMenuKind = ContainerActionKind | 'container.terminal';
+
 export interface ActionOption {
-  kind: ContainerActionKind;
+  kind: ContainerMenuKind;
   label: string;
   icon: string;
   danger: boolean;
@@ -13,21 +15,22 @@ export interface ActionOption {
 
 const ACTIVE_STATES = new Set(['running', 'paused', 'restarting']);
 
-function isActiveState(state: string): boolean {
+export function isActiveState(state: string): boolean {
   return ACTIVE_STATES.has(state);
 }
 
 /**
- * 行内菜单只暴露后端允许的操作：
- * 运行中的容器能重启/停止，停止中的容器能启动/删除；
- * 正在删除的容器不给任何入口，避免预览必然失败。
+ * 行内菜单按状态展示：运行中可停止、重启、打开终端、删除（删除需先停止，后端兜底拒绝），
+ * 已停止可启动或删除；正在删除的容器不给任何入口。
  */
 export function containerActions(state: string): ActionOption[] {
   if (state === 'removing') return [];
   if (isActiveState(state)) {
     return [
-      { kind: 'container.restart', label: '重启', icon: 'refresh', danger: false },
       { kind: 'container.stop', label: '停止', icon: 'power', danger: false },
+      { kind: 'container.restart', label: '重启', icon: 'refresh', danger: false },
+      { kind: 'container.terminal', label: '终端', icon: 'terminal', danger: false },
+      { kind: 'container.remove', label: '删除', icon: 'trash', danger: true },
     ];
   }
   return [

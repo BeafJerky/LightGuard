@@ -4,8 +4,9 @@ import { LgIcon } from '@lightguard/lightui';
 import type { Server } from '../types';
 import { toSshError } from '../ssh';
 import { toast } from '../ui';
-import { dockerApi, type DockerContainer } from './api';
-import type { ContainerActionKind } from './actions';
+import { dockerApi, type DockerContainer, type DockerContainerDetail } from './api';
+import { isActiveState, type ContainerMenuKind } from './actions';
+import { requestContainerTerminal } from '../terminal/bus';
 import {
   filterContainers,
   mergeStats,
@@ -47,6 +48,8 @@ const {
 } = action;
 // 操作成功后重挂详情抽屉，强制读取最新状态。
 const detailKey = ref(0);
+// 容器终端标签属于桌面「终端」应用：用注入把「打开应用」交给外壳。
+const openApp = inject<(key: string) => void>('lg:open-app', () => undefined);
 
 const visible = computed(() => sortContainers(filterContainers(rows.value, keyword.value)));
 const running = computed(() => rows.value.filter((row) => row.state === 'running').length);
@@ -94,11 +97,45 @@ function setLayout(next: ContainerLayout): void {
   writeLayout(next);
 }
 
-async function runAction(row: DockerContainer, kind: ContainerActionKind): Promise<void> {
+async function runAction(row: DockerContainer, kind: ContainerMenuKind): Promise<void> {
+  if (kind === 'container.terminal') {
+    openContainerTerminal(row);
+    return;
+  }
   const ready = await askAction({ kind, target: row.id });
   if (!ready) {
     toast({ title: '无法执行', message: actionError.value, tone: 'error' });
   }
+}
+
+function openContainerTerminal(target: {
+  id: string;
+  name: string;
+  shortId: string;
+  state: string;
+}): void {
+  if (!isActiveState(target.state)) {
+    toast({ title: '容器未运行', message: '启动容器后才能打开终端。', tone: 'warning' });
+    return;
+  }
+  const name = target.name || target.shortId;
+  requestContainerTerminal({
+    serverId: props.server.id,
+    containerId: target.id,
+    name,
+    shortId: target.shortId || target.id.slice(0, 12),
+    title: `${name} · ${props.server.name}`,
+  });
+  openApp('terminal');
+}
+
+function openDetailTerminal(detail: DockerContainerDetail): void {
+  openContainerTerminal({
+    id: detail.id,
+    name: detail.name,
+    shortId: detail.id.slice(0, 12),
+    state: detail.state,
+  });
 }
 
 function closeAction(): void {
@@ -211,6 +248,7 @@ onMounted(load);
         :container-id="selected.id"
         :container-name="selected.name || selected.shortId"
         @close="selected = null"
+        @terminal="openDetailTerminal"
       />
     </Teleport>
 

@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { containerActions, remainingSeconds } from './actions';
 
 describe('docker container actions', () => {
-  it('offers restart and stop for active containers', () => {
+  it('offers stop, restart, terminal and remove for active containers', () => {
     expect(containerActions('running').map((option) => option.kind)).toEqual([
-      'container.restart',
       'container.stop',
+      'container.restart',
+      'container.terminal',
+      'container.remove',
     ]);
-    expect(containerActions('paused').map((option) => option.kind)).toContain('container.stop');
+    expect(containerActions('paused').map((option) => option.kind)).toContain('container.terminal');
+    expect(containerActions('running').at(-1)?.danger).toBe(true);
   });
 
   it('offers start and remove for stopped containers', () => {

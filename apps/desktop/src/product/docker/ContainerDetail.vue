@@ -5,10 +5,11 @@ import type { Server } from '../types';
 import { toSshError } from '../ssh';
 import { toast } from '../ui';
 import { dockerApi, type DockerContainerDetail, type DockerStatsSample } from './api';
+import { isActiveState } from './actions';
 import { dockerTime, percent, portLabel, stateLabel, stateTone } from './format';
 
 const props = defineProps<{ server: Server; containerId: string; containerName: string }>();
-const emit = defineEmits<{ close: [] }>();
+const emit = defineEmits<{ close: []; terminal: [detail: DockerContainerDetail] }>();
 
 const detail = ref<DockerContainerDetail | null>(null);
 const stats = ref<DockerStatsSample | null>(null);
@@ -66,6 +67,10 @@ async function copyId(): Promise<void> {
   }
 }
 
+function openTerminal(): void {
+  if (detail.value) emit('terminal', detail.value);
+}
+
 function onKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape') emit('close');
 }
@@ -104,6 +109,15 @@ onBeforeUnmount(() => {
           <strong>{{ containerName }}</strong>
           <span>{{ containerId.slice(0, 12) }}</span>
         </div>
+        <button
+          v-if="detail && isActiveState(detail.state)"
+          type="button"
+          class="lgdocker-btn is-small"
+          @click="openTerminal"
+        >
+          <LgIcon name="terminal" :size="12" />
+          终端
+        </button>
         <button
           ref="closeRef"
           type="button"

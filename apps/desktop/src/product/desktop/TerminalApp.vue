@@ -5,6 +5,12 @@ import { backendAvailable, ssh, toSshError } from '../ssh';
 import type { TerminalEvent } from '../ssh';
 import { retryServer } from '../store';
 import { toast } from '../ui';
+import { dockerApi } from '../docker/api';
+import {
+  consumeContainerTerminal,
+  terminalRequests,
+  type ContainerTerminalRequest,
+} from '../terminal/bus';
 import type { Server } from '../types';
 
 const props = defineProps<{
@@ -30,6 +36,9 @@ interface TerminalTab {
   cols: number;
   rows: number;
   pending: string;
+  kind: 'ssh' | 'container';
+  containerId: string;
+  banner: string;
 }
 
 const MAX_TABS = 8;
@@ -82,6 +91,8 @@ function handleEvent(tab: TerminalTab, event: TerminalEvent) {
   if (event.type === 'data') {
     writeTab(tab, event.data);
   } else if (event.type === 'title') {
+    // 容器标签固定展示「容器名 · 服务器名」，不接受远端 Shell 的 OSC 标题。
+    if (tab.kind === 'container') return;
     const title = event.title.trim();
     if (title) tab.title = title.slice(0, 80);
   } else if (event.type === 'exit') {
@@ -97,6 +108,28 @@ async function openTerminal(tab: TerminalTab) {
   tab.status = 'connecting';
   tab.detail = '';
   try {
+    if (tab.kind === 'container') {
+      const opened = await dockerApi.openContainerTerminal({
+        serverId: props.server.id,
+        containerId: tab.containerId,
+        cols: tab.cols,
+        rows: tab.rows,
+        onEvent: (event) => handleEvent(tab, event),
+      });
+      tab.terminalId = opened.terminalId;
+      if (!tab.title) tab.title = opened.title;
+      tab.status = 'connected';
+      await ssh
+        .terminalResize(props.server.id, opened.terminalId, tab.cols, tab.rows)
+        .catch(() => undefined);
+      await nextTick();
+      if (tab.banner) {
+        writeTab(tab, `\u001b[2m${tab.banner}\u001b[0m\r\n`);
+        tab.banner = '';
+      }
+      handles.get(tab.key)?.focus();
+      return;
+    }
     const opened = await ssh.terminalOpen({
       serverId: props.server.id,
       cols: tab.cols,
@@ -114,6 +147,60 @@ async function openTerminal(tab: TerminalTab) {
     tab.status = 'closed';
     tab.detail = [error.message, error.hint].filter(Boolean).join(' · ');
   }
+}
+
+function sanitizeText(value: string): string {
+  return value.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 120);
+}
+
+async function openRequest(request: ContainerTerminalRequest): Promise<void> {
+  if (!canUse.value) return;
+  if (!isOnline()) {
+    toast({ title: '会话未连接', message: '请先在控制台重新连接该服务器。', tone: 'warning' });
+    return;
+  }
+  const existing = tabs.value.find(
+    (tab) => tab.kind === 'container' && tab.containerId === request.containerId,
+  );
+  if (existing) {
+    activate(existing);
+    return;
+  }
+  if (tabs.value.length >= MAX_TABS) {
+    toast({ title: '标签已达上限', message: `最多同时打开 ${MAX_TABS} 个终端标签。`, tone: 'warning' });
+    return;
+  }
+  seq += 1;
+  const name = sanitizeText(request.name || request.shortId);
+  const tab: TerminalTab = {
+    key: `term-${seq}`,
+    terminalId: '',
+    title: sanitizeText(request.title),
+    status: 'connecting',
+    detail: '',
+    cols: 100,
+    rows: 28,
+    pending: '',
+    kind: 'container',
+    containerId: request.containerId,
+    banner: `已进入容器 ${name}（${sanitizeText(request.shortId.slice(0, 12))}），输入 exit 退出。`,
+  };
+  tabs.value.push(tab);
+  const created = tabs.value[tabs.value.length - 1];
+  activeKey.value = created.key;
+  searchOpen.value = false;
+  await nextTick();
+  await openTerminal(created);
+}
+
+/** 取走当前服务器的容器终端请求；返回是否取到请求。 */
+function flushRequests(): boolean {
+  const requests = consumeContainerTerminal(props.server.id);
+  if (requests.length === 0) return false;
+  void (async () => {
+    for (const request of requests) await openRequest(request);
+  })();
+  return true;
 }
 
 async function newTab() {
@@ -138,6 +225,9 @@ async function newTab() {
     cols: 100,
     rows: 28,
     pending: '',
+    kind: 'ssh',
+    containerId: '',
+    banner: '',
   };
   tabs.value.push(tab);
   const created = tabs.value[tabs.value.length - 1];
@@ -343,8 +433,16 @@ watch(
 onMounted(() => {
   window.addEventListener('keydown', onKey, true);
   window.addEventListener('click', closeMenu);
-  if (canUse.value && isOnline()) void newTab();
+  // 从 Docker 应用唤起时优先打开容器标签，不再额外开一个空白 SSH 标签。
+  if (canUse.value && isOnline() && !flushRequests()) void newTab();
 });
+
+watch(
+  () => terminalRequests.value.length,
+  () => {
+    flushRequests();
+  },
+);
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey, true);

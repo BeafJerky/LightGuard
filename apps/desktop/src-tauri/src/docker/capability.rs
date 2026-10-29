@@ -1,5 +1,10 @@
 //! Docker 能力探测：一次固定脚本同时确认安装、daemon、socket 权限、systemd、
 //! compose 与版本；版本决定 `proxies` 是否可写。
+//!
+//! 版本行用 `docker version` 而不是 `docker info`：Docker 29 起 `docker info`
+//! 模板里去掉了 `.APIVersion`（实机验收 0.13.0 在 CentOS Stream 9 + Docker 29.9.2
+//! 上复现为模板报错、退出码 1，被误判为「服务未运行」）。`docker version` 的
+//! Server 段同时有 Version 与 APIVersion，且未连接 daemon 时同样报错返回非零。
 
 use std::time::Duration;
 
@@ -14,7 +19,7 @@ pub const PROBE_SCRIPT: &str = r#"if command -v docker >/dev/null 2>&1; then ech
 if command -v systemctl >/dev/null 2>&1; then echo LG_SYSTEMD=1; else echo LG_SYSTEMD=0; fi
 if command -v systemctl >/dev/null 2>&1; then echo "LG_ENABLED=$(systemctl is-enabled docker 2>/dev/null || true)"; else echo LG_ENABLED=; fi
 if command -v docker-compose >/dev/null 2>&1; then echo LG_COMPOSE=1; else echo LG_COMPOSE=0; fi
-docker info --format '{{.ServerVersion}}|{{.APIVersion}}' 2>&1
+docker version --format '{{.Server.Version}}|{{.Server.APIVersion}}' 2>&1
 echo "LG_INFO_EXIT=$?"
 "#;
 
@@ -145,6 +150,23 @@ mod tests {
             "",
         ));
         assert!(!probe.proxy_supported);
+    }
+
+    #[test]
+    fn probe_reads_server_version_without_info_template_fields() {
+        // Docker 29 的 `docker info` 模板没有 `.APIVersion`，只能用 `docker version`。
+        assert!(PROBE_SCRIPT
+            .contains("docker version --format '{{.Server.Version}}|{{.Server.APIVersion}}'"));
+        assert!(!PROBE_SCRIPT.contains("docker info --format"));
+
+        let probe = parse_probe(&output(
+            "LG_DOCKER=1\nLG_SYSTEMD=1\nLG_ENABLED=enabled\nLG_COMPOSE=0\n29.9.2|1.56\nLG_INFO_EXIT=0\n",
+            "",
+        ));
+        assert!(probe.daemon_running);
+        assert_eq!(probe.version, "29.9.2");
+        assert_eq!(probe.api_version, "1.56");
+        assert!(probe.proxy_supported);
     }
 
     #[test]

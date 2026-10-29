@@ -61,10 +61,19 @@ pub fn verb_for(kind: &str) -> &'static str {
 }
 
 /// systemd 优先；没有 systemctl 时退回 SysV `service`。
+///
+/// CentOS Stream / RHEL 默认启用 `docker.socket`：只停 `docker.service` 会被
+/// socket 在秒级内重新拉起（systemd 甚至会打印 “can still be activated by
+/// docker.socket”）。实机验收 0.13.0 在 Docker 29.9.2 上复现，因此停止时先停
+/// socket，启动时再把 socket 一起拉起；socket 不存在时忽略错误。
 pub fn service_action(action: &str) -> String {
-    format!(
-        "if command -v systemctl >/dev/null 2>&1; then systemctl {action} docker; else service docker {action}; fi"
-    )
+    match action {
+        "stop" => "if command -v systemctl >/dev/null 2>&1; then systemctl stop docker.socket 2>/dev/null; systemctl stop docker; else service docker stop; fi".to_string(),
+        "start" => "if command -v systemctl >/dev/null 2>&1; then systemctl start docker.socket 2>/dev/null; systemctl start docker; else service docker start; fi".to_string(),
+        other => format!(
+            "if command -v systemctl >/dev/null 2>&1; then systemctl {other} docker; else service docker {other}; fi"
+        ),
+    }
 }
 
 pub fn parse_service_state(text: &str) -> bool {
@@ -892,9 +901,13 @@ mod tests {
     fn service_and_daemon_scripts_are_fixed() {
         let start = service_action("start");
         assert!(start.contains("systemctl start docker"));
+        assert!(start.contains("systemctl start docker.socket"));
         assert!(start.contains("service docker start"));
         let stop = service_action("stop");
         assert!(stop.contains("systemctl stop docker"));
+        // docker.socket 会秒级拉起 docker.service（CentOS 默认启用），必须一并停止。
+        assert!(stop.contains("systemctl stop docker.socket"));
+        assert!(stop.find("docker.socket").unwrap() < stop.find("systemctl stop docker;").unwrap());
         assert!(stop.contains("service docker stop"));
         let script = apply_script("{}\n", "/etc/docker/daemon.json.lg-1.bak");
         assert!(script.contains("dockerd --validate"));

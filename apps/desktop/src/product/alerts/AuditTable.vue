@@ -69,7 +69,9 @@ async function onRollback(row: AuditEntry): Promise<void> {
     await load(true);
     return;
   }
-  failure.value = guardState.errorHint || guardState.error || '请稍后重试';
+  // 具体原因优先，hint 只作兜底：后端拒绝回退时会给出「容器已在运行」这类
+  // 可操作信息，泛化的「请检查 Docker 状态后重试」会把它盖掉（实机复现）。
+  failure.value = guardState.error || guardState.errorHint || '请稍后重试';
   toast({
     title: '回退失败',
     message: failure.value,

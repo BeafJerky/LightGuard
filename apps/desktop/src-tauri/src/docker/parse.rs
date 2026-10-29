@@ -43,7 +43,13 @@ pub fn stats(stdout: &str) -> Vec<DockerStatsSample> {
         .lines()
         .filter_map(|line| {
             let value: Value = serde_json::from_str(line.trim()).ok()?;
-            let id = value.get("ID").and_then(Value::as_str)?.to_string();
+            // Docker 29 的 stats 行里 ID 只有 12 位短 ID，Container 才是完整 ID；
+            // 只按 ID 对齐会全部匹配失败，资源列永远显示「—」（0.13.0 实机验收复现）。
+            let id = value
+                .get("Container")
+                .and_then(Value::as_str)
+                .or_else(|| value.get("ID").and_then(Value::as_str))?
+                .to_string();
             let (mem_usage, mem_limit) = split_pair(&text(&value, "MemUsage"));
             let (net_rx, net_tx) = split_pair(&text(&value, "NetIO"));
             Some(DockerStatsSample {
@@ -383,7 +389,8 @@ mod tests {
 {"Command":"sleep infinity","CreatedAt":"2026-09-01 08:00:00 +0800 CST","ID":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","Image":"alpine","Labels":"","Names":"idle","Ports":"","State":"exited","Status":"Exited (0) 1 day ago"}
 "#;
 
-    const STATS: &str = r#"{"BlockIO":"0B / 0B","CPUPerc":"0.15%","Container":"aaaa","ID":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","MemPerc":"0.42%","MemUsage":"12.3MiB / 1.9GiB","Name":"shop-web-1","NetIO":"1.2kB / 3.4kB","PIDs":"5"}
+    // Docker 29 的真实行：Container 是完整 ID，ID 只有 12 位。
+    const STATS: &str = r#"{"BlockIO":"0B / 0B","CPUPerc":"0.15%","Container":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","ID":"aaaaaaaaaaaa","MemPerc":"0.42%","MemUsage":"12.3MiB / 1.9GiB","Name":"shop-web-1","NetIO":"1.2kB / 3.4kB","PIDs":"5"}
 "#;
 
     #[test]
@@ -417,6 +424,17 @@ mod tests {
         assert_eq!(rows[0].net_rx, "1.2kB");
         assert_eq!(rows[0].net_tx, "3.4kB");
         assert_eq!(rows[1].cpu_percent, None, "no stats for exited container");
+    }
+
+    #[test]
+    fn stats_fall_back_to_id_when_container_is_missing() {
+        let rows = stats(&format!(
+            "{{\"CPUPerc\":\"2%\",\"ID\":\"{}\",\"MemUsage\":\"1MiB / 2GiB\"}}\n",
+            "a".repeat(64)
+        ));
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "a".repeat(64));
+        assert_eq!(rows[0].cpu_percent, 2.0);
     }
 
     #[test]

@@ -153,6 +153,24 @@ describe('use docker', () => {
     expect(docker.overview.value).toBeNull();
   });
 
+  it('keeps disk usage across a light refresh that omits df', async () => {
+    const df = {
+      imagesSize: '11.84MB',
+      containersSize: '0B',
+      volumesSize: '0B',
+      buildCacheSize: '0B',
+      reclaimable: '0B (0%)',
+    };
+    const full = api({ overview: vi.fn(async () => ({ ...overview(), df })) });
+    const docker = useDocker({ id: 'srv_1' } as never, full);
+    await docker.load();
+    expect(docker.overview.value?.df?.imagesSize).toBe('11.84MB');
+
+    vi.mocked(full.overview).mockResolvedValueOnce({ ...overview(), df: null });
+    await docker.load(false, true);
+    expect(docker.overview.value?.df?.imagesSize).toBe('11.84MB');
+  });
+
   it('skips the overview when docker is not installed', async () => {
     const missing = api({
       capabilities: vi.fn(async () => capabilities({ installed: false, daemonRunning: false })),

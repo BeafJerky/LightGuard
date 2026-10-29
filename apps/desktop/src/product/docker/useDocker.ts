@@ -23,7 +23,13 @@ export function useDocker(server: Server, api: DockerApi = dockerApi) {
     try {
       capabilities.value = await api.capabilities(server.id);
       const usable = capabilities.value.installed && capabilities.value.daemonRunning;
-      overview.value = usable ? await api.overview(server.id, includeDf) : null;
+      const next = usable ? await api.overview(server.id, includeDf) : null;
+      // 轻刷新不带 df：保留上一次的磁盘占用，避免 10 秒轮询把「可回收空间」
+      // 和资源占用刷成「—」（实机验收 0.13.0 在 Docker 29 上复现）。
+      if (next && !includeDf && next.df === null && overview.value?.df) {
+        next.df = overview.value.df;
+      }
+      overview.value = next;
       error.value = '';
     } catch (caught) {
       if (!silent) {

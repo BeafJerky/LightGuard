@@ -31,7 +31,7 @@ pub struct WritePayload {
     pub server_id: String,
     /// 输入 kind，例如 `container.stop` / `image.pull`。
     pub kind: String,
-    /// 执行依据：容器全 ID 或镜像引用。
+    /// 执行依据：容器全 ID，或镜像全 ID（拉取时为镜像引用）。
     pub target: String,
     /// 展示名：容器名或镜像引用。
     pub display: String,
@@ -151,19 +151,20 @@ pub fn evaluate_pull(reference: &str) -> PreviewView {
     }
 }
 
+/// 按全 ID、短 ID 或 `repo:tag` 在前端拿到的镜像列表里定位一行。
+pub fn resolve_image<'a>(reference: &str, rows: &'a [DockerImage]) -> Option<&'a DockerImage> {
+    rows.iter().find(|image| {
+        image.id == reference
+            || image.short_id == reference
+            || image.tags.iter().any(|tag| format!("{}:{}", image.repo, tag) == reference)
+    })
+}
+
 pub fn evaluate_image_remove(
     reference: &str,
     rows: &[DockerImage],
 ) -> Result<PreviewView, SshError> {
-    let found = rows.iter().find(|image| {
-        image.id == reference
-            || image.short_id == reference
-            || image
-                .tags
-                .iter()
-                .any(|tag| format!("{}:{}", image.repo, tag) == reference)
-    });
-    let Some(image) = found else {
+    let Some(image) = resolve_image(reference, rows) else {
         return Err(SshError::docker_failed("镜像不存在或已变化"));
     };
     if image.containers > 0 {
@@ -235,7 +236,10 @@ pub async fn preview(
                 return Err(classify(&output, "读取镜像"));
             }
             let rows = parse::images(&output.stdout_text());
-            (evaluate_image_remove(&reference, &rows)?, reference)
+            // 把预览时看到的镜像冻结成全 ID：执行时标签再被重指向也只删这一张。
+            let image = resolve_image(&reference, &rows)
+                .ok_or_else(|| SshError::docker_failed("镜像不存在或已变化"))?;
+            (evaluate_image_remove(&reference, &rows)?, image.id.clone())
         }
         _ => return Err(SshError::invalid_input("不支持的 Docker 操作")),
     };
@@ -299,7 +303,7 @@ pub fn audit_params(payload: &WritePayload) -> String {
     } else {
         serde_json::json!({
             "action": payload.kind.trim_start_matches("image."),
-            "image": payload.target,
+            "image": payload.display,
         })
         .to_string()
     }
@@ -353,7 +357,7 @@ pub(crate) async fn execute(
     let verb = verb_for(&payload.kind);
 
     match outcome {
-        Ok(output) if output.canceled => {
+        Ok(output) if output.canceled && output.code.is_none() => {
             let audit_id = record(
                 db,
                 &payload.server_id,
@@ -391,6 +395,28 @@ pub(crate) async fn execute(
                 target: payload.display.clone(),
                 result: "success".to_string(),
                 message: format!("{verb}成功"),
+            })
+        }
+        Ok(output) if output.code.is_none() => {
+            // 连接在命令收尾前断开：命令可能已经跑完了，不能按失败记账。
+            let error = SshError::docker_failed("连接中断，执行结果未知");
+            let audit_id = record(
+                db,
+                &payload.server_id,
+                &server_name,
+                &payload.audit_op,
+                &params,
+                "unknown",
+                started,
+                permit_source,
+                rollback_of,
+            )
+            .map_err(|audit| audit_write_failed(error.clone(), &audit, true))?;
+            Ok(DockerWriteResult {
+                audit_id,
+                target: payload.display.clone(),
+                result: "unknown".to_string(),
+                message: error.message,
             })
         }
         Ok(output) => {
@@ -507,6 +533,7 @@ async fn verify_target(
         return Err(classify(&output, "读取镜像"));
     }
     let rows = parse::images(&output.stdout_text());
+    // payload.target 已是预览时冻结的镜像全 ID。
     evaluate_image_remove(&payload.target, &rows)?;
     Ok(())
 }

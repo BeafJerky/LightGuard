@@ -313,7 +313,14 @@ export type CommandErrorCode =
   | 'PREVIEW_EXPIRED'
   | 'PREVIEW_FAILED'
   | 'WRITE_FAILED'
-  | 'DB_UNAVAILABLE';
+  | 'DB_UNAVAILABLE'
+  | 'DOCKER_UNAVAILABLE'
+  | 'DOCKER_PERMISSION'
+  | 'DOCKER_FAILED'
+  | 'SUDO_REQUIRED'
+  | 'SUDO_FAILED'
+  | 'DAEMON_INVALID'
+  | 'REGISTRY_FAILED';
 
 export type ConnectStage = 'resolve' | 'tcp' | 'handshake' | 'hostKey' | 'auth' | 'collect';
 
@@ -360,6 +367,13 @@ const CODES = new Set<string>([
   'PREVIEW_FAILED',
   'WRITE_FAILED',
   'DB_UNAVAILABLE',
+  'DOCKER_UNAVAILABLE',
+  'DOCKER_PERMISSION',
+  'DOCKER_FAILED',
+  'SUDO_REQUIRED',
+  'SUDO_FAILED',
+  'DAEMON_INVALID',
+  'REGISTRY_FAILED',
 ]);
 
 const STAGES = new Set<string>([

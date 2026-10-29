@@ -501,7 +501,7 @@ async fn close_server_terminals(state: &AppState, server_id: &str) {
     }
 }
 
-fn validate_server_id(value: &str) -> Result<(), SshError> {
+pub(crate) fn validate_server_id(value: &str) -> Result<(), SshError> {
     let valid = !value.is_empty()
         && value.len() <= 64
         && value

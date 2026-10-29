@@ -37,4 +37,14 @@ describe('file error mapping', () => {
       expect(error.hint).toBe('y');
     }
   });
+
+  it('recognises docker error codes on the wire', () => {
+    const error = toSshError({
+      code: 'DOCKER_UNAVAILABLE',
+      message: '未安装 Docker',
+      hint: '请确认服务器已安装 Docker。',
+    });
+    expect(error.code).toBe('DOCKER_UNAVAILABLE');
+    expect(error.hint).toContain('Docker');
+  });
 });

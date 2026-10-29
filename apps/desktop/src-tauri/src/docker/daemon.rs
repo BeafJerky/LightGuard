@@ -49,7 +49,9 @@ pub fn merge(existing: &str, payload: &DaemonPayload) -> Result<DaemonMerge, Ssh
             .map(|rows| rows.iter().all(serde_json::Value::is_string))
             .unwrap_or(false)
         {
-            return Err(SshError::daemon_invalid("registry-mirrors 必须是字符串数组"));
+            return Err(SshError::daemon_invalid(
+                "registry-mirrors 必须是字符串数组",
+            ));
         }
     }
     if let Some(key) = object.get("proxies") {
@@ -76,7 +78,11 @@ pub fn merge(existing: &str, payload: &DaemonPayload) -> Result<DaemonMerge, Ssh
         cleaned.truncate(MAX_MIRRORS);
         let next =
             serde_json::Value::Array(cleaned.into_iter().map(serde_json::Value::String).collect());
-        if object.get("registry-mirrors") != Some(&next) {
+        // 前端只要能读到配置就会带上 mirrors（可能是空数组）：原文件没有该键时
+        // 不要顺带写入 `[]`，否则代理保存会多出一个无关键，且“配置没有变化”失效。
+        let had_key = object.contains_key("registry-mirrors");
+        let has_values = next.as_array().is_some_and(|rows| !rows.is_empty());
+        if (had_key || has_values) && object.get("registry-mirrors") != Some(&next) {
             object.insert("registry-mirrors".to_string(), next);
             changed.push("registry-mirrors".to_string());
         }
@@ -167,7 +173,10 @@ pub fn preview_lines(merged: &DaemonMerge) -> Vec<String> {
         return Vec::new();
     };
     let mut lines = Vec::new();
-    if let Some(mirrors) = value.get("registry-mirrors").and_then(|value| value.as_array()) {
+    if let Some(mirrors) = value
+        .get("registry-mirrors")
+        .and_then(|value| value.as_array())
+    {
         for mirror in mirrors {
             if let Some(mirror) = mirror.as_str() {
                 lines.push(format!("加速源：{}", redact_url(mirror)));
@@ -227,7 +236,10 @@ mod tests {
         )
         .unwrap();
         let value: serde_json::Value = serde_json::from_str(&cleared.rendered).unwrap();
-        assert!(value.get("proxies").is_none(), "empty proxies object is removed");
+        assert!(
+            value.get("proxies").is_none(),
+            "empty proxies object is removed"
+        );
         assert!(cleared.proxy_changed);
     }
 
@@ -253,7 +265,9 @@ mod tests {
     #[test]
     fn rejects_invalid_existing_structure_and_bad_urls() {
         assert_eq!(
-            merge("[1,2]", &payload(serde_json::json!({}))).unwrap_err().code,
+            merge("[1,2]", &payload(serde_json::json!({})))
+                .unwrap_err()
+                .code,
             "DAEMON_INVALID"
         );
         assert_eq!(
@@ -263,9 +277,12 @@ mod tests {
             "DAEMON_INVALID"
         );
         assert_eq!(
-            merge("{}", &payload(serde_json::json!({ "httpProxy": "socks5://x" })))
-                .unwrap_err()
-                .code,
+            merge(
+                "{}",
+                &payload(serde_json::json!({ "httpProxy": "socks5://x" }))
+            )
+            .unwrap_err()
+            .code,
             "DAEMON_INVALID"
         );
     }
@@ -278,5 +295,46 @@ mod tests {
         let merged = merge("{}", &payload(serde_json::json!({ "mirrors": mirrors }))).unwrap();
         let value: serde_json::Value = serde_json::from_str(&merged.rendered).unwrap();
         assert_eq!(value["registry-mirrors"].as_array().unwrap().len(), 10);
+    }
+
+    #[test]
+    fn empty_mirrors_do_not_create_a_key_for_proxy_only_saves() {
+        let merged = merge(
+            "{}",
+            &payload(serde_json::json!({
+                "mirrors": [],
+                "httpProxy": "http://proxy:3128"
+            })),
+        )
+        .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&merged.rendered).unwrap();
+        assert!(
+            value.get("registry-mirrors").is_none(),
+            "absent mirror key stays absent when the payload is empty"
+        );
+        assert_eq!(
+            merged.changed,
+            vec!["proxies.http-proxy".to_string()],
+            "only the proxy key counts as changed"
+        );
+
+        let noop = merge(
+            r#"{"proxies":{"http-proxy":"http://proxy:3128"}}"#,
+            &payload(serde_json::json!({
+                "mirrors": [],
+                "httpProxy": "http://proxy:3128"
+            })),
+        )
+        .unwrap();
+        assert!(noop.changed.is_empty(), "a genuine no-op stays a no-op");
+
+        let cleared = merge(
+            r#"{"registry-mirrors":["https://old"]}"#,
+            &payload(serde_json::json!({ "mirrors": [] })),
+        )
+        .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&cleared.rendered).unwrap();
+        assert_eq!(value["registry-mirrors"], serde_json::json!([]));
+        assert!(cleared.changed.contains(&"registry-mirrors".to_string()));
     }
 }

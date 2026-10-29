@@ -254,6 +254,9 @@ pub fn failure_for(kind: &str, output: &ExecOutput, password: Option<&[u8]>) -> 
                 SshError::daemon_invalid(format!("daemon.json 校验失败：{detail}"))
             }
             Some(4) => SshError::daemon_invalid("新配置导致 Docker 启动失败，已恢复原配置"),
+            // 写回备份失败：不能声称已恢复，提示用户手动检查（与 finish 阶段的
+            // restore_failure_message(false) 口径一致）。
+            Some(5) => SshError::daemon_invalid(restore_failure_message(false)),
             _ => SshError::docker_failed(if text.is_empty() {
                 "写入 daemon.json 失败".to_string()
             } else {
@@ -851,7 +854,11 @@ if [ "$?" = 0 ]; then
   echo 'LG_RESTARTED'
   exit 0
 fi
-if [ "$HAD" = 1 ]; then cp -p "$BACKUP" "$DAEMON"; else rm -f "$DAEMON"; fi
+if [ "$HAD" = 1 ]; then
+  if ! cp -p "$BACKUP" "$DAEMON"; then echo 'LG_RESTORE_FAILED' >&2; exit 5; fi
+else
+  if ! rm -f "$DAEMON"; then echo 'LG_RESTORE_FAILED' >&2; exit 5; fi
+fi
 if command -v systemctl >/dev/null 2>&1; then
   systemctl restart docker >/dev/null 2>&1
 else
@@ -915,6 +922,10 @@ mod tests {
         assert!(script.contains("systemctl restart docker"));
         assert!(script.contains("service docker restart"));
         assert!(script.contains("cp -p \"$BACKUP\" \"$DAEMON\""));
+        // 写回备份失败时不能打 LG_RESTORED：必须显式报错并以 5 退出，
+        // 上层据此提示“恢复未获确认”而不是谎称已恢复。
+        assert!(script.contains("echo 'LG_RESTORE_FAILED' >&2; exit 5;"));
+        assert!(script.find("exit 5").unwrap() < script.find("echo 'LG_RESTORED'").unwrap());
         assert!(script.contains("| base64 -d > \"$TMP\""));
         assert!(script.contains("mktemp"));
         assert!(!script.contains("/tmp/lightguard-dockerd.log"));
@@ -1012,6 +1023,13 @@ mod tests {
         let error = failure_for("daemon.update", &restored, None);
         assert_eq!(error.code, "DAEMON_INVALID");
         assert!(error.message.contains("已恢复"));
+
+        // 回滚时写回备份失败：不能声称已恢复。
+        let restore_failed = output("", "LG_RESTORE_FAILED", Some(5));
+        let error = failure_for("daemon.update", &restore_failed, None);
+        assert_eq!(error.code, "DAEMON_INVALID");
+        assert!(!error.message.contains("已恢复"));
+        assert!(error.message.contains("未获确认"));
 
         let service = output("", "Failed to start docker.service", Some(1));
         assert_eq!(

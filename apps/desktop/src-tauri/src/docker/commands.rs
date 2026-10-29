@@ -8,17 +8,21 @@ use crate::alerts::now_ms;
 use crate::db::{DbError, DbState};
 use crate::docker::dto::{
     DockerCapabilities, DockerContainer, DockerContainerDetail, DockerImage, DockerOverview,
-    DockerPreview, DockerProgress, DockerStatsSample, DockerWriteInput, DockerWriteResult,
-    RegistrySearchItem,
+    DockerPreview, DockerProgress, DockerStatsSample, DockerTerminalHandle, DockerTerminalInput,
+    DockerWriteInput, DockerWriteResult, RegistrySearchItem,
 };
+use crate::docker::exec::{self, ExecOptions};
 use crate::docker::read;
 use crate::docker::validate;
 use crate::docker::write::{self, WritePayload};
 use crate::guard::GuardService;
-use crate::ssh::commands::validate_server_id;
+use crate::ssh::commands::{validate_server_id, validate_terminal_size};
+use crate::ssh::dto::TerminalEvent;
 use crate::ssh::error::SshError;
 use crate::ssh::sftp::client;
+use crate::ssh::sftp::path::shell_quote;
 use crate::ssh::state::AppState;
+use crate::ssh::terminal::{self, MAX_TERMINALS_PER_SERVER};
 
 pub(crate) async fn handle_for(
     state: &AppState,
@@ -189,4 +193,147 @@ pub async fn docker_write_execute(
 #[tauri::command]
 pub fn docker_write_cancel(state: State<'_, Arc<AppState>>, server_id: String) -> bool {
     state.docker.cancel_pull(&server_id)
+}
+
+pub fn container_title(container_name: &str, server_name: &str) -> String {
+    if container_name.is_empty() {
+        format!("容器终端 · {server_name}")
+    } else {
+        format!("{container_name} · {server_name}")
+    }
+}
+
+async fn probe_shell(
+    handle: &russh::client::Handle<crate::ssh::session::ClientHandler>,
+    container_id: &str,
+) -> Result<&'static str, SshError> {
+    for shell in ["/bin/sh", "/bin/bash"] {
+        let script = format!(
+            "docker exec {} {} -c true",
+            shell_quote(container_id),
+            shell_quote(shell)
+        );
+        let output = exec::run(
+            handle,
+            &script,
+            ExecOptions {
+                timeout: std::time::Duration::from_secs(15),
+                max_bytes: 64 * 1024,
+                stdin: None,
+                cancel: None,
+            },
+            |_| {},
+        )
+        .await?;
+        if output.code == Some(0) {
+            return Ok(shell);
+        }
+    }
+    Err(SshError::terminal("镜像不包含可用的 Shell（/bin/sh 或 /bin/bash）"))
+}
+
+/// 容器终端不要求许可：它是只读交互，命令固定为后端构造的 `docker exec -it`。
+#[tauri::command]
+pub async fn docker_container_terminal_open(
+    state: State<'_, Arc<AppState>>,
+    db_state: State<'_, DbState>,
+    input: DockerTerminalInput,
+    on_event: tauri::ipc::Channel<TerminalEvent>,
+) -> Result<DockerTerminalHandle, SshError> {
+    validate_server_id(&input.server_id)?;
+    validate_terminal_size(input.cols, input.rows)?;
+    let container_id = validate::container_id(&input.container_id)?;
+
+    let handle = handle_for(state.inner(), &input.server_id).await?;
+    {
+        let terminals = state.terminals.lock().await;
+        let count = terminals
+            .values()
+            .filter(|entry| entry.server_id == input.server_id)
+            .count();
+        if count >= MAX_TERMINALS_PER_SERVER {
+            return Err(SshError::terminal(format!(
+                "单个服务器最多 {MAX_TERMINALS_PER_SERVER} 个终端标签"
+            )));
+        }
+    }
+
+    let inspect = exec::run(
+        &handle,
+        &format!(
+            "docker inspect --format '{{{{.Name}}}}' {}",
+            shell_quote(&container_id)
+        ),
+        ExecOptions {
+            timeout: std::time::Duration::from_secs(15),
+            max_bytes: 64 * 1024,
+            stdin: None,
+            cancel: None,
+        },
+        |_| {},
+    )
+    .await?;
+    if inspect.code != Some(0) {
+        return Err(SshError::docker_failed("容器不存在或已删除"));
+    }
+    let name = inspect
+        .stdout_text()
+        .trim()
+        .trim_start_matches('/')
+        .to_string();
+    let name = if name.is_empty() {
+        container_id.chars().take(12).collect::<String>()
+    } else {
+        name
+    };
+    let server_name = database(&db_state)
+        .ok()
+        .and_then(|db| db.server_name(&input.server_id).ok())
+        .unwrap_or_else(|| input.server_id.clone());
+    let title = container_title(&name, &server_name);
+
+    let shell = probe_shell(&handle, &container_id).await?;
+    let command = terminal::exec_command(&container_id, shell);
+    let (term, reader) = terminal::open_exec(
+        &handle,
+        &input.server_id,
+        &title,
+        input.cols,
+        input.rows,
+        &command,
+    )
+    .await?;
+    let handle_out = DockerTerminalHandle {
+        terminal_id: reader.id.clone(),
+        title: term.title.clone(),
+    };
+
+    {
+        let mut terminals = state.terminals.lock().await;
+        let count = terminals
+            .values()
+            .filter(|entry| entry.server_id == input.server_id)
+            .count();
+        if count >= MAX_TERMINALS_PER_SERVER {
+            drop(terminals);
+            terminal::close(term).await;
+            return Err(SshError::terminal(format!(
+                "单个服务器最多 {MAX_TERMINALS_PER_SERVER} 个终端标签"
+            )));
+        }
+        terminals.insert(reader.id.clone(), term);
+    }
+    terminal::spawn_reader(reader, on_event, state.terminals.clone());
+    Ok(handle_out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn container_title_combines_name_and_server() {
+        assert_eq!(container_title("shop-web-1", "nas"), "shop-web-1 · nas");
+        assert_eq!(container_title("", "nas"), "容器终端 · nas");
+    }
 }

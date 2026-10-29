@@ -568,7 +568,7 @@ fn validate_connect(input: &ConnectInput) -> Result<(), SshError> {
     Ok(())
 }
 
-fn validate_terminal_size(cols: u32, rows: u32) -> Result<(), SshError> {
+pub(crate) fn validate_terminal_size(cols: u32, rows: u32) -> Result<(), SshError> {
     if !(1..=500).contains(&cols) || !(1..=500).contains(&rows) {
         return Err(SshError::invalid_input("终端尺寸超出范围"));
     }

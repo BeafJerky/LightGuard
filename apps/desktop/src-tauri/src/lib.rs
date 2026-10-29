@@ -192,6 +192,7 @@ pub fn run() {
             docker::commands::docker_write_preview,
             docker::commands::docker_write_execute,
             docker::commands::docker_write_cancel,
+            docker::commands::docker_container_terminal_open,
             app_quit,
             app_close_ready,
             set_window_border_color,

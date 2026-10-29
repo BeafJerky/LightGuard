@@ -345,4 +345,25 @@ mod tests {
             "DOCKER_FAILED"
         );
     }
+
+    #[test]
+    fn truncates_env_at_the_row_cap() {
+        let env: Vec<String> = (0..=200)
+            .map(|index| format!("KEY_{index}=value_{index}"))
+            .collect();
+        let inspect = serde_json::json!({
+            "Id": "a".repeat(64),
+            "Config": { "Env": env },
+        })
+        .to_string();
+        let detail = container_detail(&inspect).unwrap();
+        assert_eq!(detail.env.len(), 200);
+        assert!(detail.env_truncated);
+        let last = detail.env.last().unwrap();
+        assert_eq!(last.key, "KEY_199");
+        assert!(
+            detail.env.iter().all(|row| row.key != "KEY_200"),
+            "the 201st row is dropped"
+        );
+    }
 }

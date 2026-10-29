@@ -20,6 +20,10 @@ const config = ref<RegistryConfig | null>(null);
 const loading = ref(false);
 const loadError = ref('');
 const localError = ref('');
+// 预览请求在飞：此时保存/关闭都必须锁住，否则会叠加预览或关掉面板后仍弹出预览框。
+const asking = ref(false);
+// 读取请求序号：慢响应不能覆盖后发起的读取，也不能冲掉用户已经输入的内容。
+let seq = 0;
 const form = reactive<SettingsForm>({
   mirrors: '',
   httpProxy: '',
@@ -33,7 +37,7 @@ const systemServer = {
   get id(): string {
     return props.server.id;
   },
-} as unknown as Server;
+};
 
 const {
   preview: systemPreview,
@@ -75,25 +79,32 @@ function reset(): void {
 }
 
 async function load(): Promise<void> {
+  const request = ++seq;
   loading.value = true;
   loadError.value = '';
   localError.value = '';
   try {
     const value = await dockerApi.registryConfig(props.server.id);
+    if (request !== seq) return;
     config.value = value;
     Object.assign(form, formFromConfig(value));
   } catch (caught) {
+    if (request !== seq) return;
     loadError.value = toSshError(caught).message;
   } finally {
-    loading.value = false;
+    if (request === seq) loading.value = false;
   }
 }
 
 /** 只刷新配置状态、不改写表单：用户已输入的代理值要保留下来。 */
 async function reloadConfig(): Promise<void> {
+  const request = ++seq;
   try {
-    config.value = await dockerApi.registryConfig(props.server.id);
+    const value = await dockerApi.registryConfig(props.server.id);
+    if (request !== seq) return;
+    config.value = value;
   } catch (caught) {
+    if (request !== seq) return;
     loadError.value = toSshError(caught).message;
   }
 }
@@ -118,7 +129,7 @@ watch(
 );
 
 function requestClose(): void {
-  if (systemBusy.value) return;
+  if (systemBusy.value || asking.value) return;
   emit('close');
 }
 
@@ -146,14 +157,20 @@ function placeholderFor(key: ProxyKey, fallback: string): string {
 }
 
 async function save(): Promise<void> {
-  if (!config.value || loading.value || systemBusy.value) return;
+  if (!config.value || loading.value || systemBusy.value || asking.value) return;
   localError.value = '';
   const draft = buildDaemonPayload(form, { mirrorsKnown: readable.value });
   if (draft.errors.length > 0) {
     localError.value = draft.errors[0];
     return;
   }
-  const ready = await askSystem({ kind: 'daemon.update', payload: { ...draft.payload } });
+  let ready = false;
+  asking.value = true;
+  try {
+    ready = await askSystem({ kind: 'daemon.update', payload: { ...draft.payload } });
+  } finally {
+    asking.value = false;
+  }
   if (!ready && !authVisible.value) {
     localError.value = systemError.value || '无法生成配置预览';
     // daemon.json 在别处被改坏时只刷新只读状态，保留用户已输入的表单。
@@ -170,12 +187,12 @@ function finishSystem(): void {
       message: 'daemon.json 已更新，可在预览日志中确认结果。',
       tone: 'success',
     });
+    // 父组件把 applied 映射为关闭面板：同一件事只发一次。
     emit('applied');
-    emit('close');
     return;
   }
   if (finished?.result === 'failed') {
-    localError.value = finished.message || '配置应用失败，已恢复原配置。';
+    localError.value = finished.message || '配置应用失败，请检查 daemon.json 与 Docker 服务状态。';
   }
 }
 </script>
@@ -194,7 +211,7 @@ function finishSystem(): void {
             type="button"
             class="lgdocker-btn is-small"
             aria-label="关闭仓库设置"
-            :disabled="systemBusy"
+            :disabled="systemBusy || asking"
             @click="requestClose"
           >
             <LgIcon name="x" :size="13" />
@@ -265,6 +282,7 @@ function finishSystem(): void {
                   <button
                     type="button"
                     class="lgdocker-btn is-small"
+                    :aria-label="'清除 ' + row.label"
                     :disabled="!isCleared(row.key) && !proxyConfigured"
                     @click="toggleClear(row.key)"
                   >
@@ -285,16 +303,21 @@ function finishSystem(): void {
         </div>
 
         <footer class="lgdocker-modal__foot">
-          <button type="button" class="lgdocker-btn" :disabled="systemBusy" @click="requestClose">
+          <button
+            type="button"
+            class="lgdocker-btn"
+            :disabled="systemBusy || asking"
+            @click="requestClose"
+          >
             取消
           </button>
           <button
             type="button"
             class="lgdocker-btn is-primary"
-            :disabled="!config || invalid || loading || systemBusy"
+            :disabled="!config || invalid || loading || systemBusy || asking"
             @click="save()"
           >
-            {{ systemBusy ? '处理中…' : '保存并应用' }}
+            {{ asking ? '正在生成预览…' : systemBusy ? '处理中…' : '保存并应用' }}
           </button>
         </footer>
       </section>

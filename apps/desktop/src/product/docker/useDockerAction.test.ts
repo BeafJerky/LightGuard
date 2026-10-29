@@ -150,6 +150,35 @@ describe('use docker system', () => {
     expect(hook.errorCode.value).toBe('DAEMON_INVALID');
   });
 
+  it('clears the terminal error code after a successful preview and on close', async () => {
+    const fake = api();
+    vi.mocked(fake.systemPreview)
+      .mockRejectedValueOnce({
+        code: 'DAEMON_INVALID',
+        message: 'daemon.json 解析失败',
+        hint: '',
+      })
+      .mockResolvedValueOnce(preview())
+      .mockRejectedValueOnce({
+        code: 'DAEMON_INVALID',
+        message: 'daemon.json 解析失败',
+        hint: '',
+      });
+    const hook = useDockerSystem({ id: 'srv_1' } as never, fake);
+
+    expect(await hook.ask({ kind: 'daemon.update', payload: {} })).toBe(false);
+    expect(hook.errorCode.value).toBe('DAEMON_INVALID');
+
+    // 修正 daemon.json 后重试成功：调用方不能再按旧错误码走重新读取分支。
+    expect(await hook.ask({ kind: 'daemon.update', payload: {} })).toBe(true);
+    expect(hook.errorCode.value).toBe('');
+
+    expect(await hook.ask({ kind: 'daemon.update', payload: {} })).toBe(false);
+    expect(hook.errorCode.value).toBe('DAEMON_INVALID');
+    hook.close();
+    expect(hook.errorCode.value).toBe('');
+  });
+
   it('re-previews when authorization lapses at confirm time', async () => {
     const fake = api();
     vi.mocked(fake.systemPreview)

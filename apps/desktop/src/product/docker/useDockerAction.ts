@@ -16,7 +16,7 @@ const MAX_AUTH_FAILURES = 3;
  * Docker 级写操作（容器、镜像）：许可校验与写锁都在后端完成，
  * 前端只负责“取预览 → 确认 → 执行 → 展示输出”。
  */
-export function useDockerWrite(server: Server, api: DockerApi = dockerApi) {
+export function useDockerWrite(server: Pick<Server, 'id'>, api: DockerApi = dockerApi) {
   const preview = ref<DockerPreview | null>(null);
   const busy = ref(false);
   const progress = ref<string[]>([]);
@@ -87,7 +87,7 @@ export function useDockerWrite(server: Server, api: DockerApi = dockerApi) {
  * 系统级操作（服务启停、daemon.json）：预览前先完成 sudo 授权。
  * 密码经 IPC 交给后端、由后端经 stdin 交给 sudo，前端不再持有副本。
  */
-export function useDockerSystem(server: Server, api: DockerApi = dockerApi) {
+export function useDockerSystem(server: Pick<Server, 'id'>, api: DockerApi = dockerApi) {
   const preview = ref<DockerPreview | null>(null);
   const busy = ref(false);
   const progress = ref<string[]>([]);

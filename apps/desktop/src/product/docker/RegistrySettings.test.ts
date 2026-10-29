@@ -1,0 +1,108 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ref } from 'vue';
+import { flushPromises, mount } from '@vue/test-utils';
+
+const mocks = vi.hoisted(() => ({
+  capabilities: vi.fn(),
+  overview: vi.fn(),
+  containers: vi.fn(),
+  containerDetail: vi.fn(),
+  stats: vi.fn(),
+  images: vi.fn(),
+  registryConfig: vi.fn(),
+  registrySearch: vi.fn(),
+  writePreview: vi.fn(),
+  writeExecute: vi.fn(),
+  writeCancel: vi.fn(),
+  systemPreview: vi.fn(),
+  systemExecute: vi.fn(),
+  sudoStatus: vi.fn(),
+  openContainerTerminal: vi.fn(),
+}));
+
+// 组件与 hook 都在模块作用域取 dockerApi：这里整体替换成假实现。
+vi.mock('./api', () => ({
+  dockerApi: { available: true, ...mocks },
+}));
+
+vi.mock('../ssh', () => ({
+  ssh: {},
+  toSshError: (error: unknown) => error,
+}));
+
+import type { RegistryConfig } from './api';
+import type { Server } from '../types';
+import RegistrySettings from './RegistrySettings.vue';
+
+const server = { id: 'srv_1' } as Server;
+
+function config(overrides: Partial<RegistryConfig> = {}): RegistryConfig {
+  return {
+    mirrors: ['https://docker.mirrors.ustc.edu.cn'],
+    httpProxy: '',
+    httpsProxy: '',
+    noProxy: '',
+    proxyConfigured: false,
+    proxySupported: true,
+    readable: true,
+    invalid: false,
+    note: '',
+    ...overrides,
+  };
+}
+
+function mountSettings() {
+  const root = document.createElement('div');
+  document.body.appendChild(root);
+  return mount(RegistrySettings, {
+    props: { server, open: true },
+    attachTo: document.body,
+    global: {
+      // 面板只在拿到 Docker 应用根节点后才 Teleport 渲染内容。
+      provide: { 'lg:docker-root': ref(root) },
+      stubs: { teleport: true },
+    },
+  });
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
+afterEach(() => {
+  document.body.innerHTML = '';
+});
+
+describe('registry settings', () => {
+  it('keeps the typed mirrors and re-reads the config when daemon.json turned invalid', async () => {
+    mocks.registryConfig.mockResolvedValueOnce(config()).mockResolvedValueOnce(config());
+    mocks.systemPreview.mockRejectedValueOnce({
+      code: 'DAEMON_INVALID',
+      message: 'daemon.json 解析失败',
+      hint: '',
+    });
+
+    const wrapper = mountSettings();
+    await flushPromises();
+
+    const textarea = wrapper.get('textarea[aria-label="镜像加速源"]');
+    expect((textarea.element as HTMLTextAreaElement).value).toBe(
+      'https://docker.mirrors.ustc.edu.cn',
+    );
+
+    const typed = 'https://docker.mirrors.ustc.edu.cn\nhttps://mirror.example.com';
+    await textarea.setValue(typed);
+    await wrapper.get('button.is-primary').trigger('click');
+    await flushPromises();
+
+    // DAEMON_INVALID 的固定回归路径：多读一次配置，但用户输入不能被覆盖。
+    expect(mocks.systemPreview).toHaveBeenCalledTimes(1);
+    expect(mocks.registryConfig).toHaveBeenCalledTimes(2);
+    expect(mocks.registryConfig).toHaveBeenLastCalledWith('srv_1');
+    const after = wrapper.get('textarea[aria-label="镜像加速源"]');
+    expect((after.element as HTMLTextAreaElement).value).toBe(typed);
+    expect(wrapper.emitted('close')).toBeUndefined();
+    wrapper.unmount();
+  });
+});

@@ -9,6 +9,7 @@ use serde_json::Value;
 use tauri::State;
 
 use crate::db::{AuditRow, Database, DbError, DbState};
+use crate::docker::validate as docker_validate;
 use crate::docker::write::{self as docker_write, WritePayload};
 use crate::ssh::error::SshError;
 use crate::ssh::sftp::dto::FileListing;
@@ -42,23 +43,21 @@ fn preview_failed(error: SshError) -> SshError {
 
 /// 容器启停的回退请求：只接受 start / stop，且必须能从审计参数还原容器全 ID。
 fn docker_rollback_payload(row: &AuditRow) -> Option<WritePayload> {
-    let (action, op) = docker_write::rollback_plan(&row.op)?;
+    let (action, _) = docker_write::rollback_plan(&row.op)?;
     let params: Value = serde_json::from_str(&row.params).ok()?;
     let container_id = params.get("containerId")?.as_str()?;
-    if container_id.is_empty() {
-        return None;
-    }
+    let container_id = docker_validate::container_id(container_id).ok()?;
     let display = params
         .get("name")
         .and_then(Value::as_str)
-        .unwrap_or(container_id)
+        .unwrap_or(&container_id)
         .to_string();
     Some(WritePayload {
         server_id: row.server_id.clone(),
         kind: format!("container.{action}"),
-        target: container_id.to_string(),
+        target: container_id,
         display,
-        audit_op: format!("{op}.rollback"),
+        audit_op: format!("{}.rollback", row.op),
     })
 }
 
@@ -218,6 +217,7 @@ pub async fn write_rollback(
             // 执行已落审计；失败按错误返回，避免前端误报“已回退”。
             return Err(SshError::docker_failed(outcome.message));
         }
+        // 复用 WriteResult.path 承载目标展示名；前端只关心是否成功。
         return Ok(WriteResult {
             audit_id: outcome.audit_id,
             path: outcome.target,
@@ -403,7 +403,7 @@ mod tests {
             server_id: "srv".to_string(),
             server_name: "nas".to_string(),
             op: "docker.container.start".to_string(),
-            params: format!(r#"{{"action":"start","containerId":"{id}","name":"web"}}"#),
+            params: format!(r#"{{"action":"start","containerId":"{id}","name":"web（aaaaaaaaaaaa）"}}"#),
             result: "success".to_string(),
             duration_ms: 1,
             permit_source: "unlock:5m".to_string(),
@@ -411,13 +411,41 @@ mod tests {
         };
         let payload = docker_rollback_payload(&row).unwrap();
         assert_eq!(payload.kind, "container.stop");
-        assert_eq!(payload.audit_op, "docker.container.stop.rollback");
+        assert_eq!(payload.audit_op, "docker.container.start.rollback");
         assert_eq!(payload.target, id);
-        assert_eq!(payload.display, "web");
+        assert_eq!(payload.display, "web（aaaaaaaaaaaa）");
 
         let restart = AuditRow { op: "docker.container.restart".to_string(), ..row.clone() };
         assert!(docker_rollback_payload(&restart).is_none());
-        let empty = AuditRow { params: "{}".to_string(), ..row };
+        let empty = AuditRow { params: "{}".to_string(), ..row.clone() };
         assert!(docker_rollback_payload(&empty).is_none());
+        let malformed = AuditRow {
+            params: r#"{"containerId":"../../../etc/passwd"}"#.to_string(),
+            ..row
+        };
+        assert!(docker_rollback_payload(&malformed).is_none());
+    }
+
+    /// 执行方向与落库 op 相反：回退一条 stop 实际执行 start，审计仍记在原 op 上。
+    #[test]
+    fn docker_rollback_of_a_stop_starts_the_container() {
+        let id = "a".repeat(64);
+        let stop = AuditRow {
+            id: 2,
+            at_ms: 0,
+            server_id: "srv".to_string(),
+            server_name: "nas".to_string(),
+            op: "docker.container.stop".to_string(),
+            params: format!(r#"{{"action":"stop","containerId":"{id}","name":"web（aaaaaaaaaaaa）"}}"#),
+            result: "success".to_string(),
+            duration_ms: 1,
+            permit_source: "unlock:5m".to_string(),
+            rollback_of: None,
+        };
+        let reversed = docker_rollback_payload(&stop).unwrap();
+        assert_eq!(reversed.kind, "container.start");
+        assert_eq!(reversed.audit_op, "docker.container.stop.rollback");
+        assert_eq!(reversed.target, id);
+        assert_eq!(reversed.display, "web（aaaaaaaaaaaa）");
     }
 }

@@ -28,13 +28,18 @@ export function auditOpLabel(op: string): string {
   return OP_LABELS[op] ?? op;
 }
 
+const SHORT_SUFFIX = /（[0-9a-f]{12}）$/;
+
 export function auditParamsSummary(params: string): string {
   try {
     const value = JSON.parse(params) as Record<string, unknown>;
     if (typeof value.path === 'string') return value.path;
     if (typeof value.containerId === 'string') {
-      const name = typeof value.name === 'string' && value.name ? value.name : '';
-      const short = value.containerId.slice(0, 12);
+      const id = value.containerId;
+      const short = id.slice(0, 12);
+      const raw = typeof value.name === 'string' ? value.name : '';
+      // 真实审计行里的 name 已是「名（短ID）」；旧行可能是裸名。
+      const name = raw.replace(SHORT_SUFFIX, '');
       return name ? `${name}（${short}）` : short;
     }
     if (typeof value.image === 'string') return value.image;
@@ -60,6 +65,11 @@ export function canRollback(row: AuditEntry, rows: AuditEntry[]): boolean {
   return (
     ROLLBACKABLE.has(row.op) &&
     row.result === 'success' &&
-    !rows.some((entry) => entry.rollbackOf === row.id)
+    !rows.some((entry) => entry.rollbackOf === row.id && entry.result === 'success')
   );
+}
+
+/** 审计回退按钮的文案：容器启停与实际删除空目录语义不同。 */
+export function rollbackLabel(op: string): string {
+  return op.startsWith('docker.container.') ? '回退（启动/停止互换）' : '回退（删除空目录）';
 }

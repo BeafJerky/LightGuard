@@ -10,6 +10,7 @@ import {
   auditResultLabel,
   canRollback,
   formatDurationMs,
+  rollbackLabel,
 } from './audit';
 
 const PAGE = 200;
@@ -74,6 +75,8 @@ async function onRollback(row: AuditEntry): Promise<void> {
     message: failure.value,
     tone: 'error',
   });
+  // 失败回退行后端已落审计，刷新后当场可见。
+  await load(true);
 }
 </script>
 
@@ -124,7 +127,7 @@ async function onRollback(row: AuditEntry): Promise<void> {
           @click.stop="onRollback(row)"
         >
           <LgIcon name="refresh" :size="12" />
-          {{ row.op.startsWith('docker.container.') ? '回退（启动/停止互换）' : '回退（删除空目录）' }}
+          {{ rollbackLabel(row.op) }}
         </button>
       </div>
     </template>

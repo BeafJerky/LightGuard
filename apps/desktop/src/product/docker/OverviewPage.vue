@@ -1,12 +1,37 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted } from 'vue';
+import { computed, inject, onBeforeUnmount, onMounted, ref, type Ref } from 'vue';
 import { LgIcon } from '@lightguard/lightui';
 import type { Server } from '../types';
+import { toast } from '../ui';
 import { useDocker } from './useDocker';
+import { useDockerSystem } from './useDockerAction';
+import DockerActionDialog from './DockerActionDialog.vue';
+import SystemAuthDialog from './SystemAuthDialog.vue';
 
 const props = defineProps<{ server: Server }>();
 
 const { capabilities, overview, loading, error, installed, running, load } = useDocker(props.server);
+
+const {
+  preview: servicePreview,
+  busy: serviceBusy,
+  progress: serviceProgress,
+  error: serviceError,
+  done: serviceDone,
+  spent: serviceSpent,
+  authOpen: authVisible,
+  authMessage,
+  authError,
+  authBusy,
+  failures: authFailures,
+  ask: askSystem,
+  submit: submitPassword,
+  confirm: confirmSystem,
+  close: closeSystemState,
+} = useDockerSystem(props.server);
+
+// 弹窗挂到 Docker 应用根节点：.lgdocker-main 是查询容器，会改写绝对定位的包含块。
+const dockerRoot = inject<Ref<HTMLElement | null>>('lg:docker-root', ref(null));
 
 const counts = computed(() => overview.value?.counts ?? null);
 const info = computed(() => overview.value?.info ?? null);
@@ -18,6 +43,22 @@ const autoStart = computed(() => {
   if (value === 'disabled') return '已禁用';
   return value || '—';
 });
+
+async function toggleService(): Promise<void> {
+  const ready = await askSystem({
+    kind: running.value ? 'service.stop' : 'service.start',
+    payload: {},
+  });
+  if (!ready && !authVisible.value) {
+    toast({ title: '无法切换 Docker 服务', message: serviceError.value, tone: 'error' });
+  }
+}
+
+function closeService(): void {
+  const finished = serviceDone.value;
+  closeSystemState();
+  if (finished?.result === 'success') void load(false);
+}
 
 let lightTimer: number | null = null;
 let fullTimer: number | null = null;
@@ -62,10 +103,23 @@ onBeforeUnmount(() => {
       <div>
         <h2>概览</h2>
       </div>
-      <button type="button" class="lgdocker-btn" :disabled="loading" @click="load()">
-        <LgIcon name="refresh" :size="13" />
-        刷新
-      </button>
+      <div class="lgdocker-pagehead__actions">
+        <button
+          v-if="installed && !loading"
+          type="button"
+          class="lgdocker-btn"
+          :class="{ 'is-danger': running }"
+          :disabled="serviceBusy"
+          @click="toggleService()"
+        >
+          <LgIcon :name="running ? 'power' : 'play'" :size="13" />
+          {{ running ? '停止服务' : '启动服务' }}
+        </button>
+        <button type="button" class="lgdocker-btn" :disabled="loading" @click="load()">
+          <LgIcon name="refresh" :size="13" />
+          刷新
+        </button>
+      </div>
     </header>
 
     <div v-if="loading" class="lgdocker-empty">正在读取 Docker 状态…</div>
@@ -87,6 +141,10 @@ onBeforeUnmount(() => {
     <div v-else-if="!running" class="lgdocker-empty">
       <strong>Docker 服务未运行</strong>
       <span>{{ capabilities?.message || '启动 Docker 服务后可查看容器与镜像。' }}</span>
+      <button type="button" class="lgdocker-btn" :disabled="serviceBusy" @click="toggleService()">
+        <LgIcon name="play" :size="13" />
+        启动 Docker 服务
+      </button>
     </div>
 
     <template v-else>
@@ -147,5 +205,29 @@ onBeforeUnmount(() => {
         </section>
       </div>
     </template>
+
+    <Teleport v-if="dockerRoot" :to="dockerRoot">
+      <DockerActionDialog
+        v-if="servicePreview"
+        :preview="servicePreview"
+        :busy="serviceBusy"
+        :progress="serviceProgress"
+        :error="serviceError"
+        :done="serviceDone"
+        :spent="serviceSpent"
+        @confirm="confirmSystem()"
+        @close="closeService"
+      />
+
+      <SystemAuthDialog
+        :open="authVisible"
+        :message="authMessage"
+        :error="authError"
+        :busy="authBusy"
+        :failures="authFailures"
+        @submit="submitPassword"
+        @cancel="closeService"
+      />
+    </Teleport>
   </section>
 </template>

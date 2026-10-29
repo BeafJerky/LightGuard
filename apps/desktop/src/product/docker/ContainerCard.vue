@@ -1,9 +1,18 @@
 <script setup lang="ts">
+import { LgIcon } from '@lightguard/lightui';
 import type { DockerContainer } from './api';
+import { containerActions, type ContainerActionKind } from './actions';
 import { percent, shortText, stateLabel, stateTone } from './format';
 
-defineProps<{ row: DockerContainer; active?: boolean }>();
-const emit = defineEmits<{ detail: [row: DockerContainer] }>();
+const props = defineProps<{ row: DockerContainer; active?: boolean }>();
+const emit = defineEmits<{
+  detail: [row: DockerContainer];
+  action: [row: DockerContainer, kind: ContainerActionKind];
+}>();
+
+function run(kind: ContainerActionKind): void {
+  emit('action', props.row, kind);
+}
 </script>
 
 <template>
@@ -34,9 +43,23 @@ const emit = defineEmits<{ detail: [row: DockerContainer] }>();
     </div>
     <footer class="lgdocker-card__foot">
       <span>{{ row.ports || '无端口映射' }}</span>
-      <button type="button" class="lgdocker-btn is-small" @click.stop="emit('detail', row)">
-        详情
-      </button>
+      <div class="lgdocker-card__actions">
+        <button
+          v-for="option in containerActions(row.state)"
+          :key="option.kind"
+          type="button"
+          class="lgdocker-iconbtn"
+          :class="{ 'is-danger': option.danger }"
+          :title="option.label"
+          :aria-label="`${option.label} ${row.name || row.shortId}`"
+          @click.stop="run(option.kind)"
+        >
+          <LgIcon :name="option.icon" :size="12" />
+        </button>
+        <button type="button" class="lgdocker-btn is-small" @click.stop="emit('detail', row)">
+          详情
+        </button>
+      </div>
     </footer>
   </article>
 </template>

@@ -1,9 +1,18 @@
 <script setup lang="ts">
+import { LgIcon } from '@lightguard/lightui';
 import type { DockerContainer } from './api';
+import { containerActions, type ContainerActionKind } from './actions';
 import { dockerTime, percent, shortText, stateLabel, stateTone } from './format';
 
 defineProps<{ rows: DockerContainer[]; activeId?: string }>();
-const emit = defineEmits<{ detail: [row: DockerContainer] }>();
+const emit = defineEmits<{
+  detail: [row: DockerContainer];
+  action: [row: DockerContainer, kind: ContainerActionKind];
+}>();
+
+function run(row: DockerContainer, kind: ContainerActionKind): void {
+  emit('action', row, kind);
+}
 
 function projectLabel(row: DockerContainer): string {
   if (!row.project) return '—';
@@ -51,11 +60,23 @@ function projectLabel(row: DockerContainer): string {
           {{ row.netRx || '—' }} ↓ / {{ row.netTx || '—' }} ↑
         </span>
         <span role="cell" class="is-num">{{ dockerTime(row.createdAt) }}</span>
-        <span role="cell">
+        <div class="lgdocker-table__actions" role="cell">
+          <button
+            v-for="option in containerActions(row.state)"
+            :key="option.kind"
+            type="button"
+            class="lgdocker-iconbtn"
+            :class="{ 'is-danger': option.danger }"
+            :title="option.label"
+            :aria-label="`${option.label} ${row.name || row.shortId}`"
+            @click.stop="run(row, option.kind)"
+          >
+            <LgIcon :name="option.icon" :size="12" />
+          </button>
           <button type="button" class="lgdocker-btn is-small" @click.stop="emit('detail', row)">
             详情
           </button>
-        </span>
+        </div>
       </div>
     </div>
   </div>

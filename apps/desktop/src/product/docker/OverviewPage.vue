@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, onBeforeUnmount, onMounted, ref, type Ref } from 'vue';
+import { computed, inject, onBeforeUnmount, onMounted, ref, watch, type Ref } from 'vue';
 import { LgIcon } from '@lightguard/lightui';
 import type { Server } from '../types';
 import { toast } from '../ui';
@@ -45,13 +45,7 @@ const autoStart = computed(() => {
 });
 
 async function toggleService(): Promise<void> {
-  const ready = await askSystem({
-    kind: running.value ? 'service.stop' : 'service.start',
-    payload: {},
-  });
-  if (!ready && !authVisible.value) {
-    toast({ title: '无法切换 Docker 服务', message: serviceError.value, tone: 'error' });
-  }
+  await askSystem({ kind: running.value ? 'service.stop' : 'service.start', payload: {} });
 }
 
 function closeService(): void {
@@ -59,6 +53,13 @@ function closeService(): void {
   closeSystemState();
   if (finished?.result === 'success') void load(false);
 }
+
+// 授权失败、权限不足等终止态会关闭弹窗；此时错误只能靠 toast 告知。
+watch(serviceError, (message) => {
+  if (message && !servicePreview.value && !authVisible.value) {
+    toast({ title: '无法切换 Docker 服务', message, tone: 'error' });
+  }
+});
 
 let lightTimer: number | null = null;
 let fullTimer: number | null = null;

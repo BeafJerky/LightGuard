@@ -13,7 +13,7 @@ export interface ActionOption {
 
 const ACTIVE_STATES = new Set(['running', 'paused', 'restarting']);
 
-export function isActiveState(state: string): boolean {
+function isActiveState(state: string): boolean {
   return ACTIVE_STATES.has(state);
 }
 

@@ -66,6 +66,7 @@ export function useDockerWrite(server: Server, api: DockerApi = dockerApi) {
         try {
           preview.value = await api.writePreview(server.id, lastInput);
           spent.value = false;
+          progress.value = [];
           error.value = '预览已过期，已重新生成，请再次确认。';
         } catch (again) {
           error.value = toSshError(again).message;
@@ -84,7 +85,7 @@ export function useDockerWrite(server: Server, api: DockerApi = dockerApi) {
 
 /**
  * 系统级操作（服务启停、daemon.json）：预览前先完成 sudo 授权。
- * 密码经命令参数交给后端后立即从本模块丢弃，前端不再持有副本。
+ * 密码经 IPC 交给后端、由后端经 stdin 交给 sudo，前端不再持有副本。
  */
 export function useDockerSystem(server: Server, api: DockerApi = dockerApi) {
   const preview = ref<DockerPreview | null>(null);
@@ -141,7 +142,10 @@ export function useDockerSystem(server: Server, api: DockerApi = dockerApi) {
         }
         if (counted) failures.value += 1;
         if (failures.value >= MAX_AUTH_FAILURES) {
-          resetAuth();
+          // 关闭授权框但保留计数：调用方可读到已达上限的终态，下一次 ask/close 会清零。
+          authOpen.value = false;
+          authMessage.value = '';
+          authError.value = '';
           error.value = '连续 3 次授权失败：请检查 sudo 权限或改用有权限的账号。';
           return false;
         }

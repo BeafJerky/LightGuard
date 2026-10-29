@@ -106,12 +106,8 @@ function closeAction(): void {
   closeActionState();
   if (finished?.result === 'success') {
     detailKey.value += 1;
-    void reload();
+    void load();
   }
-}
-
-async function reload(): Promise<void> {
-  await load();
 }
 
 watch(

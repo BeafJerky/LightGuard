@@ -94,7 +94,7 @@ function primary(): void {
 
         <div v-if="error" class="lgdocker-error" role="alert">
           <LgIcon name="alert" :size="15" />
-          <div><strong>执行未完成</strong><span>{{ error }}</span></div>
+          <div><strong>执行提示</strong><span>{{ error }}</span></div>
         </div>
 
         <div v-else-if="unknown && done" class="lgdocker-warn" role="alert">

@@ -73,7 +73,10 @@ pub async fn run(
         truncated: false,
         canceled: false,
     };
+    // stdout 与 stderr 各自维护行缓冲：共享一份会让 stderr 片段拼进 stdout 的行回调，
+    // 且 stderr 独占输出（无 TTY 时 `docker pull` 的进度）要等到收尾才可见。
     let mut pending = String::new();
+    let mut pending_err = String::new();
 
     loop {
         if options
@@ -118,17 +121,24 @@ pub async fn run(
                     &data,
                     options.max_bytes,
                     &mut output.truncated,
-                    &mut pending,
+                    &mut pending_err,
                 );
+                drain_lines(&mut pending_err, &mut on_line);
             }
             ChannelMsg::ExitStatus { exit_status } => output.code = Some(exit_status),
-            ChannelMsg::Eof | ChannelMsg::Close => break,
+            // Eof 只表示对端不再写数据，退出状态可能随后才到；继续轮询等 Close / 读端关闭。
+            // 若服务端始终不关闭，外层 deadline 与 200ms 轮询仍会以超时结束。
+            ChannelMsg::Eof => continue,
+            ChannelMsg::Close => break,
             _ => {}
         }
     }
 
     if !pending.is_empty() {
         on_line(pending.trim_end_matches('\r'));
+    }
+    if !pending_err.is_empty() {
+        on_line(pending_err.trim_end_matches('\r'));
     }
     Ok(output)
 }
@@ -149,10 +159,23 @@ pub(crate) fn push_chunk(
     pending.push_str(&String::from_utf8_lossy(&data[..take]));
 }
 
+/// 返回不超过 `max` 的最大字符边界偏移：`String::drain` 按字节索引，切在多字节字符
+/// 中间会 panic，而 `docker ps --format '{{json .}}'` 的整行与 `from_utf8_lossy`
+/// 注入的替换字符都可能让上限落在字符内部。
+pub(crate) fn split_at_boundary(text: &str, max: usize) -> usize {
+    let mut index = text.len().min(max);
+    while index > 0 && !text.is_char_boundary(index) {
+        index -= 1;
+    }
+    index
+}
+
 pub(crate) fn drain_lines(pending: &mut String, on_line: &mut impl FnMut(&str)) {
     let mut cut = false;
     while pending.len() > 400 {
-        let line: String = pending.drain(..400).collect();
+        // pending.len() > 400 时单字符最多回退 3 字节，切点必然大于 0，循环必定推进。
+        let index = split_at_boundary(pending, 400);
+        let line: String = pending.drain(..index).collect();
         cut = true;
         on_line(&line);
     }

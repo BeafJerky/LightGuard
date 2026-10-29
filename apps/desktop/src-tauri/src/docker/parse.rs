@@ -4,8 +4,8 @@
 use serde_json::Value;
 
 use crate::docker::dto::{
-    DockerContainer, DockerContainerDetail, DockerEnvVar, DockerMount, DockerNetwork, DockerPort,
-    DockerStatsSample,
+    DockerContainer, DockerContainerDetail, DockerCounts, DockerDf, DockerEnvVar, DockerImage,
+    DockerInfo, DockerMount, DockerNetwork, DockerPort, DockerStatsSample, RegistrySearchItem,
 };
 use crate::docker::validate::mask_env_value;
 use crate::ssh::error::SshError;
@@ -204,6 +204,143 @@ fn pointer_text(value: &Value, pointer: &str) -> String {
         .to_string()
 }
 
+pub fn images(stdout: &str) -> Vec<DockerImage> {
+    let mut rows: Vec<DockerImage> = Vec::new();
+    for line in stdout.lines() {
+        let Ok(value) = serde_json::from_str::<Value>(line.trim()) else {
+            continue;
+        };
+        let raw_id = text(&value, "ID");
+        if raw_id.is_empty() {
+            continue;
+        }
+        let id = raw_id.trim_start_matches("sha256:").to_string();
+        let repo = text(&value, "Repository");
+        let tag = text(&value, "Tag");
+        let containers = text(&value, "Containers").parse::<i64>().unwrap_or(0);
+        if let Some(image) = rows.iter_mut().find(|image| image.id == id) {
+            if repo != "<none>" && tag != "<none>" && !image.tags.contains(&tag) {
+                if image.repo.is_empty() || image.repo == "<none>" {
+                    image.repo = repo;
+                }
+                image.tags.push(tag);
+            }
+            image.containers = image.containers.max(containers);
+            continue;
+        }
+        let short_id: String = id.chars().take(12).collect();
+        rows.push(DockerImage {
+            short_id,
+            id,
+            repo,
+            tags: if tag == "<none>" { Vec::new() } else { vec![tag] },
+            size: text(&value, "Size"),
+            created_at: text(&value, "CreatedAt"),
+            containers,
+            dangling: false,
+        });
+    }
+    for image in &mut rows {
+        image.dangling = image.tags.is_empty() || image.repo == "<none>";
+        if image.repo == "<none>" {
+            image.repo = String::new();
+        }
+    }
+    rows
+}
+
+pub fn overview_parts(stdout: &str) -> (DockerInfo, DockerCounts) {
+    let value: Value = serde_json::from_str(stdout.trim()).unwrap_or(Value::Null);
+    let mirrors = value
+        .pointer("/RegistryConfig/Mirrors")
+        .and_then(Value::as_array)
+        .map(|rows| {
+            rows.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let number = |pointer: &str| {
+        value
+            .pointer(pointer)
+            .and_then(Value::as_i64)
+            .unwrap_or(0)
+    };
+    (
+        DockerInfo {
+            version: pointer_text(&value, "/ServerVersion"),
+            api_version: pointer_text(&value, "/APIVersion"),
+            storage_driver: pointer_text(&value, "/Driver"),
+            data_root: pointer_text(&value, "/DockerRootDir"),
+            mirrors,
+        },
+        DockerCounts {
+            containers_running: number("/ContainersRunning"),
+            containers_total: number("/Containers"),
+            images: number("/Images"),
+        },
+    )
+}
+
+pub fn df(stdout: &str) -> Option<DockerDf> {
+    let mut usage = DockerDf {
+        images_size: "—".to_string(),
+        containers_size: "—".to_string(),
+        volumes_size: "—".to_string(),
+        build_cache_size: "—".to_string(),
+        reclaimable: "—".to_string(),
+    };
+    let mut found = false;
+    for line in stdout.lines() {
+        let Ok(value) = serde_json::from_str::<Value>(line.trim()) else {
+            continue;
+        };
+        let kind = text(&value, "Type");
+        let size = text(&value, "Size");
+        match kind.as_str() {
+            "Images" => {
+                usage.images_size = size;
+                usage.reclaimable = text(&value, "Reclaimable");
+                found = true;
+            }
+            "Containers" => usage.containers_size = size,
+            "Local Volumes" => usage.volumes_size = size,
+            "Build Cache" => usage.build_cache_size = size,
+            _ => {}
+        }
+    }
+    found.then_some(usage)
+}
+
+pub fn search(stdout: &str) -> Vec<RegistrySearchItem> {
+    stdout
+        .lines()
+        .filter_map(|line| {
+            let value: Value = serde_json::from_str(line.trim()).ok()?;
+            let name = text(&value, "Name");
+            if name.is_empty() {
+                return None;
+            }
+            Some(RegistrySearchItem {
+                name,
+                description: text(&value, "Description"),
+                stars: text(&value, "StarCount").parse::<i64>().unwrap_or(0),
+                official: boolish(value.get("IsOfficial")),
+                automated: boolish(value.get("IsAutomated")),
+            })
+        })
+        .collect()
+}
+
+fn boolish(value: Option<&Value>) -> bool {
+    match value {
+        Some(Value::Bool(flag)) => *flag,
+        Some(Value::String(text)) => text.eq_ignore_ascii_case("true") || text == "[OK]",
+        _ => false,
+    }
+}
+
 pub(crate) fn text(value: &Value, key: &str) -> String {
     match value.get(key) {
         Some(Value::String(text)) => text.clone(),
@@ -365,5 +502,71 @@ mod tests {
             detail.env.iter().all(|row| row.key != "KEY_200"),
             "the 201st row is dropped"
         );
+    }
+
+    #[test]
+    fn merges_tags_by_image_id() {
+        let raw = r#"{"Containers":"N/A","CreatedAt":"2026-10-01 10:00:00 +0800 CST","ID":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","Repository":"nginx","Size":"187MB","Tag":"latest"}
+{"Containers":"N/A","CreatedAt":"2026-10-01 10:00:00 +0800 CST","ID":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","Repository":"nginx","Size":"187MB","Tag":"1.27"}
+{"Containers":"2","CreatedAt":"2026-09-01 10:00:00 +0800 CST","ID":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","Repository":"<none>","Size":"10MB","Tag":"<none>"}
+"#;
+        let rows = images(raw);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].id, "c".repeat(64));
+        assert_eq!(rows[0].repo, "nginx");
+        assert_eq!(rows[0].tags, vec!["latest".to_string(), "1.27".to_string()]);
+        assert!(!rows[0].dangling);
+        assert!(rows[1].dangling);
+        assert!(rows[1].tags.is_empty());
+        assert_eq!(rows[1].containers, 2);
+    }
+
+    #[test]
+    fn reads_info_and_counts() {
+        let raw = r#"{"ServerVersion":"24.0.7","APIVersion":"1.43","Driver":"overlay2","DockerRootDir":"/var/lib/docker","ContainersRunning":3,"Containers":5,"Images":9,"RegistryConfig":{"Mirrors":["https://mirror.example.com"]}}"#;
+        let (info, counts) = overview_parts(raw);
+        assert_eq!(info.version, "24.0.7");
+        assert_eq!(info.storage_driver, "overlay2");
+        assert_eq!(info.mirrors, vec!["https://mirror.example.com".to_string()]);
+        assert_eq!(counts.containers_running, 3);
+        assert_eq!(counts.containers_total, 5);
+        assert_eq!(counts.images, 9);
+    }
+
+    #[test]
+    fn tolerates_missing_info_fields() {
+        let (info, counts) = overview_parts("{}");
+        assert_eq!(info.version, "");
+        assert_eq!(counts.images, 0);
+    }
+
+    #[test]
+    fn reads_storage_usage() {
+        let raw = r#"{"Type":"Images","TotalCount":"9","Active":"2","Size":"1.2GB","Reclaimable":"500MB (41%)"}
+{"Type":"Containers","TotalCount":"5","Active":"3","Size":"20MB","Reclaimable":"10MB (50%)"}
+{"Type":"Local Volumes","TotalCount":"1","Active":"1","Size":"1GB","Reclaimable":"0B (0%)"}
+{"Type":"Build Cache","TotalCount":"0","Active":"0","Size":"0B","Reclaimable":"0B"}
+"#;
+        let usage = df(raw).unwrap();
+        assert_eq!(usage.images_size, "1.2GB");
+        assert_eq!(usage.containers_size, "20MB");
+        assert_eq!(usage.volumes_size, "1GB");
+        assert_eq!(usage.build_cache_size, "0B");
+        assert_eq!(usage.reclaimable, "500MB (41%)");
+        assert!(df("").is_none());
+    }
+
+    #[test]
+    fn reads_registry_search_rows() {
+        let raw = r#"{"Name":"nginx","Description":"Official build","StarCount":"20000","IsOfficial":"true","IsAutomated":"false"}
+{"Name":"bitnami/nginx","Description":"Bitnami","StarCount":"123","IsOfficial":"false","IsAutomated":"true"}
+"#;
+        let rows = search(raw);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].name, "nginx");
+        assert_eq!(rows[0].stars, 20000);
+        assert!(rows[0].official);
+        assert!(!rows[0].automated);
+        assert!(rows[1].automated);
     }
 }

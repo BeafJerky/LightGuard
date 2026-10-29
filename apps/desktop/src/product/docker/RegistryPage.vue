@@ -23,6 +23,7 @@ const error = ref('');
 const pullOpen = ref(false);
 const pullName = ref('');
 const pullTag = ref('latest');
+const cancelBusy = ref(false);
 
 const action = useDockerWrite(props.server);
 const {
@@ -82,8 +83,17 @@ async function startPull(): Promise<void> {
 }
 
 async function cancelPull(): Promise<void> {
-  const canceled = await dockerApi.writeCancel(props.server.id);
-  if (!canceled) toast({ title: '没有进行中的拉取', tone: 'warning' });
+  if (cancelBusy.value) return;
+  cancelBusy.value = true;
+  try {
+    const canceled = await dockerApi.writeCancel(props.server.id);
+    if (canceled) toast({ title: '已请求取消拉取', message: '正在停止当前拉取，已完成下载的层会保留。', tone: 'info' });
+    else toast({ title: '没有进行中的拉取', tone: 'warning' });
+  } catch (caught) {
+    toast({ title: '取消失败', message: toSshError(caught).message, tone: 'error' });
+  } finally {
+    cancelBusy.value = false;
+  }
 }
 
 function closeAction(): void {

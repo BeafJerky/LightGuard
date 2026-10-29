@@ -23,11 +23,17 @@ export function imageReference(image: DockerImage): string {
   return `${image.repo}:${image.tags[0]}`;
 }
 
-/** 拉取引用：摘要形式原样使用；否则补齐标签，缺省 latest。 */
+/** 拉取引用：摘要形式原样使用；否则补齐标签（已有标签先剥离），缺省 latest。
+ *  名称里已带标签且未另填（仍是默认 latest）时，保留名称自身的标签。 */
 export function pullReference(name: string, tag: string): string {
   const repo = name.trim();
   if (repo.includes('@')) return repo;
-  return `${repo}:${tag.trim() || 'latest'}`;
+  const slash = repo.lastIndexOf('/');
+  const colon = repo.lastIndexOf(':');
+  const base = colon > slash ? repo.slice(0, colon) : repo;
+  const existing = colon > slash ? repo.slice(colon + 1) : '';
+  const wanted = tag.trim() || 'latest';
+  return `${base}:${wanted === 'latest' && existing ? existing : wanted}`;
 }
 
 export const QUICK_REGISTRY: RegistrySearchItem[] = [

@@ -172,11 +172,10 @@ onBeforeUnmount(() => {
       </article>
     </div>
 
-    <footer class="lgdocker-listfoot">{{ summary }}</footer>
+    <footer v-if="!loading && !error" class="lgdocker-listfoot">{{ summary }}</footer>
 
     <Teleport v-if="actionPreview && dockerRoot" :to="dockerRoot">
       <DockerActionDialog
-        v-if="actionPreview"
         :preview="actionPreview"
         :busy="actionBusy"
         :progress="actionProgress"

@@ -45,6 +45,8 @@ describe('docker images', () => {
     expect(pullReference('nginx', '1.27')).toBe('nginx:1.27');
     expect(pullReference('  redis  ', '')).toBe('redis:latest');
     expect(pullReference('nginx@sha256:abc', 'latest')).toBe('nginx@sha256:abc');
+    expect(pullReference('nginx:1.27', 'latest')).toBe('nginx:1.27');
+    expect(pullReference('nginx:1.27', '1.28')).toBe('nginx:1.28');
   });
 
   it('ships a quick registry list', () => {

@@ -815,13 +815,14 @@
 /* 9 列需表格 ≥ 630 轨道 + 64 间隙 + 22 内边距 + 2 边框 = 718；表格 = 容器 − 28 页面内边距，故容器 ≥ 746。
    像素与 NES 主题的边框宽 2px，最小宽度再 +2，按 748 计；因此 8 轨道规则在容器宽度 ≤ 747px 时触发。 */
 @container docker (max-width: 747px) {
-  .lgdocker-table__head span:nth-child(8),
-  .lgdocker-table__row > span:nth-child(8) {
+  /* 上述轨道数只针对容器表；仓库表是 5 列，保持自身轨道，避免表头与行错位。 */
+  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__head span:nth-child(8),
+  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__row > span:nth-child(8) {
     display: none;
   }
 
-  .lgdocker-table__head,
-  .lgdocker-table__row {
+  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__head,
+  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__row {
     grid-template-columns: 56px minmax(96px, 1.4fr) minmax(84px, 1.2fr) minmax(60px, 0.9fr) 46px 46px minmax(76px, 1fr) 92px;
   }
 }
@@ -829,19 +830,20 @@
 /* 8 列需表格 ≥ 556 轨道 + 56 间隙 + 22 内边距 + 2 边框 = 636；表格 = 容器 − 28 页面内边距，故容器 ≥ 664。
    像素与 NES 主题的边框宽 2px，最小宽度再 +2，按 666 计；因此 4 轨道规则在容器宽度 ≤ 665px 时触发。 */
 @container docker (max-width: 665px) {
-  .lgdocker-table__head span:nth-child(4),
-  .lgdocker-table__head span:nth-child(5),
-  .lgdocker-table__head span:nth-child(6),
-  .lgdocker-table__head span:nth-child(7),
-  .lgdocker-table__row > span:nth-child(4),
-  .lgdocker-table__row > span:nth-child(5),
-  .lgdocker-table__row > span:nth-child(6),
-  .lgdocker-table__row > span:nth-child(7) {
+  /* 同上：4 轨道规则只作用于容器表，仓库表在 ≤600 时由自身规则收窄。 */
+  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__head span:nth-child(4),
+  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__head span:nth-child(5),
+  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__head span:nth-child(6),
+  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__head span:nth-child(7),
+  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__row > span:nth-child(4),
+  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__row > span:nth-child(5),
+  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__row > span:nth-child(6),
+  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__row > span:nth-child(7) {
     display: none;
   }
 
-  .lgdocker-table__head,
-  .lgdocker-table__row {
+  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__head,
+  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__row {
     grid-template-columns: 56px minmax(96px, 1.4fr) minmax(84px, 1.2fr) 92px;
   }
 }
@@ -1292,13 +1294,10 @@
   white-space: nowrap;
 }
 
+/* 仓库结果行只有「拉取」按钮可点，通用行规则的手型光标会误导。 */
 .lgdocker-registry .lgdocker-table__head,
 .lgdocker-registry .lgdocker-table__row {
   grid-template-columns: minmax(120px, 1fr) minmax(160px, 1.8fr) 54px 54px 74px;
-}
-
-/* 仓库结果行只有「拉取」按钮可点，通用行规则的手型光标会误导。 */
-.lgdocker-registry .lgdocker-table__row {
   cursor: default;
 }
 

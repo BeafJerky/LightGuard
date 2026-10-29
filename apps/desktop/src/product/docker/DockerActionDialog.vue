@@ -11,8 +11,9 @@ const props = defineProps<{
   error: string;
   done?: DockerWriteResult | null;
   spent?: boolean;
+  cancellable?: boolean;
 }>();
-const emit = defineEmits<{ confirm: []; close: [] }>();
+const emit = defineEmits<{ confirm: []; close: []; stop: [] }>();
 
 const now = ref(Date.now());
 let timer: number | null = null;
@@ -111,6 +112,14 @@ function primary(): void {
       </div>
 
       <footer class="lgdocker-modal__foot">
+        <button
+          v-if="cancellable && busy"
+          type="button"
+          class="lgdocker-btn is-danger"
+          @click="emit('stop')"
+        >
+          取消拉取
+        </button>
         <button type="button" class="lgdocker-btn" :disabled="busy" @click="emit('close')">
           {{ finished ? '关闭' : '取消' }}
         </button>

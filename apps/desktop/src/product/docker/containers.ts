@@ -58,8 +58,10 @@ export function mergeStats(
 
 export function filterContainers(rows: DockerContainer[], keyword: string): DockerContainer[] {
   const term = keyword.trim().toLowerCase();
+  // 关键词为空时直接返回原数组（同一引用，不复制）。
   if (!term) return rows;
-  // 只匹配名称、镜像、ID、端口与项目；compose 服务名包含在项目名中，不单独参与匹配。
+  // 列表搜索名称、镜像、ID、端口与项目；compose 服务名不参与搜索，
+  // 因为规范把筛选限定为 名称/镜像/项目，且 compose 容器名通常已包含服务名。
   return rows.filter((row) =>
     [row.name, row.image, row.id, row.ports, row.project]
       .join(' ')

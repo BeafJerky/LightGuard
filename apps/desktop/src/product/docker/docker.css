@@ -6,8 +6,6 @@
   height: 100%;
   background: var(--lg-bg);
   color: var(--lg-text);
-  container-type: inline-size;
-  container-name: docker;
 }
 
 .lgdocker-nav {
@@ -155,6 +153,8 @@
   min-width: 0;
   flex-direction: column;
   overflow: auto;
+  container-type: inline-size;
+  container-name: docker;
 }
 
 .lgdocker-lockbar {
@@ -320,6 +320,20 @@
 .lgdocker-kv dd.is-mono {
   font-family: var(--lg-font-mono);
   font-size: 9.5px;
+}
+
+.lgdocker-kv dd.is-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.lgdocker-kv dd.is-row .is-ellipsis {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .lgdocker-empty,
@@ -632,7 +646,7 @@
 .lgdocker-table__head,
 .lgdocker-table__row {
   display: grid;
-  grid-template-columns: 64px minmax(130px, 1.4fr) minmax(110px, 1.2fr) minmax(88px, 0.9fr) 58px 58px minmax(104px, 1fr) 92px 150px;
+  grid-template-columns: 56px minmax(96px, 1.4fr) minmax(84px, 1.2fr) minmax(60px, 0.9fr) 46px 46px minmax(76px, 1fr) 74px 92px;
   align-items: center;
   gap: 8px;
   padding: 0 11px;
@@ -674,12 +688,9 @@
   font-weight: 600;
 }
 
-.lgdocker-table__row em {
-  display: block;
-  color: var(--lg-text-muted);
-  font-size: 8.5px;
-  font-style: normal;
-  font-weight: 400;
+.lgdocker-table__row:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--lg-info) 55%, transparent);
+  outline-offset: -2px;
 }
 
 .lgdocker-table__row .is-num {
@@ -793,7 +804,7 @@
   font-size: 9.5px;
 }
 
-@container docker (max-width: 960px) {
+@container docker (max-width: 715px) {
   .lgdocker-table__head span:nth-child(8),
   .lgdocker-table__row > span:nth-child(8) {
     display: none;
@@ -801,11 +812,11 @@
 
   .lgdocker-table__head,
   .lgdocker-table__row {
-    grid-template-columns: 60px minmax(120px, 1.4fr) minmax(100px, 1.2fr) minmax(70px, 0.8fr) 52px 52px minmax(90px, 1fr) 136px;
+    grid-template-columns: 56px minmax(96px, 1.4fr) minmax(84px, 1.2fr) minmax(60px, 0.9fr) 46px 46px minmax(76px, 1fr) 92px;
   }
 }
 
-@container docker (max-width: 600px) {
+@container docker (max-width: 635px) {
   .lgdocker-table__head span:nth-child(4),
   .lgdocker-table__head span:nth-child(5),
   .lgdocker-table__head span:nth-child(6),
@@ -819,6 +830,6 @@
 
   .lgdocker-table__head,
   .lgdocker-table__row {
-    grid-template-columns: 56px minmax(110px, 1.4fr) minmax(90px, 1.2fr) 136px;
+    grid-template-columns: 56px minmax(96px, 1.4fr) minmax(84px, 1.2fr) 92px;
   }
 }

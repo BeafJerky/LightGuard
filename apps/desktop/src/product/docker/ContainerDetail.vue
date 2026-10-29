@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { LgIcon } from '@lightguard/lightui';
 import type { Server } from '../types';
 import { toSshError } from '../ssh';
@@ -15,7 +15,10 @@ const stats = ref<DockerStatsSample | null>(null);
 const readings = ref(0);
 const loading = ref(true);
 const error = ref('');
+const closeRef = ref<HTMLButtonElement | null>(null);
 let timer: number | null = null;
+let disposed = false;
+let sampling = false;
 
 const ports = computed(() => detail.value?.ports ?? []);
 const mounts = computed(() => detail.value?.mounts ?? []);
@@ -37,12 +40,18 @@ async function load(): Promise<void> {
 }
 
 async function refreshStats(): Promise<void> {
+  // 单次采样最长 8s，而轮询间隔只有 2s：上一次未结束时跳过本轮，避免请求堆积。
+  if (sampling) return;
+  sampling = true;
   try {
     const samples = await dockerApi.stats(props.server.id);
+    if (disposed) return;
     stats.value = samples.find((sample) => sample.id === props.containerId) ?? null;
     if (stats.value) readings.value += 1;
   } catch {
     // 采样失败保留上一次读数。
+  } finally {
+    sampling = false;
   }
 }
 
@@ -57,8 +66,17 @@ async function copyId(): Promise<void> {
   }
 }
 
+function onKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape') emit('close');
+}
+
 onMounted(async () => {
+  document.addEventListener('keydown', onKeydown);
   await load();
+  // 加载期间抽屉可能已关闭：此时不再注册轮询。
+  if (disposed) return;
+  await nextTick();
+  closeRef.value?.focus();
   void refreshStats();
   timer = window.setInterval(() => {
     void refreshStats();
@@ -66,12 +84,19 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  disposed = true;
+  document.removeEventListener('keydown', onKeydown);
   if (timer !== null) window.clearInterval(timer);
 });
 </script>
 
 <template>
-  <div class="lgdocker-drawer" role="dialog" aria-modal="true" :aria-label="`容器 ${containerName} 详情`">
+  <div
+    class="lgdocker-drawer"
+    role="dialog"
+    :aria-label="`容器 ${containerName} 详情`"
+    @keydown.esc="emit('close')"
+  >
     <div class="lgdocker-drawer__mask" @click="emit('close')" />
     <aside class="lgdocker-drawer__panel">
       <header class="lgdocker-drawer__head">
@@ -79,7 +104,13 @@ onBeforeUnmount(() => {
           <strong>{{ containerName }}</strong>
           <span>{{ containerId.slice(0, 12) }}</span>
         </div>
-        <button type="button" class="lgdocker-btn is-small" aria-label="关闭详情" @click="emit('close')">
+        <button
+          ref="closeRef"
+          type="button"
+          class="lgdocker-btn is-small"
+          aria-label="关闭详情"
+          @click="emit('close')"
+        >
           <LgIcon name="x" :size="13" />
         </button>
       </header>
@@ -97,8 +128,8 @@ onBeforeUnmount(() => {
             <dl class="lgdocker-kv">
               <div>
                 <dt>全 ID</dt>
-                <dd class="is-mono" :title="detail.id">
-                  {{ detail.id }}
+                <dd class="is-mono is-row" :title="detail.id">
+                  <span class="is-ellipsis">{{ detail.id }}</span>
                   <button
                     type="button"
                     class="lgdocker-iconbtn"
@@ -170,7 +201,8 @@ onBeforeUnmount(() => {
               <li v-for="network in networks" :key="network.name">
                 {{ network.name }}
                 <span class="lgdocker-muted">
-                  · {{ network.ip || '—' }} · 网关 {{ network.gateway || '—' }}
+                  · {{ network.ip || '—' }} · MAC {{ network.mac || '—' }} · 网关
+                  {{ network.gateway || '—' }}
                 </span>
               </li>
             </ul>

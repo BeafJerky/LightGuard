@@ -6,7 +6,6 @@ import { toSshError } from '../ssh';
 import { dockerApi, type DockerContainer } from './api';
 import {
   filterContainers,
-  mergeStats,
   readLayout,
   sortContainers,
   writeLayout,
@@ -22,38 +21,38 @@ const props = defineProps<{ server: Server }>();
 const rows = ref<DockerContainer[]>([]);
 const loading = ref(true);
 const error = ref('');
+const errorCode = ref('');
 const keyword = ref('');
 const layout = ref<ContainerLayout>(readLayout());
 const selected = ref<DockerContainer | null>(null);
 
 const visible = computed(() => sortContainers(filterContainers(rows.value, keyword.value)));
-const running = computed(
-  () => rows.value.filter((row) => ['running', 'restarting', 'paused'].includes(row.state)).length,
-);
+const running = computed(() => rows.value.filter((row) => row.state === 'running').length);
 const summary = computed(
   () => `共 ${rows.value.length} 个容器 · ${running.value} 个运行中`,
+);
+// Docker 本身不可用或当前用户无权限时给独立的空态，其余错误保留错误横幅。
+const unavailable = computed(
+  () => errorCode.value === 'DOCKER_UNAVAILABLE' || errorCode.value === 'DOCKER_PERMISSION',
 );
 
 async function load(): Promise<void> {
   loading.value = true;
   error.value = '';
+  errorCode.value = '';
   try {
     rows.value = await dockerApi.containers(props.server.id);
+    // 刷新后按 id 重新绑定选中项：容器已消失则关闭抽屉，否则换成新行以保留最新名称。
+    if (selected.value) {
+      selected.value = rows.value.find((row) => row.id === selected.value?.id) ?? null;
+    }
   } catch (caught) {
-    error.value = toSshError(caught).message;
+    const sshError = toSshError(caught);
+    error.value = sshError.message;
+    errorCode.value = sshError.code;
     rows.value = [];
   } finally {
     loading.value = false;
-  }
-}
-
-async function refreshStats(): Promise<void> {
-  if (rows.value.length === 0) return;
-  try {
-    const samples = await dockerApi.stats(props.server.id);
-    rows.value = mergeStats(rows.value, samples);
-  } catch {
-    // 采样失败不覆盖列表本身：手动刷新或下一次操作后重试。
   }
 }
 
@@ -70,10 +69,7 @@ watch(
   },
 );
 
-onMounted(async () => {
-  await load();
-  void refreshStats();
-});
+onMounted(load);
 </script>
 
 <template>
@@ -91,12 +87,13 @@ onMounted(async () => {
     <div class="lgdocker-toolbar">
       <label class="lgdocker-search">
         <LgIcon name="search" :size="13" />
-        <input v-model="keyword" type="search" placeholder="搜索名称、镜像或端口" aria-label="搜索容器" />
+        <input v-model="keyword" type="search" placeholder="搜索名称、镜像或项目" aria-label="搜索容器" />
       </label>
       <div class="lgdocker-segment" role="group" aria-label="容器布局">
         <button
           type="button"
           :class="{ 'is-active': layout === 'card' }"
+          :aria-pressed="layout === 'card'"
           aria-label="卡片视图"
           @click="setLayout('card')"
         >
@@ -105,6 +102,7 @@ onMounted(async () => {
         <button
           type="button"
           :class="{ 'is-active': layout === 'table' }"
+          :aria-pressed="layout === 'table'"
           aria-label="表格视图"
           @click="setLayout('table')"
         >
@@ -115,6 +113,12 @@ onMounted(async () => {
     </div>
 
     <div v-if="loading" class="lgdocker-empty">正在读取容器列表…</div>
+
+    <div v-else-if="error && unavailable" class="lgdocker-empty">
+      <strong>{{ errorCode === 'DOCKER_UNAVAILABLE' ? 'Docker 不可用' : '没有 Docker 权限' }}</strong>
+      <span>{{ error }}</span>
+      <button type="button" class="lgdocker-btn" @click="load()">重试</button>
+    </div>
 
     <div v-else-if="error" class="lgdocker-error" role="alert">
       <LgIcon name="alert" :size="15" />
@@ -151,6 +155,7 @@ onMounted(async () => {
 
     <ContainerDetail
       v-if="selected"
+      :key="selected.id"
       :server="server"
       :container-id="selected.id"
       :container-name="selected.name || selected.shortId"

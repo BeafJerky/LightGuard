@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { DockerContainer, DockerStatsSample } from './api';
-import { filterContainers, mergeStats, normalizeLayout, sortContainers } from './containers';
+import {
+  filterContainers,
+  mergeStats,
+  normalizeLayout,
+  readLayout,
+  sortContainers,
+  writeLayout,
+} from './containers';
 
 function row(patch: Partial<DockerContainer> = {}): DockerContainer {
   return {
@@ -73,5 +80,17 @@ describe('docker containers', () => {
       'b-running',
       'z-exited',
     ]);
+  });
+
+  it('persists the layout and survives storage failures', () => {
+    writeLayout('table');
+    expect(readLayout()).toBe('table');
+    writeLayout('card');
+    expect(readLayout()).toBe('card');
+    const getter = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    expect(readLayout()).toBe('card');
+    getter.mockRestore();
   });
 });

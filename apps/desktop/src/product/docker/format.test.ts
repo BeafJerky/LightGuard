@@ -30,4 +30,8 @@ describe('docker format', () => {
     expect(shortText('  nginx:1.27  ')).toBe('nginx:1.27');
     expect(shortText('a'.repeat(60), 10)).toBe('aaaaaaaaa…');
   });
+
+  it('treats the zero timestamp as missing', () => {
+    expect(dockerTime('0001-01-01T00:00:00Z')).toBe('—');
+  });
 });

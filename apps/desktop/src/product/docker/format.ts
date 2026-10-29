@@ -30,7 +30,8 @@ export function percent(value: number | null | undefined): string {
 
 export function dockerTime(value: string): string {
   const trimmed = value.trim();
-  if (!trimmed) return '—';
+  // Docker 对未设置的时间返回零值 0001-01-01T00:00:00Z，按空值展示。
+  if (!trimmed || trimmed.startsWith('0001-01-01')) return '—';
   // Docker 的时间串自带时区；只截取日期与分钟，避免本地时区换算改变原值。
   const matched = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})/.exec(trimmed);
   return matched ? `${matched[1]} ${matched[2]}` : trimmed;

@@ -47,6 +47,13 @@ describe('docker images', () => {
     expect(pullReference('nginx@sha256:abc', 'latest')).toBe('nginx@sha256:abc');
     expect(pullReference('nginx:1.27', 'latest')).toBe('nginx:1.27');
     expect(pullReference('nginx:1.27', '1.28')).toBe('nginx:1.28');
+    // 私有仓库的端口号也含冒号：只有最后一个 `/` 之后的冒号才是标签。
+    expect(pullReference('registry.local:5000/team/app:1.2', 'latest')).toBe(
+      'registry.local:5000/team/app:1.2',
+    );
+    expect(pullReference('registry.local:5000/team/app', 'latest')).toBe(
+      'registry.local:5000/team/app:latest',
+    );
   });
 
   it('ships a quick registry list', () => {

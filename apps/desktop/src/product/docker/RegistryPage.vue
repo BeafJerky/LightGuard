@@ -87,7 +87,13 @@ async function cancelPull(): Promise<void> {
   cancelBusy.value = true;
   try {
     const canceled = await dockerApi.writeCancel(props.server.id);
-    if (canceled) toast({ title: '已请求取消拉取', message: '正在停止当前拉取，已完成下载的层会保留。', tone: 'info' });
+    if (canceled) {
+      toast({
+        title: '已请求取消拉取',
+        message: '正在停止当前拉取，已下载的层会保留。',
+        tone: 'info',
+      });
+    }
     else toast({ title: '没有进行中的拉取', tone: 'warning' });
   } catch (caught) {
     toast({ title: '取消失败', message: toSshError(caught).message, tone: 'error' });

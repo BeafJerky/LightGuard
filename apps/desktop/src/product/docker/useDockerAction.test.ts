@@ -64,7 +64,10 @@ describe('use docker write', () => {
       .mockResolvedValueOnce(preview({ previewId: 'p1' }))
       .mockResolvedValueOnce(preview({ previewId: 'p2' }));
     vi.mocked(fake.writeExecute)
-      .mockRejectedValueOnce({ code: 'PREVIEW_EXPIRED', message: '预览已过期', hint: '' })
+      .mockImplementationOnce(async (_id: string, onLine: (line: string) => void) => {
+        onLine('Stopping shop-web-1…');
+        throw { code: 'PREVIEW_EXPIRED', message: '预览已过期', hint: '' };
+      })
       .mockResolvedValueOnce(result());
     const hook = useDockerWrite({ id: 'srv_1' } as never, fake);
 
@@ -73,6 +76,7 @@ describe('use docker write', () => {
     expect(hook.preview.value?.previewId).toBe('p2');
     expect(hook.spent.value).toBe(false);
     expect(hook.error.value).toContain('已重新生成');
+    // 上一轮执行输出的行不能残留在重新打开的预览里。
     expect(hook.progress.value).toEqual([]);
 
     expect(await hook.confirm()).toMatchObject({ result: 'success' });
@@ -112,9 +116,25 @@ describe('use docker system', () => {
     await hook.submit('bad');
     await hook.submit('bad');
 
-    expect(hook.failures.value).toBe(3);
+    // 达到上限后 resetAuth 关闭授权框并清零计数，改由 error 承载终态。
     expect(hook.authOpen.value).toBe(false);
     expect(hook.error.value).toContain('连续 3 次');
+    expect(hook.failures.value).toBe(0);
+  });
+
+  it('surfaces a permission denial instead of leaving the dialog silent', async () => {
+    const fake = api();
+    vi.mocked(fake.systemPreview).mockRejectedValue({
+      code: 'SUDO_FAILED',
+      message: '当前账号没有 sudo 权限',
+      hint: '',
+    });
+    const hook = useDockerSystem({ id: 'srv_1' } as never, fake);
+
+    expect(await hook.ask({ kind: 'service.stop', payload: {} })).toBe(false);
+    expect(hook.error.value).toContain('没有 sudo 权限');
+    expect(hook.authOpen.value).toBe(false);
+    expect(hook.preview.value).toBeNull();
   });
 
   it('re-previews when authorization lapses at confirm time', async () => {

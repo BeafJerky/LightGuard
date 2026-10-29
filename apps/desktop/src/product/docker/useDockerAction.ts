@@ -142,10 +142,7 @@ export function useDockerSystem(server: Server, api: DockerApi = dockerApi) {
         }
         if (counted) failures.value += 1;
         if (failures.value >= MAX_AUTH_FAILURES) {
-          // 关闭授权框但保留计数：调用方可读到已达上限的终态，下一次 ask/close 会清零。
-          authOpen.value = false;
-          authMessage.value = '';
-          authError.value = '';
+          resetAuth();
           error.value = '连续 3 次授权失败：请检查 sudo 权限或改用有权限的账号。';
           return false;
         }
@@ -195,6 +192,8 @@ export function useDockerSystem(server: Server, api: DockerApi = dockerApi) {
         // 执行前授权失效：预览未被消费，重新走一次预览并等待密码。
         preview.value = null;
         spent.value = false;
+        progress.value = [];
+        done.value = null;
         await fetchPreview();
         return null;
       }

@@ -408,16 +408,6 @@
   }
 }
 
-@container docker (max-width: 460px) {
-  .lgdocker-nav {
-    flex-basis: 112px;
-  }
-
-  .lgdocker-nav__item em {
-    display: none;
-  }
-}
-
 .lgdocker-toolbar {
   display: flex;
   align-items: center;
@@ -808,8 +798,8 @@
 }
 
 /* 9 列需表格 ≥ 630 轨道 + 64 间隙 + 22 内边距 + 2 边框 = 718；表格 = 容器 − 28 页面内边距，故容器 ≥ 746。
-   因此 8 轨道规则在容器宽度 ≤ 745px 时触发。 */
-@container docker (max-width: 745px) {
+   像素与 NES 主题的边框宽 2px，最小宽度再 +2，按 748 计；因此 8 轨道规则在容器宽度 ≤ 747px 时触发。 */
+@container docker (max-width: 747px) {
   .lgdocker-table__head span:nth-child(8),
   .lgdocker-table__row > span:nth-child(8) {
     display: none;
@@ -822,8 +812,8 @@
 }
 
 /* 8 列需表格 ≥ 556 轨道 + 56 间隙 + 22 内边距 + 2 边框 = 636；表格 = 容器 − 28 页面内边距，故容器 ≥ 664。
-   因此 4 轨道规则在容器宽度 ≤ 663px 时触发。 */
-@container docker (max-width: 663px) {
+   像素与 NES 主题的边框宽 2px，最小宽度再 +2，按 666 计；因此 4 轨道规则在容器宽度 ≤ 665px 时触发。 */
+@container docker (max-width: 665px) {
   .lgdocker-table__head span:nth-child(4),
   .lgdocker-table__head span:nth-child(5),
   .lgdocker-table__head span:nth-child(6),

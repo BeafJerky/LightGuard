@@ -1314,3 +1314,109 @@
     grid-template-columns: minmax(100px, 1fr) minmax(120px, 1.6fr) 74px;
   }
 }
+
+/* 仓库设置：daemon.json 的加速源与代理。 */
+.lgdocker-modal__panel.is-wide {
+  width: min(520px, 100%);
+}
+
+.lgdocker-settings__notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--lg-info) 12%, transparent);
+  color: var(--lg-info);
+}
+
+.lgdocker-settings__notice div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lgdocker-settings__notice strong {
+  font-size: 10.5px;
+}
+
+.lgdocker-settings__notice span {
+  color: var(--lg-text-secondary);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.lgdocker-settings__block {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.lgdocker-settings__block > span,
+.lgdocker-settings__group legend {
+  color: var(--lg-text-muted);
+  font-size: 10px;
+}
+
+.lgdocker-settings__block textarea {
+  padding: 7px 9px;
+  border: var(--lg-border-width) solid var(--lg-border);
+  border-radius: 6px;
+  background: var(--lg-surface);
+  color: var(--lg-text);
+  font-family: var(--lg-font-mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  outline: none;
+  resize: vertical;
+}
+
+.lgdocker-settings__block textarea:focus {
+  border-color: var(--lg-accent);
+}
+
+.lgdocker-settings__block small,
+.lgdocker-settings__group .lgdocker-muted {
+  margin: 0;
+  color: var(--lg-text-muted);
+  font-size: 9.5px;
+  line-height: 1.45;
+}
+
+.lgdocker-settings__group {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  flex-direction: column;
+  gap: 7px;
+  border: 0;
+}
+
+.lgdocker-settings__group:disabled {
+  opacity: 0.55;
+}
+
+.lgdocker-settings__proxy {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lgdocker-settings__proxy .lgdocker-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.lgdocker-settings__proxy .lgdocker-field > span {
+  flex: 0 0 62px;
+  color: var(--lg-text-muted);
+  font-size: 9.5px;
+}
+
+.lgdocker-settings__proxy .lgdocker-btn {
+  flex: 0 0 auto;
+}
+
+.lgdocker-settings__proxy input:disabled {
+  color: var(--lg-text-muted);
+}

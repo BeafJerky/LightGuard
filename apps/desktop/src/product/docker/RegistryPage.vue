@@ -8,6 +8,7 @@ import { dockerApi, type RegistrySearchItem } from './api';
 import { QUICK_REGISTRY, pullReference } from './images';
 import { useDockerWrite } from './useDockerAction';
 import DockerActionDialog from './DockerActionDialog.vue';
+import RegistrySettings from './RegistrySettings.vue';
 
 const props = defineProps<{ server: Server }>();
 
@@ -24,6 +25,7 @@ const pullOpen = ref(false);
 const pullName = ref('');
 const pullTag = ref('latest');
 const cancelBusy = ref(false);
+const settingsOpen = ref(false);
 
 const action = useDockerWrite(props.server);
 const {
@@ -117,6 +119,12 @@ function closeAction(): void {
       <div>
         <h2>镜像仓库</h2>
         <p>搜索 Docker Hub，拉取到当前服务器</p>
+      </div>
+      <div class="lgdocker-pagehead__actions">
+        <button type="button" class="lgdocker-btn" @click="settingsOpen = true">
+          <LgIcon name="settings" :size="13" />
+          仓库设置
+        </button>
       </div>
     </header>
 
@@ -238,5 +246,12 @@ function closeAction(): void {
         </form>
       </div>
     </Teleport>
+
+    <RegistrySettings
+      :server="server"
+      :open="settingsOpen"
+      @close="settingsOpen = false"
+      @applied="settingsOpen = false"
+    />
   </section>
 </template>

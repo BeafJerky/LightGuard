@@ -137,6 +137,19 @@ describe('use docker system', () => {
     expect(hook.preview.value).toBeNull();
   });
 
+  it('exposes the terminal error code so callers can offer a retry', async () => {
+    const fake = api();
+    vi.mocked(fake.systemPreview).mockRejectedValue({
+      code: 'DAEMON_INVALID',
+      message: 'daemon.json 解析失败',
+      hint: '',
+    });
+    const hook = useDockerSystem({ id: 'srv_1' } as never, fake);
+
+    expect(await hook.ask({ kind: 'daemon.update', payload: {} })).toBe(false);
+    expect(hook.errorCode.value).toBe('DAEMON_INVALID');
+  });
+
   it('re-previews when authorization lapses at confirm time', async () => {
     const fake = api();
     vi.mocked(fake.systemPreview)

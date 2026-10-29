@@ -92,6 +92,8 @@ export function useDockerSystem(server: Server, api: DockerApi = dockerApi) {
   const busy = ref(false);
   const progress = ref<string[]>([]);
   const error = ref('');
+  // 终止态错误码：调用方据此决定是否给用户一条重试路径（如 DAEMON_INVALID）。
+  const errorCode = ref('');
   const done = ref<DockerWriteResult | null>(null);
   const spent = ref(false);
   const authOpen = ref(false);
@@ -114,6 +116,7 @@ export function useDockerSystem(server: Server, api: DockerApi = dockerApi) {
     busy.value = false;
     progress.value = [];
     error.value = '';
+    errorCode.value = '';
     done.value = null;
     spent.value = false;
     request = null;
@@ -125,10 +128,12 @@ export function useDockerSystem(server: Server, api: DockerApi = dockerApi) {
     authBusy.value = true;
     try {
       preview.value = await api.systemPreview(server.id, request, password);
+      errorCode.value = '';
       resetAuth();
       return true;
     } catch (caught) {
       const failure = toSshError(caught);
+      errorCode.value = failure.code;
       if (failure.code === 'SUDO_REQUIRED') {
         authMessage.value = '该操作需要服务器账号的 sudo 权限。';
         authOpen.value = true;
@@ -180,6 +185,7 @@ export function useDockerSystem(server: Server, api: DockerApi = dockerApi) {
     busy.value = true;
     spent.value = true;
     error.value = '';
+    errorCode.value = '';
     try {
       done.value = await api.systemExecute(current.previewId, undefined, (line) => {
         progress.value = [...progress.value, line].slice(-8);
@@ -188,6 +194,7 @@ export function useDockerSystem(server: Server, api: DockerApi = dockerApi) {
       return done.value;
     } catch (caught) {
       const failure = toSshError(caught);
+      errorCode.value = failure.code;
       if (failure.code === 'SUDO_REQUIRED' || failure.code === 'SUDO_FAILED') {
         // 执行前授权失效：预览未被消费，重新走一次预览并等待密码。
         preview.value = null;
@@ -209,6 +216,7 @@ export function useDockerSystem(server: Server, api: DockerApi = dockerApi) {
     busy,
     progress,
     error,
+    errorCode,
     done,
     spent,
     authOpen,

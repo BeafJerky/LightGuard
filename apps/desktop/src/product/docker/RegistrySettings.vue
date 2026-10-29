@@ -282,7 +282,7 @@ function finishSystem(): void {
                   <button
                     type="button"
                     class="lgdocker-btn is-small"
-                    :aria-label="'清除 ' + row.label"
+                    :aria-label="(isCleared(row.key) ? '撤销清除 ' : '清除 ') + row.label"
                     :disabled="!isCleared(row.key) && !proxyConfigured"
                     @click="toggleClear(row.key)"
                   >

@@ -105,4 +105,49 @@ describe('registry settings', () => {
     expect(wrapper.emitted('close')).toBeUndefined();
     wrapper.unmount();
   });
+
+  it('locks save and close while the preview request is in flight', async () => {
+    let release: (value: unknown) => void = () => {};
+    mocks.registryConfig.mockResolvedValueOnce(config());
+    // 预览请求挂起：模拟需要 sudo 读取 daemon.json 时的数秒等待。
+    mocks.systemPreview.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    );
+
+    const wrapper = mountSettings();
+    await flushPromises();
+
+    await wrapper.get('button.is-primary').trigger('click');
+    await flushPromises();
+    // 重新查询：状态变化后 Vue 可能替换按钮节点，旧 wrapper 会读到陈旧文本。
+    const save = wrapper.get('button.is-primary');
+    expect(mocks.systemPreview).toHaveBeenCalledTimes(1);
+    expect(save.text()).toContain('正在生成预览');
+    expect(save.attributes('disabled')).toBeDefined();
+
+    // 请求在飞时连点保存、点取消都不应产生第二个预览，也不应关闭面板。
+    await save.trigger('click');
+    await wrapper.get('.lgdocker-modal__foot button').trigger('click');
+    await flushPromises();
+    expect(mocks.systemPreview).toHaveBeenCalledTimes(1);
+    expect(wrapper.emitted('close')).toBeUndefined();
+
+    release({
+      previewId: 'p1',
+      kind: 'daemon.update',
+      operation: '更新 daemon.json',
+      target: '/etc/docker/daemon.json',
+      impact: '将重启 Docker',
+      rollback: '失败自动恢复',
+      irreversible: true,
+      expiresAtMs: Date.now() + 300_000,
+      details: [],
+    });
+    await flushPromises();
+    // 请求结束后按钮解锁，预览弹窗接管后续确认。
+    expect(wrapper.get('button.is-primary').text()).toBe('保存并应用');
+    wrapper.unmount();
+  });
 });

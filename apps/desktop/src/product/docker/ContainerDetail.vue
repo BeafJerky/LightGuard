@@ -5,7 +5,6 @@ import type { Server } from '../types';
 import { toSshError } from '../ssh';
 import { toast } from '../ui';
 import { dockerApi, type DockerContainerDetail, type DockerStatsSample } from './api';
-import { isActiveState } from './actions';
 import { dockerTime, percent, portLabel, stateLabel, stateTone } from './format';
 
 const props = defineProps<{ server: Server; containerId: string; containerName: string }>();
@@ -110,7 +109,7 @@ onBeforeUnmount(() => {
           <span>{{ containerId.slice(0, 12) }}</span>
         </div>
         <button
-          v-if="detail && isActiveState(detail.state)"
+          v-if="detail && detail.state === 'running'"
           type="button"
           class="lgdocker-btn is-small"
           @click="openTerminal"

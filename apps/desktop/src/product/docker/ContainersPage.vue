@@ -5,7 +5,8 @@ import type { Server } from '../types';
 import { toSshError } from '../ssh';
 import { toast } from '../ui';
 import { dockerApi, type DockerContainer, type DockerContainerDetail } from './api';
-import { isActiveState, type ContainerMenuKind } from './actions';
+import type { ContainerMenuKind } from './actions';
+import type { DesktopAppKey } from '../desktop/apps';
 import { requestContainerTerminal } from '../terminal/bus';
 import {
   filterContainers,
@@ -49,7 +50,7 @@ const {
 // 操作成功后重挂详情抽屉，强制读取最新状态。
 const detailKey = ref(0);
 // 容器终端标签属于桌面「终端」应用：用注入把「打开应用」交给外壳。
-const openApp = inject<(key: string) => void>('lg:open-app', () => undefined);
+const openApp = inject<(key: DesktopAppKey) => void>('lg:open-app', () => undefined);
 
 const visible = computed(() => sortContainers(filterContainers(rows.value, keyword.value)));
 const running = computed(() => rows.value.filter((row) => row.state === 'running').length);
@@ -114,8 +115,13 @@ function openContainerTerminal(target: {
   shortId: string;
   state: string;
 }): void {
-  if (!isActiveState(target.state)) {
-    toast({ title: '容器未运行', message: '启动容器后才能打开终端。', tone: 'warning' });
+  if (target.state !== 'running') {
+    const paused = target.state === 'paused';
+    toast({
+      title: paused ? '容器已暂停' : '容器未运行',
+      message: paused ? '恢复运行后才能打开终端。' : '启动容器后才能打开终端。',
+      tone: 'warning',
+    });
     return;
   }
   const name = target.name || target.shortId;
@@ -124,7 +130,7 @@ function openContainerTerminal(target: {
     containerId: target.id,
     name,
     shortId: target.shortId || target.id.slice(0, 12),
-    title: `${name} · ${props.server.name}`,
+    title: props.server.name ? `${name} · ${props.server.name}` : name,
   });
   openApp('terminal');
 }

@@ -117,16 +117,11 @@ async function openTerminal(tab: TerminalTab) {
         onEvent: (event) => handleEvent(tab, event),
       });
       tab.terminalId = opened.terminalId;
-      if (!tab.title) tab.title = opened.title;
       tab.status = 'connected';
       await ssh
         .terminalResize(props.server.id, opened.terminalId, tab.cols, tab.rows)
         .catch(() => undefined);
       await nextTick();
-      if (tab.banner) {
-        writeTab(tab, `\u001b[2m${tab.banner}\u001b[0m\r\n`);
-        tab.banner = '';
-      }
       handles.get(tab.key)?.focus();
       return;
     }
@@ -150,7 +145,7 @@ async function openTerminal(tab: TerminalTab) {
 }
 
 function sanitizeText(value: string): string {
-  return value.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 120);
+  return value.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').slice(0, 120);
 }
 
 async function openRequest(request: ContainerTerminalRequest): Promise<void> {
@@ -175,7 +170,7 @@ async function openRequest(request: ContainerTerminalRequest): Promise<void> {
   const tab: TerminalTab = {
     key: `term-${seq}`,
     terminalId: '',
-    title: sanitizeText(request.title),
+    title: sanitizeText(request.title) || sanitizeText(request.name) || '容器终端',
     status: 'connecting',
     detail: '',
     cols: 100,
@@ -190,6 +185,10 @@ async function openRequest(request: ContainerTerminalRequest): Promise<void> {
   activeKey.value = created.key;
   searchOpen.value = false;
   await nextTick();
+  if (created.banner) {
+    writeTab(created, `\u001b[2m${created.banner}\u001b[0m\r\n`);
+    created.banner = '';
+  }
   await openTerminal(created);
 }
 
@@ -433,16 +432,14 @@ watch(
 onMounted(() => {
   window.addEventListener('keydown', onKey, true);
   window.addEventListener('click', closeMenu);
-  // 从 Docker 应用唤起时优先打开容器标签，不再额外开一个空白 SSH 标签。
-  if (canUse.value && isOnline() && !flushRequests()) void newTab();
+  // 先消费从 Docker 应用发起的容器终端请求；离线时 openRequest 会提示，不再额外开空白标签。
+  const flushed = flushRequests();
+  if (!flushed && canUse.value && isOnline()) void newTab();
 });
 
-watch(
-  () => terminalRequests.value.length,
-  () => {
-    flushRequests();
-  },
-);
+watch(terminalRequests, () => {
+  flushRequests();
+});
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey, true);

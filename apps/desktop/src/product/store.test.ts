@@ -40,7 +40,9 @@ function persistedServer(overrides: Record<string, unknown> = {}) {
   };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  // 上一个用例留下的 300ms 防抖写入会在本用例夹具落盘后触发；先取消它的计时器。
+  (await import('./store')).cancelPendingPersist();
   window.localStorage.clear();
 });
 
@@ -233,6 +235,27 @@ describe('desktop status bar mode', () => {
 
     const parsed = JSON.parse(window.localStorage.getItem(STORE_KEY) as string);
     expect(parsed.settings.desktopBar).toBe('full');
+  });
+});
+
+describe('permit and alert settings', () => {
+  it('normalizes nested values from persisted state', async () => {
+    window.localStorage.setItem(
+      STORE_KEY,
+      JSON.stringify({
+        version: 2,
+        settings: {
+          permit: { defaultMinutes: 30 },
+          alerts: { rules: { cpu: { threshold: 500 } } },
+        },
+        servers: [],
+        logs: [],
+      }),
+    );
+    const store = await loadStore();
+    expect(store.state.settings.permit.defaultMinutes).toBe(30);
+    expect(store.state.settings.alerts.rules.cpu.threshold).toBe(100);
+    expect(store.state.settings.alerts.rules.memory.threshold).toBe(90);
   });
 });
 

@@ -8,6 +8,7 @@ import {
   type ThemeScope,
 } from '@lightguard/lightui';
 import AddServerWizard from './product/AddServerWizard.vue';
+import AlertsPage from './product/alerts/AlertsPage.vue';
 import ConnectionsPage from './product/ConnectionsPage.vue';
 import ConsoleShell from './product/ConsoleShell.vue';
 import OverviewPage from './product/OverviewPage.vue';
@@ -16,7 +17,7 @@ import UiHost from './product/UiHost.vue';
 import ServerDesktop from './product/desktop/ServerDesktop.vue';
 import WindowFrame from './WindowFrame.vue';
 import ThemeSwitchOverlay from './ThemeSwitchOverlay.vue';
-import { findServer, restartLiveUpdates, state, stopLiveUpdates } from './product/store';
+import { backendAvailable, findServer, restartLiveUpdates, state, stopLiveUpdates } from './product/store';
 import { navigateTo, route, startRouter } from './product/router';
 import { renderSettings } from './render/settings';
 
@@ -32,12 +33,20 @@ const desktopServer = computed(() => {
   return findServer(route.value.id) ?? null;
 });
 
-const page = computed(() => (route.value.name === 'desktop' ? 'overview' : route.value.name));
+const page = computed(() => {
+  const name = route.value.name === 'desktop' ? 'overview' : route.value.name;
+  if (name === 'alerts' && !backendAvailable) return 'overview';
+  return name;
+});
 
 watchEffect(() => {
   if (route.value.name === 'desktop' && !desktopServer.value) {
     navigateTo('overview', true);
   }
+});
+
+watchEffect(() => {
+  if (route.value.name === 'alerts' && !backendAvailable) navigateTo('overview', true);
 });
 
 watchEffect(() => {
@@ -47,6 +56,7 @@ watchEffect(() => {
   }
   const titles: Record<string, string> = {
     overview: '服务器总览',
+    alerts: '告警中心',
     connections: '连接记录',
     settings: '设置',
   };
@@ -75,6 +85,7 @@ watch(
         <ServerDesktop v-if="desktopServer" :key="desktopServer.id" :server="desktopServer" />
         <ConsoleShell v-else>
           <OverviewPage v-if="page === 'overview'" />
+          <AlertsPage v-else-if="page === 'alerts'" />
           <ConnectionsPage v-else-if="page === 'connections'" />
           <SettingsPage v-else />
         </ConsoleShell>

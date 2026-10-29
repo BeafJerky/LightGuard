@@ -1,0 +1,835 @@
+/* 文件应用样式：只读浏览、预览与下载；全部取值来自 --lg-* 主题 token。 */
+.lgfiles {
+  container-type: inline-size;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 320px;
+  background: var(--lg-surface);
+  color: var(--lg-text);
+}
+
+.lgfiles-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 40px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--lg-border);
+  background: var(--lg-bg-soft);
+}
+
+.lgfiles-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: var(--lg-radius-sm);
+  background: transparent;
+  color: var(--lg-text-muted);
+  cursor: pointer;
+}
+
+.lgfiles-icon-btn:hover:not(:disabled) {
+  border-color: var(--lg-border);
+  background: var(--lg-surface);
+  color: var(--lg-text);
+}
+
+.lgfiles-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.lgfiles-icon-btn.is-on {
+  border-color: var(--lg-primary);
+  color: var(--lg-primary);
+  background: var(--lg-primary-soft);
+}
+
+.lgfiles-address {
+  flex: 1;
+  min-width: 120px;
+}
+
+.lgfiles-address input,
+.lgfiles-search input {
+  width: 100%;
+  border: 1px solid var(--lg-border);
+  border-radius: var(--lg-radius-sm);
+  background: var(--lg-surface);
+  color: var(--lg-text);
+  font: inherit;
+  font-size: 11.5px;
+  padding: 5px 8px;
+}
+
+.lgfiles-search {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 170px;
+  color: var(--lg-text-muted);
+}
+
+.lgfiles-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.lgfiles-tree {
+  flex: 0 0 200px;
+  overflow: auto;
+  border-right: 1px solid var(--lg-border);
+  background: var(--lg-bg-soft);
+  padding: 4px 0;
+}
+
+.lgfiles-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.lgfiles-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.lgfiles-list__head,
+.lgfiles-list__row {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) 90px 140px 110px 100px 90px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+}
+
+.lgfiles-list__head {
+  height: 30px;
+  border-bottom: 1px solid var(--lg-border);
+  background: var(--lg-surface-2);
+}
+
+.lgfiles-list__viewport {
+  flex: 1;
+  overflow: auto;
+  outline: none;
+}
+
+.lgfiles-list__canvas {
+  position: relative;
+}
+
+.lgfiles-list__row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 30px;
+  border-bottom: 1px solid color-mix(in srgb, var(--lg-border) 55%, transparent);
+  cursor: default;
+}
+
+.lgfiles-list__row:hover {
+  background: var(--lg-bg-soft);
+}
+
+.lgfiles-list__row.is-selected {
+  background: var(--lg-primary-soft);
+  color: var(--lg-text);
+}
+
+.lgfiles-list__cell {
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lgfiles-list__head .lgfiles-list__cell {
+  color: var(--lg-text-muted);
+  cursor: pointer;
+}
+
+.lgfiles-list__head .lgfiles-list__cell.is-sorted {
+  color: var(--lg-primary);
+}
+
+.lgfiles-list__arrow {
+  margin-left: 2px;
+  font-size: 9px;
+}
+
+.lgfiles-list__cell.is-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.lgfiles-list__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 列表视图：仅图标、名称与大小，行高更紧凑。 */
+.lgfiles-list__row.is-compact {
+  grid-template-columns: minmax(0, 1fr) 90px;
+}
+
+/* 小图标视图：按视口宽度自动排布，行容器整行虚拟化。 */
+.lgfiles-grid__row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: grid;
+  gap: 8px;
+  padding: 0 8px 8px;
+  box-sizing: border-box;
+}
+
+.lgfiles-grid__cell {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+  border: 1px solid transparent;
+  border-radius: var(--lg-radius-sm);
+  color: var(--lg-text-secondary);
+  text-align: center;
+  cursor: default;
+}
+
+.lgfiles-grid__cell:hover {
+  background: var(--lg-bg-soft);
+}
+
+.lgfiles-grid__cell.is-selected {
+  border-color: var(--lg-primary);
+  background: var(--lg-primary-soft);
+  color: var(--lg-text);
+}
+
+.lgfiles-grid__name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.lgfiles-grid__meta {
+  min-height: 12px;
+  color: var(--lg-text-muted);
+  font-size: 10px;
+}
+
+.lgfiles-list__truncated {
+  margin: 0;
+  padding: 4px 10px;
+  border-top: 1px solid var(--lg-border);
+  background: var(--lg-warning-soft);
+  color: var(--lg-text-secondary);
+  font-size: 10.5px;
+}
+
+.lgfiles-list__state,
+.lgfiles-blank {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  color: var(--lg-text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.lgfiles-blank strong {
+  color: var(--lg-text-secondary);
+  font-size: 12.5px;
+}
+
+.lgfiles-list__state button {
+  border: 1px solid var(--lg-border);
+  border-radius: var(--lg-radius-sm);
+  background: var(--lg-surface);
+  color: var(--lg-text-secondary);
+  font-size: 11px;
+  padding: 4px 9px;
+  cursor: pointer;
+}
+
+.lgfiles-list__state button:hover {
+  border-color: var(--lg-primary);
+  color: var(--lg-primary);
+}
+
+.lgfiles-list__skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+
+.lgfiles-list__skeleton i {
+  height: 18px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--lg-bg-soft), var(--lg-surface-2), var(--lg-bg-soft));
+}
+
+.lgfiles-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 26px;
+  padding: 0 10px;
+  border-top: 1px solid var(--lg-border);
+  background: var(--lg-bg-soft);
+  color: var(--lg-text-muted);
+  font-size: 11px;
+}
+
+.lgfiles-status__transfer {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--lg-primary);
+}
+
+.lgfiles-preview {
+  flex: 0 0 320px;
+  overflow: auto;
+  border-left: 1px solid var(--lg-border);
+  background: var(--lg-surface-2);
+}
+
+.lgfiles-preview__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--lg-border);
+}
+
+.lgfiles-preview__head strong {
+  overflow: hidden;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lgfiles-preview__actions {
+  display: flex;
+  gap: 2px;
+}
+
+.lgfiles-preview__actions button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--lg-radius-sm);
+  background: transparent;
+  color: var(--lg-text-muted);
+  cursor: pointer;
+}
+
+.lgfiles-preview__actions button:hover {
+  border-color: var(--lg-border);
+  background: var(--lg-surface);
+  color: var(--lg-text);
+}
+
+.lgfiles-preview__state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 18px 10px;
+  color: var(--lg-text-muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.lgfiles-preview__state.is-error {
+  color: var(--lg-danger);
+}
+
+.lgfiles-preview__state button {
+  border: 1px solid var(--lg-border);
+  border-radius: var(--lg-radius-sm);
+  background: var(--lg-surface);
+  color: var(--lg-primary);
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+.lgfiles-preview__text pre {
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.lgfiles-preview__badges {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px 0;
+  color: var(--lg-text-muted);
+  font-size: 10.5px;
+}
+
+.lgfiles-preview__image {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px;
+}
+
+.lgfiles-preview__image img {
+  max-width: 100%;
+  max-height: 320px;
+  object-fit: contain;
+  border-radius: var(--lg-radius-sm);
+  background: var(--lg-surface);
+}
+
+.lgfiles-preview__meta-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px;
+  color: var(--lg-text-muted);
+  font-size: 10.5px;
+  line-height: 1.55;
+}
+
+.lgfiles-preview__props {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 10px;
+  font-size: 11px;
+}
+
+.lgfiles-preview__props div {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr);
+  gap: 6px;
+}
+
+.lgfiles-preview__props dt {
+  color: var(--lg-text-muted);
+}
+
+.lgfiles-preview__props dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.lgfiles-tree__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lgfiles-tree__row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding-right: 6px;
+  color: var(--lg-text-secondary);
+  font-size: 11.5px;
+  cursor: default;
+  outline: none;
+}
+
+.lgfiles-tree__row.is-link {
+  color: var(--lg-primary);
+}
+
+.lgfiles-tree__row.is-active {
+  background: var(--lg-primary-soft);
+  color: var(--lg-text);
+}
+
+.lgfiles-tree__row:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--lg-primary);
+}
+
+.lgfiles-tree__twist {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border: 0;
+  background: transparent;
+  color: var(--lg-text-muted);
+  cursor: pointer;
+}
+
+.lgfiles-tree__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lgfiles-tree__spin {
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--lg-border);
+  border-top-color: var(--lg-primary);
+  border-radius: 50%;
+  animation: lgfiles-spin 0.8s linear infinite;
+}
+
+.lgfiles-tree__error,
+.lgfiles-tree__empty {
+  padding: 2px 8px 4px;
+  color: var(--lg-text-muted);
+  font-size: 10.5px;
+}
+
+.lgfiles-tree__error button {
+  margin-left: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--lg-primary);
+  cursor: pointer;
+}
+
+.lgfiles-context,
+.lgfiles-menu {
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-width: 132px;
+  padding: 4px;
+  border: 1px solid var(--lg-border);
+  border-radius: var(--lg-radius-sm);
+  background: var(--lg-surface);
+  box-shadow: var(--lg-shadow-sm);
+}
+
+.lgfiles-context {
+  position: absolute;
+}
+
+.lgfiles-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+}
+
+.lgfiles-menu-anchor {
+  position: relative;
+  display: flex;
+}
+
+.lgfiles-menu__item {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
+}
+
+.lgfiles-menu__item.is-checked {
+  color: var(--lg-primary);
+}
+
+.lgfiles-menu__blank {
+  display: block;
+}
+
+.lgfiles-context button,
+.lgfiles-menu button {
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--lg-text);
+  font: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lgfiles-context button:hover,
+.lgfiles-menu button:hover {
+  background: var(--lg-bg-soft);
+}
+
+.lgfiles-confirm {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: color-mix(in srgb, var(--lg-surface) 72%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.lgfiles-confirm__dialog {
+  display: flex;
+  width: min(340px, 100%);
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--lg-border);
+  border-radius: var(--lg-radius-md);
+  background: var(--lg-surface);
+  box-shadow: var(--lg-shadow-sm);
+  color: var(--lg-text);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.lgfiles-confirm__dialog strong {
+  color: var(--lg-text);
+  font-size: 12.5px;
+}
+
+.lgfiles-confirm__dialog p {
+  margin: 0;
+  color: var(--lg-text-secondary);
+}
+
+.lgfiles-confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.lgfiles-confirm__actions button {
+  padding: 5px 10px;
+  border: 1px solid var(--lg-border);
+  border-radius: var(--lg-radius-sm);
+  background: var(--lg-surface);
+  color: var(--lg-text-secondary);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.lgfiles-confirm__actions button:hover {
+  border-color: var(--lg-primary);
+  color: var(--lg-primary);
+}
+
+.lgfiles-confirm__actions button.is-primary {
+  border-color: var(--lg-primary);
+  background: var(--lg-primary-soft);
+  color: var(--lg-primary);
+}
+
+.lgfiles-downloads {
+  position: absolute;
+  right: 12px;
+  bottom: 34px;
+  z-index: 30;
+  display: flex;
+  width: 280px;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lgfiles-downloads article {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 8px;
+  padding: 8px;
+  border: 1px solid var(--lg-border);
+  border-radius: var(--lg-radius-sm);
+  background: var(--lg-surface);
+  box-shadow: var(--lg-shadow-sm);
+}
+
+.lgfiles-downloads article.is-error {
+  border-color: var(--lg-danger);
+}
+
+.lgfiles-downloads__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 11px;
+}
+
+.lgfiles-downloads__text strong,
+.lgfiles-downloads__text span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lgfiles-downloads__bar {
+  grid-column: 1 / -1;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--lg-bg-soft);
+}
+
+.lgfiles-downloads__bar i {
+  display: block;
+  height: 100%;
+  background: var(--lg-primary);
+  transition: width 120ms linear;
+}
+
+.lgfiles-downloads button {
+  grid-column: 2;
+  grid-row: 1;
+  border: 0;
+  background: transparent;
+  color: var(--lg-primary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.lgfiles-offline {
+  position: absolute;
+  inset: 40px 0 26px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 4px;
+  background: color-mix(in srgb, var(--lg-surface) 78%, transparent);
+  color: var(--lg-text-muted);
+  backdrop-filter: blur(2px);
+}
+
+.lgfiles-offline strong {
+  color: var(--lg-text-secondary);
+  font-size: 12px;
+}
+
+.lgfiles-offline span {
+  font-size: 10.5px;
+}
+
+.lgfiles-notice {
+  position: absolute;
+  left: 50%;
+  bottom: 34px;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: var(--lg-radius-sm);
+  background: var(--lg-danger-soft);
+  color: var(--lg-danger);
+  font-size: 11px;
+}
+
+.lgfiles-only-narrow {
+  display: none;
+}
+
+/* 新建文件夹：锁定态只做视觉降级，按钮仍可聚焦并触发许可面板。 */
+.lgfiles-new-folder {
+  color: var(--lg-text-secondary);
+}
+
+.lgfiles-new-folder.is-locked {
+  opacity: 0.55;
+}
+
+@keyframes lgfiles-spin {
+  to { transform: rotate(360deg); }
+}
+
+@container (max-width: 720px) {
+  .lgfiles-tree {
+    position: absolute;
+    top: 40px;
+    bottom: 26px;
+    left: 0;
+    z-index: 25;
+    width: 220px;
+    transform: translateX(-100%);
+    transition: transform 160ms ease;
+    box-shadow: var(--lg-shadow-sm);
+  }
+
+  .lgfiles-tree.is-open {
+    transform: translateX(0);
+  }
+
+  .lgfiles-preview {
+    position: absolute;
+    inset: 40px 0 26px auto;
+    z-index: 24;
+    width: min(320px, 86%);
+    box-shadow: var(--lg-shadow-sm);
+  }
+
+  .lgfiles-list__head,
+  .lgfiles-list__row {
+    grid-template-columns: minmax(140px, 1fr) 90px 140px 100px;
+  }
+
+  .lgfiles-list__cell.is-type,
+  .lgfiles-list__cell.is-owner {
+    display: none;
+  }
+
+  .lgfiles-search {
+    display: none;
+  }
+
+  .lgfiles-only-narrow {
+    display: grid;
+  }
+
+  .lgfiles-new-folder {
+    display: none;
+  }
+}
+
+@container (max-width: 520px) {
+  .lgfiles-list__head,
+  .lgfiles-list__row {
+    grid-template-columns: minmax(120px, 1fr) 82px 120px;
+  }
+
+  .lgfiles-list__cell.is-mode {
+    display: none;
+  }
+}

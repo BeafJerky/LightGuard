@@ -135,6 +135,158 @@ export interface StatusEvent {
   message?: string;
 }
 
+export type FileKind = 'file' | 'dir' | 'symlink' | 'other';
+
+export interface FileEntry {
+  name: string;
+  path: string;
+  kind: FileKind;
+  size: number;
+  mtime: number | null;
+  mode: number;
+  modeText: string;
+  uid: number | null;
+  gid: number | null;
+  symlinkTarget?: string;
+  targetKind?: FileKind;
+}
+
+export interface FileListing {
+  path: string;
+  canonicalPath: string;
+  entries: FileEntry[];
+  truncated: boolean;
+}
+
+export interface TextPreview {
+  content: string;
+  encoding: 'utf-8' | 'gb18030';
+  bytes: number;
+  truncated: boolean;
+}
+
+export interface ImagePreview {
+  mime: string;
+  base64: string;
+  bytes: number;
+}
+
+export interface TransferProgress {
+  type: 'progress';
+  transferred: number;
+  total: number | null;
+}
+
+export interface DownloadResult {
+  status: 'saved' | 'canceled';
+  targetPath?: string;
+  bytes: number;
+}
+
+export interface DownloadInput {
+  serverId: string;
+  path: string;
+  kind: FileKind;
+  transferId: string;
+  onEvent: (event: TransferProgress) => void;
+}
+
+export interface PermitStatus {
+  serverId: string;
+  locked: boolean;
+  minutes: number;
+  expiresAtMs: number;
+  writeActive: boolean;
+}
+
+// 后端 `ssh://permit` 直接序列化完整的 `PermitStatus`，所以事件里也带 `writeActive`。
+export interface PermitEvent {
+  serverId: string;
+  locked: boolean;
+  minutes: number;
+  expiresAtMs: number;
+  writeActive: boolean;
+}
+
+export interface WriteEvent {
+  serverId: string;
+  active: boolean;
+}
+
+export interface WritePreviewInput {
+  serverId: string;
+  dir: string;
+  name: string;
+}
+
+export interface WritePreview {
+  previewId: string;
+  kind: 'mkdir';
+  path: string;
+  operation: string;
+  target: string;
+  impact: string;
+  rollback: string;
+  irreversible: boolean;
+  expiresAtMs: number;
+}
+
+export interface WriteResult {
+  auditId: number;
+  path: string;
+}
+
+export type AuditResult = 'success' | 'failed' | 'unknown';
+
+export interface AuditEntry {
+  id: number;
+  atMs: number;
+  serverId: string;
+  serverName: string;
+  op: string;
+  params: string;
+  result: AuditResult;
+  durationMs: number;
+  permitSource: string;
+  rollbackOf: number | null;
+}
+
+export type AlertSeverity = 'critical' | 'warning' | 'info';
+export type AlertStatus = 'active' | 'resolved' | 'ignored';
+export type AlertFilterName = 'open' | 'handled' | 'all';
+
+export interface AlertItem {
+  id: number;
+  serverId: string;
+  serverName: string;
+  ruleId: string;
+  severity: AlertSeverity;
+  status: AlertStatus;
+  title: string;
+  detail: string;
+  firstSeenAt: number;
+  lastSeenAt: number;
+  resolvedAt: number | null;
+  ignoreReason: string;
+  ignoredUntil: number | null;
+}
+
+export interface LoginMonitor {
+  serverId: string;
+  available: boolean;
+  reason: string;
+}
+
+export interface AlertsListResult {
+  items: AlertItem[];
+  activeCount: number;
+  loginMonitor: LoginMonitor[];
+}
+
+export interface AlertsChangedEvent {
+  activeCount: number;
+}
+
 export type CommandErrorCode =
   | 'INVALID_INPUT'
   | 'HOST_UNREACHABLE'
@@ -148,16 +300,31 @@ export type CommandErrorCode =
   | 'TERMINAL_FAILED'
   | 'CREDENTIAL_ERROR'
   | 'INTERNAL'
-  | 'UNSUPPORTED';
+  | 'UNSUPPORTED'
+  | 'SFTP_FAILED'
+  | 'PATH_INVALID'
+  | 'FILE_NOT_FOUND'
+  | 'PERMISSION_DENIED'
+  | 'FILE_TOO_LARGE'
+  | 'FILE_BINARY'
+  | 'TRANSFER_FAILED'
+  | 'PERMIT_REQUIRED'
+  | 'WRITE_BUSY'
+  | 'PREVIEW_EXPIRED'
+  | 'PREVIEW_FAILED'
+  | 'WRITE_FAILED'
+  | 'DB_UNAVAILABLE';
 
 export type ConnectStage = 'resolve' | 'tcp' | 'handshake' | 'hostKey' | 'auth' | 'collect';
+
+export type CommandStage = ConnectStage | 'sftp' | 'transfer';
 
 export class SshCommandError extends Error {
   readonly code: CommandErrorCode;
   readonly hint: string;
-  readonly stage?: ConnectStage;
+  readonly stage?: CommandStage;
 
-  constructor(code: CommandErrorCode, message: string, hint = '', stage?: ConnectStage) {
+  constructor(code: CommandErrorCode, message: string, hint = '', stage?: CommandStage) {
     super(message);
     this.name = 'SshCommandError';
     this.code = code;
@@ -180,9 +347,31 @@ const CODES = new Set<string>([
   'CREDENTIAL_ERROR',
   'INTERNAL',
   'UNSUPPORTED',
+  'SFTP_FAILED',
+  'PATH_INVALID',
+  'FILE_NOT_FOUND',
+  'PERMISSION_DENIED',
+  'FILE_TOO_LARGE',
+  'FILE_BINARY',
+  'TRANSFER_FAILED',
+  'PERMIT_REQUIRED',
+  'WRITE_BUSY',
+  'PREVIEW_EXPIRED',
+  'PREVIEW_FAILED',
+  'WRITE_FAILED',
+  'DB_UNAVAILABLE',
 ]);
 
-const STAGES = new Set<string>(['resolve', 'tcp', 'handshake', 'hostKey', 'auth', 'collect']);
+const STAGES = new Set<string>([
+  'resolve',
+  'tcp',
+  'handshake',
+  'hostKey',
+  'auth',
+  'collect',
+  'sftp',
+  'transfer',
+]);
 
 export function toSshError(error: unknown): SshCommandError {
   if (error instanceof SshCommandError) return error;
@@ -192,7 +381,7 @@ export function toSshError(error: unknown): SshCommandError {
     const message = typeof raw.message === 'string' && raw.message ? raw.message : '操作失败';
     const hint = typeof raw.hint === 'string' ? raw.hint : '';
     const stage =
-      typeof raw.stage === 'string' && STAGES.has(raw.stage) ? (raw.stage as ConnectStage) : undefined;
+      typeof raw.stage === 'string' && STAGES.has(raw.stage) ? (raw.stage as CommandStage) : undefined;
     return new SshCommandError(code, message, hint, stage);
   }
   if (typeof error === 'string' && error) {
@@ -219,6 +408,27 @@ export interface SshBackend {
   terminalWrite(serverId: string, terminalId: string, data: string): Promise<void>;
   terminalResize(serverId: string, terminalId: string, cols: number, rows: number): Promise<void>;
   terminalClose(serverId: string, terminalId: string): Promise<void>;
+  sftpHome(serverId: string): Promise<string>;
+  sftpList(serverId: string, path: string): Promise<FileListing>;
+  sftpStat(serverId: string, path: string): Promise<FileEntry>;
+  sftpPreviewText(serverId: string, path: string): Promise<TextPreview>;
+  sftpPreviewImage(serverId: string, path: string): Promise<ImagePreview>;
+  sftpDownload(input: DownloadInput): Promise<DownloadResult>;
+  sftpTransferCancel(transferId: string): Promise<void>;
   resetLocalData(): Promise<void>;
+  permitStatus(serverId: string): Promise<PermitStatus>;
+  permitUnlock(serverId: string, minutes: number): Promise<PermitStatus>;
+  permitLock(serverId: string): Promise<PermitStatus>;
+  writePreview(input: WritePreviewInput): Promise<WritePreview>;
+  writeExecute(previewId: string): Promise<WriteResult>;
+  writeRollback(auditId: number): Promise<WriteResult>;
+  auditList(limit: number, offset: number): Promise<AuditEntry[]>;
+  alertsList(filter: AlertFilterName, limit: number, offset: number): Promise<AlertsListResult>;
+  alertsIgnore(alertId: number, reason: string, untilMs: number): Promise<void>;
+  alertsMute(serverId: string, ruleId: string | null, untilMs: number): Promise<void>;
+  testNotification(): Promise<boolean>;
   onStatus(handler: (event: StatusEvent) => void): () => void;
+  onPermit(handler: (event: PermitEvent) => void): () => void;
+  onWrite(handler: (event: WriteEvent) => void): () => void;
+  onAlertsChanged(handler: (event: AlertsChangedEvent) => void): () => void;
 }

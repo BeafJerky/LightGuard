@@ -16,13 +16,23 @@ import DesktopWindow from './DesktopWindow.vue';
 import {
   DESKTOP_APPS,
   appMeta,
-  desktopIconItems,
   statusLabel,
   statusTone,
   type DesktopAppKey,
 } from './apps';
 import { useDesktopWindows } from './useDesktopWindows';
-import { addLog, disconnectServer, retryServer, state } from '../store';
+import PermitControl from '../guard/PermitControl.vue';
+import {
+  closePermitPanel,
+  lockPermit,
+  openPermitPanel,
+  permitOf,
+  refreshPermit,
+  subscribeGuard,
+  unlockPermit,
+} from '../guard/store';
+import { permitVisual } from '../guard/view';
+import { addLog, backendAvailable, disconnectServer, retryServer, state } from '../store';
 import { navigateTo } from '../router';
 import { switchScopeTheme } from '../theme';
 import { confirm, toast } from '../ui';
@@ -74,10 +84,17 @@ const startOpen = ref(false);
 const trayOpen = ref(false);
 const startQuery = ref('');
 
+const visibleApps = computed(() =>
+  DESKTOP_APPS.filter((app) => app.key !== 'files' || backendAvailable),
+);
+const iconItems = computed(() =>
+  visibleApps.value.map((app) => ({ name: app.icon, label: app.title, tile: app.tile })),
+);
+
 const startApps = computed(() => {
   const keyword = startQuery.value.trim().toLowerCase();
-  if (!keyword) return DESKTOP_APPS;
-  return DESKTOP_APPS.filter((app) =>
+  if (!keyword) return visibleApps.value;
+  return visibleApps.value.filter((app) =>
     `${app.title} ${app.description}`.toLowerCase().includes(keyword),
   );
 });
@@ -133,7 +150,128 @@ const connecting = computed(() => props.server.status === 'connecting');
 
 let timers: number[] = [];
 
+const permit = computed(() => permitOf(props.server.id));
+const permitNow = ref(Date.now());
+// 上锁播报要区分来源：倒计时/到期算“自动”，用户点“立即上锁”不能也说自动。
+const lockNotice = ref<'' | 'auto' | 'manual'>('');
+const permitState = computed(() => permitVisual(permit.value, permitNow.value));
+let refreshingPermit = false;
+let stopGuard: (() => void) | null = null;
+let disposed = false;
+let lockNoticeTimer: number | null = null;
+// 手动上锁在 locked 翻转前立旗，锁成功由 watcher 读取并复位，失败则由请求方撤销。
+let manualLockPending = false;
+// 许可倒计时完全在本地走：锁定或到期后立刻停表，不再每秒唤醒后端。
+let permitTimer: number | null = null;
+
+function stopPermitTimer() {
+  if (permitTimer === null) return;
+  window.clearInterval(permitTimer);
+  permitTimer = null;
+}
+
+function startPermitTimer() {
+  if (permitTimer !== null) return;
+  permitTimer = window.setInterval(() => {
+    permitNow.value = Date.now();
+    if (permit.value.expiresAtMs > permitNow.value) return;
+    stopPermitTimer();
+    void refreshPermitOnce();
+  }, 1000);
+}
+
+function syncPermitTimer() {
+  // 用真实时钟判断到期：permitNow 靠每秒 tick 推进，延长许可后它可能还是旧值。
+  const current = Date.now();
+  if (permit.value.locked || permit.value.expiresAtMs <= current) {
+    stopPermitTimer();
+    return;
+  }
+  permitNow.value = current;
+  startPermitTimer();
+}
+
+function announceLock(kind: 'auto' | 'manual') {
+  lockNotice.value = kind;
+  if (lockNoticeTimer !== null) window.clearTimeout(lockNoticeTimer);
+  lockNoticeTimer = window.setTimeout(() => {
+    lockNotice.value = '';
+    lockNoticeTimer = null;
+  }, 4000);
+}
+
+async function refreshPermitOnce() {
+  if (refreshingPermit) return;
+  refreshingPermit = true;
+  try {
+    await refreshPermit(props.server.id);
+  } finally {
+    refreshingPermit = false;
+    // 卸载后返回的许可请求不能再拉起计时器。
+    if (disposed) return;
+    permitNow.value = Date.now();
+    syncPermitTimer();
+  }
+}
+
+async function onUnlockPermit(minutes: number) {
+  if (await unlockPermit(props.server.id, minutes)) {
+    // 到期停表后再延长时 locked 没变，只有这里和到期时间 watcher 能重新拉起计时器。
+    permitNow.value = Date.now();
+    syncPermitTimer();
+    closePermitPanel();
+    toast({
+      title: '写操作已解锁',
+      message: `${props.server.name} 允许写操作 ${minutes} 分钟`,
+      tone: 'success',
+      duration: 2400,
+    });
+  }
+}
+
+async function onLockPermit() {
+  manualLockPending = true;
+  await lockPermit(props.server.id);
+  // 失败时 locked 仍为 false：与解锁一致，保留面板让错误段落可见，也不算一次上锁播报。
+  if (!permit.value.locked) {
+    manualLockPending = false;
+    return;
+  }
+  closePermitPanel();
+}
+
+watch(
+  () => permit.value.locked,
+  (locked, previous) => {
+    if (!locked) {
+      lockNotice.value = '';
+      manualLockPending = false;
+      permitNow.value = Date.now();
+      syncPermitTimer();
+      return;
+    }
+    stopPermitTimer();
+    if (previous === false) {
+      announceLock(manualLockPending ? 'manual' : 'auto');
+      manualLockPending = false;
+    }
+  },
+);
+
+// 到期时间变化（延长、整条刷新、后端事件）都要重算计时器：
+// 零秒刷新失败后许可可能停在“未锁定但已过期”，此时延长不改变 locked，
+// 只挂在 locked 上的 watcher 不会触发，倒计时/任务栏/危险色就会一直冻在 00:00。
+watch(
+  () => permit.value.expiresAtMs,
+  () => {
+    if (disposed) return;
+    syncPermitTimer();
+  },
+);
+
 onMounted(() => {
+  void refreshPermitOnce();
+  stopGuard = subscribeGuard();
   document.addEventListener('keydown', onGlobalKey, true);
   timers.push(window.setInterval(() => (now.value = new Date()), 20000));
   if (reduced.value === 'reduce') {
@@ -157,6 +295,12 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  disposed = true;
+  stopGuard?.();
+  stopGuard = null;
+  stopPermitTimer();
+  if (lockNoticeTimer !== null) window.clearTimeout(lockNoticeTimer);
+  lockNoticeTimer = null;
   document.removeEventListener('keydown', onGlobalKey, true);
   for (const timer of timers) {
     window.clearTimeout(timer);
@@ -196,7 +340,7 @@ function onIconSelect(index: number) {
 }
 
 function onIconActivate(index: number) {
-  const app = DESKTOP_APPS[index];
+  const app = visibleApps.value[index];
   if (app) open(app.key);
 }
 
@@ -276,7 +420,7 @@ async function onRetry() {
   <div
     ref="shell"
     class="serverdesk"
-    :class="{ 'is-bar-full': fullBar }"
+    :class="{ 'is-bar-full': fullBar, 'is-permit-unlocked': !permit.locked }"
     :style="{ '--desk-bar-inset': `${barInset}px` }"
   >
     <div class="desk-wallpaper" aria-hidden="true" @click="onWallpaperClick" />
@@ -305,6 +449,17 @@ async function onRetry() {
           {{ server.uptime }}
         </span>
       </div>
+      <PermitControl
+        class="conn-bar__permit"
+        :server-id="server.id"
+        :status="permit"
+        :default-minutes="state.settings.permit.defaultMinutes"
+        :write-active="permit.writeActive"
+        :now-ms="permitNow"
+        :lock-notice="lockNotice"
+        @unlock="onUnlockPermit"
+        @lock="onLockPermit"
+      />
       <button type="button" class="conn-bar__power" @click="onDisconnect">断开</button>
     </header>
 
@@ -313,7 +468,7 @@ async function onRetry() {
 
     <DesktopIconLayer
       class="desk-icons"
-      :items="desktopIconItems"
+      :items="iconItems"
       :selected-index="selectedIcon"
       :rows="iconRows"
       aria-label="服务器桌面图标"
@@ -463,7 +618,7 @@ async function onRetry() {
 
       <div class="desk-taskbar__center" aria-label="固定应用">
         <button
-          v-for="app in DESKTOP_APPS"
+          v-for="app in visibleApps"
           :key="app.key"
           type="button"
           class="desk-taskbar__app"
@@ -493,6 +648,22 @@ async function onRetry() {
         </button>
         <button type="button" class="desk-taskbar__icon" aria-label="显示桌面" title="显示桌面" @click="onShowDesktop">
           <LgIcon name="monitor" :size="14" />
+        </button>
+        <!--
+          许可入口必须排在窄屏要隐藏的显示器图标之后：窄屏规则靠 :first-child 选中
+          那个图标，插到最前面会让它被顶到第二位而不是消失。
+        -->
+        <button
+          v-if="!permit.locked"
+          type="button"
+          class="desk-taskbar__icon desk-taskbar__permit-btn"
+          :class="{ 'is-danger': permitState.state === 'expiring' }"
+          :aria-label="`写操作已解锁，剩余 ${permitState.remaining}`"
+          :title="`写操作已解锁 · ${permitState.remaining}`"
+          @click="openPermitPanel"
+        >
+          <LgIcon name="unlock" :size="14" />
+          <span class="desk-taskbar__permit">{{ permitState.remaining }}</span>
         </button>
         <button
           type="button"
@@ -1499,6 +1670,46 @@ async function onRetry() {
   }
 }
 
+.conn-bar__permit {
+  padding-left: 7px;
+  border-left: var(--lg-border-width) solid var(--lg-border);
+}
+
+.serverdesk.is-permit-unlocked::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 400;
+  border: 2px solid var(--lg-warning);
+  pointer-events: none;
+}
+
+.desk-taskbar__permit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 6px;
+  border: var(--lg-border-width) solid transparent;
+  border-radius: var(--lg-radius-sm);
+  background: transparent;
+  color: var(--lg-text-secondary);
+  cursor: pointer;
+}
+
+.desk-taskbar__permit-btn:hover {
+  border-color: var(--lg-border);
+}
+
+.desk-taskbar__permit {
+  color: var(--lg-warning);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.desk-taskbar__permit-btn.is-danger .desk-taskbar__permit {
+  color: var(--lg-danger);
+}
+
 @media (max-width: 900px) {
   .conn-bar__addr {
     display: none;
@@ -1564,6 +1775,8 @@ async function onRetry() {
     height: 24px;
   }
 
+  /* 窄屏只留一个显示器图标（全屏时是“退出全屏”，否则是“显示桌面”）：
+     这条规则依赖它们排在__right 的第一位，许可入口必须放在它之后。 */
   .desk-taskbar__right .desk-taskbar__icon:first-child {
     display: none;
   }
@@ -1603,6 +1816,12 @@ async function onRetry() {
   .desk-tray {
     right: 6px;
     width: min(250px, calc(100vw - 12px));
+  }
+
+  /* 两个入口都要让位：子组件的 display 规则与父级同权重，所以这里加一层类名。 */
+  .conn-bar .conn-bar__permit,
+  .desk-taskbar__right .desk-taskbar__permit-btn {
+    display: none;
   }
 }
 </style>

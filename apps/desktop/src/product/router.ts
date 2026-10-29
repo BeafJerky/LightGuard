@@ -14,6 +14,9 @@ function parseHash(hash: string): Route {
       }
     });
   if (parts[0] === 'connections') return { name: 'connections' };
+  if (parts[0] === 'alerts') {
+    return { name: 'alerts', tab: parts[1] === 'audit' ? 'audit' : 'alerts' };
+  }
   if (parts[0] === 'settings') return { name: 'settings' };
   if (parts[0] === 'desktop' && parts[1]) return { name: 'desktop', id: parts[1] };
   return { name: 'overview' };
@@ -21,6 +24,7 @@ function parseHash(hash: string): Route {
 
 export function routeToHash(route: Route) {
   if (route.name === 'desktop' && route.id) return `#/desktop/${encodeURIComponent(route.id)}`;
+  if (route.name === 'alerts') return route.tab === 'audit' ? '#/alerts/audit' : '#/alerts';
   return `#/${route.name}`;
 }
 
@@ -43,6 +47,10 @@ export function navigateTo(name: Exclude<Route['name'], 'desktop'>, replace = fa
 
 export function openServerDesktop(id: string) {
   navigate({ name: 'desktop', id });
+}
+
+export function openAudit() {
+  navigate({ name: 'alerts', tab: 'audit' });
 }
 
 let listening = false;

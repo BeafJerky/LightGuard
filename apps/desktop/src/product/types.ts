@@ -193,6 +193,46 @@ export type CloseAction = Exclude<CloseBehavior, 'ask'>;
 
 export type DesktopBarMode = 'floating' | 'full';
 
+export type PermitMinutes = 5 | 15 | 30;
+
+export interface ResourceRule {
+  enabled: boolean;
+  threshold: number;
+  sustainSeconds: number;
+}
+
+export interface LoadRule {
+  enabled: boolean;
+  multiplier: number;
+  sustainSeconds: number;
+}
+
+export interface OfflineRule {
+  enabled: boolean;
+  graceSeconds: number;
+}
+
+export interface ToggleRule {
+  enabled: boolean;
+}
+
+export interface AlertRules {
+  cpu: ResourceRule;
+  memory: ResourceRule;
+  disk: ResourceRule;
+  load: LoadRule;
+  offline: OfflineRule;
+  hostkey: ToggleRule;
+  login: ToggleRule;
+}
+
+export type AlertRuleOverride = Partial<AlertRules>;
+
+export interface AlertSettings {
+  rules: AlertRules;
+  perServer: Record<string, AlertRuleOverride>;
+}
+
 export interface AppSettings {
   interval: number;
   autoRefresh: boolean;
@@ -203,6 +243,8 @@ export interface AppSettings {
   idleLock: number;
   closeBehavior: CloseBehavior;
   desktopBar: DesktopBarMode;
+  permit: { defaultMinutes: PermitMinutes };
+  alerts: AlertSettings;
 }
 
 export interface ThemeChoices {
@@ -225,11 +267,12 @@ export interface PersistedState {
   backup: BackupSummary | null;
 }
 
-export type RouteName = 'overview' | 'connections' | 'settings' | 'desktop';
+export type RouteName = 'overview' | 'connections' | 'settings' | 'desktop' | 'alerts';
 
 export interface Route {
   name: RouteName;
   id?: string;
+  tab?: 'alerts' | 'audit';
 }
 
 export interface BackupConnection {

@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use super::dto::{DiskInfo, InterfaceInfo, ProcessInfo, ServerSnapshot};
 use super::error::SshError;
 use super::session::{now_iso, ClientHandler};
+use super::sftp::path::shell_quote;
 
 pub const COLLECT_SCRIPT: &str = r#"LC_ALL=C; export LC_ALL
 echo '###LG:meta###'
@@ -68,6 +69,12 @@ pub struct CollectorState {
     last_net: Option<(Instant, HashMap<String, NetCounters>)>,
 }
 
+impl CollectorState {
+    pub fn has_cpu_baseline(&self) -> bool {
+        self.last_cpu.is_some()
+    }
+}
+
 pub async fn collect(
     handle: &russh::client::Handle<ClientHandler>,
     state: &mut CollectorState,
@@ -112,10 +119,6 @@ pub async fn collect(
         state,
         Instant::now(),
     ))
-}
-
-fn shell_quote(script: &str) -> String {
-    format!("'{}'", script.replace('\'', "'\\''"))
 }
 
 pub fn parse_snapshot(text: &str, state: &mut CollectorState, now: Instant) -> ServerSnapshot {

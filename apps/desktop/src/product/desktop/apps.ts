@@ -7,6 +7,7 @@ export type DesktopAppKey =
   | 'network'
   | 'processes'
   | 'connection'
+  | 'files'
   | 'terminal';
 
 export interface DesktopAppMeta {
@@ -75,6 +76,15 @@ export const DESKTOP_APPS: DesktopAppMeta[] = [
     height: 570,
   },
   {
+    key: 'files',
+    title: '文件',
+    description: '浏览与下载服务器文件',
+    icon: 'folder',
+    tile: 'tile-files',
+    width: 920,
+    height: 600,
+  },
+  {
     key: 'terminal',
     title: '终端',
     description: '完整交互 Shell',
@@ -86,12 +96,6 @@ export const DESKTOP_APPS: DesktopAppMeta[] = [
 ];
 
 export const DESKTOP_APP_KEYS = DESKTOP_APPS.map((app) => app.key);
-
-export const desktopIconItems = DESKTOP_APPS.map((app) => ({
-  name: app.icon,
-  label: app.title,
-  tile: app.tile,
-}));
 
 export function appMeta(key: DesktopAppKey): DesktopAppMeta {
   return DESKTOP_APPS.find((app) => app.key === key) ?? DESKTOP_APPS[0];

@@ -1,20 +1,24 @@
+pub(crate) mod alert_store;
+pub(crate) mod audit_store;
 pub(crate) mod commands;
 mod dto;
 
 use std::path::Path;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::Serialize;
 
 pub use commands::{db_load, db_write};
+pub(crate) use alert_store::{AlertFilter, AlertRow, MuteRow, NewAlert};
+pub(crate) use audit_store::{AuditRow, NewAudit};
 pub use dto::{
     DbOp, LoadResult, LogEntry, PersistedServer, StoredState, ThemeChoices, MAX_LOGS, MAX_SERVERS,
 };
 
 const DB_FILE: &str = "lightguard.db";
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 const V1_SCHEMA: &str = r#"
 BEGIN;
@@ -85,6 +89,66 @@ PRAGMA user_version = 1;
 COMMIT;
 "#;
 
+const V2_SCHEMA: &str = r#"
+BEGIN;
+CREATE TABLE IF NOT EXISTS alerts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  server_id TEXT NOT NULL,
+  server_name TEXT NOT NULL DEFAULT '',
+  rule_id TEXT NOT NULL,
+  severity TEXT NOT NULL CHECK (severity IN ('critical', 'warning', 'info')),
+  status TEXT NOT NULL CHECK (status IN ('active', 'resolved', 'ignored')),
+  title TEXT NOT NULL,
+  detail TEXT NOT NULL DEFAULT '',
+  first_seen_at INTEGER NOT NULL,
+  last_seen_at INTEGER NOT NULL,
+  resolved_at INTEGER,
+  ignore_reason TEXT NOT NULL DEFAULT '',
+  ignored_until INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_active_rule
+  ON alerts (server_id, rule_id) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_alerts_status_time
+  ON alerts (status, first_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alerts_server_rule
+  ON alerts (server_id, rule_id);
+
+CREATE TABLE IF NOT EXISTS alert_mutes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  server_id TEXT NOT NULL,
+  rule_id TEXT,
+  until_ms INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_alert_mutes_server ON alert_mutes (server_id, until_ms);
+
+CREATE TABLE IF NOT EXISTS audit (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at_ms INTEGER NOT NULL,
+  server_id TEXT NOT NULL,
+  server_name TEXT NOT NULL DEFAULT '',
+  op TEXT NOT NULL,
+  params TEXT NOT NULL DEFAULT '',
+  result TEXT NOT NULL CHECK (result IN ('success', 'failed', 'unknown')),
+  duration_ms INTEGER NOT NULL DEFAULT 0,
+  permit_source TEXT NOT NULL DEFAULT '',
+  rollback_of INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_audit_time ON audit (at_ms DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_server ON audit (server_id, at_ms DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_rollback ON audit (rollback_of);
+
+CREATE TABLE IF NOT EXISTS login_sources (
+  server_id TEXT NOT NULL,
+  ip TEXT NOT NULL,
+  first_seen_at INTEGER NOT NULL,
+  last_seen_at INTEGER NOT NULL,
+  PRIMARY KEY (server_id, ip)
+);
+PRAGMA user_version = 2;
+COMMIT;
+"#;
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DbError {
@@ -135,7 +199,7 @@ impl std::fmt::Display for DbError {
 
 impl std::error::Error for DbError {}
 
-struct Database {
+pub(crate) struct Database {
     conn: Mutex<Connection>,
 }
 
@@ -303,12 +367,25 @@ impl Database {
             tx.execute("DELETE FROM themes", []).map_err(DbError::write)?;
             tx.execute("DELETE FROM preferences", [])
                 .map_err(DbError::write)?;
+            tx.execute("DELETE FROM alerts", [])
+                .map_err(DbError::write)?;
+            tx.execute("DELETE FROM alert_mutes", [])
+                .map_err(DbError::write)?;
+            tx.execute("DELETE FROM audit", [])
+                .map_err(DbError::write)?;
+            tx.execute("DELETE FROM login_sources", [])
+                .map_err(DbError::write)?;
             set_meta(tx, "initialized", "1")
         })
     }
 
+    pub(crate) fn settings_raw(&self) -> Result<Option<serde_json::Value>, DbError> {
+        let conn = self.lock()?;
+        load_pref(&conn, "app.settings")
+    }
+
     #[cfg(test)]
-    fn in_memory() -> Self {
+    pub(crate) fn in_memory() -> Self {
         let conn = Connection::open_in_memory().expect("open in-memory sqlite");
         configure(&conn).expect("configure sqlite");
         migrate(&conn).expect("migrate sqlite");
@@ -319,7 +396,7 @@ impl Database {
 }
 
 pub struct DbState {
-    database: Option<Database>,
+    database: Option<Arc<Database>>,
     error: Option<String>,
 }
 
@@ -327,7 +404,7 @@ impl DbState {
     pub fn new(config_dir: &Path) -> Self {
         match Database::open(config_dir) {
             Ok(database) => Self {
-                database: Some(database),
+                database: Some(Arc::new(database)),
                 error: None,
             },
             Err(error) => {
@@ -340,9 +417,13 @@ impl DbState {
         }
     }
 
-    fn database(&self) -> Result<&Database, DbError> {
+    pub(crate) fn handle(&self) -> Option<Arc<Database>> {
+        self.database.clone()
+    }
+
+    fn database(&self) -> Result<Arc<Database>, DbError> {
         self.database
-            .as_ref()
+            .clone()
             .ok_or_else(|| DbError::unavailable(self.error.clone().unwrap_or_default()))
     }
 }
@@ -363,8 +444,12 @@ fn migrate(conn: &Connection) -> Result<(), DbError> {
     let version: i64 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(DbError::unavailable)?;
-    if version < SCHEMA_VERSION {
+    if version < 1 {
         conn.execute_batch(V1_SCHEMA)
+            .map_err(DbError::unavailable)?;
+    }
+    if version < SCHEMA_VERSION {
+        conn.execute_batch(V2_SCHEMA)
             .map_err(DbError::unavailable)?;
     }
     Ok(())
@@ -904,5 +989,78 @@ mod tests {
         assert!(state.initialized);
         assert_eq!(state.servers.len(), 1);
         assert_eq!(state.themes.unwrap().console, "claude");
+    }
+
+    #[test]
+    fn v1_database_migrates_to_v2_and_keeps_rows() {
+        let conn = Connection::open_in_memory().unwrap();
+        configure(&conn).unwrap();
+        conn.execute_batch(V1_SCHEMA).unwrap();
+        conn.execute(
+            "INSERT INTO preferences (key, value, updated_at) VALUES ('app.settings', '{\"interval\":5}', 1)",
+            [],
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 2);
+        for table in ["alerts", "alert_mutes", "audit", "login_sources"] {
+            let count: i64 = conn
+                .query_row(
+                    "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    [table],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 1, "{table} must exist");
+        }
+        let value: String = conn
+            .query_row(
+                "SELECT value FROM preferences WHERE key = 'app.settings'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(value.contains("interval"));
+    }
+
+    #[test]
+    fn migrate_is_idempotent() {
+        let conn = Connection::open_in_memory().unwrap();
+        configure(&conn).unwrap();
+        migrate(&conn).unwrap();
+        migrate(&conn).unwrap();
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 2);
+    }
+
+    #[test]
+    fn reset_clears_alert_tables() {
+        let db = Database::in_memory();
+        db.write_tx(|tx| {
+            tx.execute(
+                "INSERT INTO alerts (server_id, rule_id, severity, status, title, first_seen_at, last_seen_at)
+                 VALUES ('srv', 'cpu', 'warning', 'active', 'CPU', 1, 1)",
+                [],
+            )
+            .map_err(DbError::write)?;
+            Ok(())
+        })
+        .unwrap();
+
+        db.reset().unwrap();
+
+        let count: i64 = db
+            .lock()
+            .unwrap()
+            .query_row("SELECT count(*) FROM alerts", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
     }
 }

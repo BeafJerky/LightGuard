@@ -8,6 +8,10 @@ pub struct SshError {
     pub hint: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stage: Option<&'static str>,
+    /// Internal retry hint for channel-level SFTP failures. Never serialized:
+    /// the wire shape is part of the frontend contract (`SshCommandError`).
+    #[serde(skip)]
+    pub retryable: bool,
 }
 
 impl SshError {
@@ -22,7 +26,17 @@ impl SshError {
             message: message.into(),
             hint: hint.into(),
             stage,
+            retryable: false,
         }
+    }
+
+    /// A dead SFTP channel behind a still-live SSH session. Same code, message
+    /// and stage as [`Self::sftp_failed`], but the caller may discard the cached
+    /// client and retry once on a fresh channel.
+    pub fn sftp_channel(message: impl Into<String>) -> Self {
+        let mut error = Self::sftp_failed(message);
+        error.retryable = true;
+        error
     }
 
     pub fn invalid_input(message: impl Into<String>) -> Self {
@@ -132,6 +146,118 @@ impl SshError {
             None,
         )
     }
+
+    pub fn sftp_failed(message: impl Into<String>) -> Self {
+        Self::new(
+            "SFTP_FAILED",
+            message,
+            "请确认服务器已启用 SFTP 子系统，然后重试。",
+            Some("sftp"),
+        )
+    }
+
+    pub fn path_invalid(message: impl Into<String>) -> Self {
+        Self::new("PATH_INVALID", message, "请检查路径后重试。", None)
+    }
+
+    pub fn file_not_found(message: impl Into<String>) -> Self {
+        Self::new(
+            "FILE_NOT_FOUND",
+            message,
+            "文件可能已被移动或删除，请刷新目录。",
+            None,
+        )
+    }
+
+    pub fn permission_denied(message: impl Into<String>) -> Self {
+        Self::new(
+            "PERMISSION_DENIED",
+            message,
+            "当前登录用户没有读取权限。",
+            None,
+        )
+    }
+
+    pub fn file_too_large(message: impl Into<String>) -> Self {
+        Self::new(
+            "FILE_TOO_LARGE",
+            message,
+            "请下载到本地后查看。",
+            None,
+        )
+    }
+
+    pub fn file_binary() -> Self {
+        Self::new(
+            "FILE_BINARY",
+            "该文件不是文本文件。",
+            "可以在属性中查看元信息，或下载后打开。",
+            None,
+        )
+    }
+
+    pub fn transfer_failed(message: impl Into<String>) -> Self {
+        Self::new(
+            "TRANSFER_FAILED",
+            message,
+            "请重试；目录打包失败时可改用终端手动打包。",
+            Some("transfer"),
+        )
+    }
+
+    pub fn unsupported() -> Self {
+        Self::new(
+            "UNSUPPORTED",
+            "该功能仅桌面版可用。",
+            "请在 LightGuard 桌面客户端中使用。",
+            None,
+        )
+    }
+
+    pub fn permit_required() -> Self {
+        Self::new(
+            "PERMIT_REQUIRED",
+            "当前服务器未解锁。",
+            "先解锁当前服务器再执行写操作。",
+            None,
+        )
+    }
+
+    pub fn write_busy() -> Self {
+        Self::new(
+            "WRITE_BUSY",
+            "写操作正在进行。",
+            "等待当前操作结束后重试。",
+            None,
+        )
+    }
+
+    pub fn preview_expired() -> Self {
+        Self::new(
+            "PREVIEW_EXPIRED",
+            "预览已过期或已使用。",
+            "重新发起预览。",
+            None,
+        )
+    }
+
+    pub fn preview_failed(message: impl Into<String>) -> Self {
+        Self::new(
+            "PREVIEW_FAILED",
+            message,
+            "检查名称与目标位置后重试。",
+            None,
+        )
+    }
+
+    pub fn write_failed(message: impl Into<String>) -> Self {
+        Self::new(
+            "WRITE_FAILED",
+            message,
+            "操作可能已执行，请在文件列表中刷新核对。",
+            None,
+        )
+    }
 }
 
 impl std::fmt::Display for SshError {
@@ -182,5 +308,44 @@ mod tests {
         let text = serde_json::to_string(&err).unwrap();
         assert!(!text.contains("secret"));
         assert!(!text.contains("passphrase"));
+    }
+
+    #[test]
+    fn channel_errors_stay_off_the_wire() {
+        let plain = SshError::sftp_failed("通道已断开");
+        let channel = SshError::sftp_channel("通道已断开");
+        assert!(!plain.retryable);
+        assert!(channel.retryable);
+        // The serialized shape must stay identical to the business error.
+        assert_eq!(
+            serde_json::to_value(&plain).unwrap(),
+            serde_json::to_value(&channel).unwrap()
+        );
+        let json = serde_json::to_value(&channel).unwrap();
+        assert_eq!(json["code"], "SFTP_FAILED");
+        assert_eq!(json["stage"], "sftp");
+        assert!(json.get("retryable").is_none());
+    }
+
+    #[test]
+    fn guard_errors_keep_the_wire_shape() {
+        let cases = [
+            (SshError::permit_required(), "PERMIT_REQUIRED"),
+            (SshError::write_busy(), "WRITE_BUSY"),
+            (SshError::preview_expired(), "PREVIEW_EXPIRED"),
+            (
+                SshError::preview_failed("文件夹名称不能为空"),
+                "PREVIEW_FAILED",
+            ),
+            (SshError::write_failed("mkdir failed"), "WRITE_FAILED"),
+        ];
+        for (error, code) in cases {
+            let json = serde_json::to_value(&error).unwrap();
+            assert_eq!(json["code"], code);
+            assert!(json.get("stage").is_none(), "no stage for {code}");
+            assert!(!json["message"].as_str().unwrap_or_default().is_empty());
+            assert!(!json["hint"].as_str().unwrap_or_default().is_empty());
+        }
+        assert_eq!(SshError::preview_failed("x").message, "x");
     }
 }

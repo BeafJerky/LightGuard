@@ -1,5 +1,10 @@
+pub mod alerts;
 pub mod db;
+pub mod guard;
 pub mod ssh;
+
+#[cfg(test)]
+pub mod test_support;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::menu::{Menu, MenuItem};
@@ -106,11 +111,26 @@ fn tune_window(window: &tauri::WebviewWindow) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let config_dir = app.path().app_config_dir()?;
             std::fs::create_dir_all(&config_dir)?;
-            app.manage(db::DbState::new(&config_dir));
-            app.manage(ssh::state::AppState::new(config_dir));
+
+            // 两个服务与命令层共用同一个实例：`Arc` 既交给 `manage`，也交给
+            // `AppState` 保存，生命周期钩子与命令因此看到同一份状态。
+            let db_state = db::DbState::new(&config_dir);
+            let database = db_state.handle();
+            app.manage(db_state);
+
+            let alerts = alerts::AlertService::new(database, Some(app.handle().clone()));
+            let guard = guard::GuardService::new(Some(app.handle().clone()));
+            app.manage(alerts.clone());
+            app.manage(guard.clone());
+            app.manage(ssh::state::AppState::new(config_dir, alerts.clone(), guard));
+            // 上一轮遗留的活跃告警在这里结清，并向前端广播一次角标。
+            alerts.startup();
+
             #[cfg(windows)]
             if let Some(window) = app.get_webview_window("main") {
                 tune_window(&window);
@@ -127,6 +147,10 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            alerts::commands::alerts_list,
+            alerts::commands::alerts_ignore,
+            alerts::commands::alerts_mute,
+            alerts::notify::notify_test,
             ssh::commands::ssh_connect,
             ssh::commands::ssh_reconnect,
             ssh::commands::ssh_snapshot,
@@ -141,8 +165,22 @@ pub fn run() {
             ssh::commands::ssh_terminal_resize,
             ssh::commands::ssh_terminal_close,
             ssh::commands::ssh_reset_local_data,
+            ssh::sftp::commands::sftp_home,
+            ssh::sftp::commands::sftp_list,
+            ssh::sftp::commands::sftp_stat,
+            ssh::sftp::commands::sftp_preview_text,
+            ssh::sftp::commands::sftp_preview_image,
+            ssh::sftp::commands::sftp_download,
+            ssh::sftp::commands::sftp_transfer_cancel,
             db::commands::db_load,
             db::commands::db_write,
+            guard::commands::permit_status,
+            guard::commands::permit_unlock,
+            guard::commands::permit_lock,
+            guard::commands::write_preview,
+            guard::commands::write_execute,
+            guard::commands::write_rollback,
+            guard::commands::audit_list,
             app_quit,
             app_close_ready,
             set_window_border_color,

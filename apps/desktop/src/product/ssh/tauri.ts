@@ -1,7 +1,18 @@
 import {
+  type AlertFilterName,
+  type AlertsChangedEvent,
+  type AlertsListResult,
+  type AuditEntry,
   type ConnectInput,
   type ConnectResult,
   type CredentialStatus,
+  type DownloadInput,
+  type DownloadResult,
+  type FileEntry,
+  type FileListing,
+  type ImagePreview,
+  type PermitEvent,
+  type PermitStatus,
   type ReconnectInput,
   type ServerSnapshot,
   type SessionStatus,
@@ -9,6 +20,12 @@ import {
   type StatusEvent,
   type TerminalEvent,
   type TerminalOpenInput,
+  type TextPreview,
+  type TransferProgress,
+  type WriteEvent,
+  type WritePreview,
+  type WritePreviewInput,
+  type WriteResult,
   toSshError,
 } from './backend';
 
@@ -32,6 +49,26 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
   } catch (error) {
     throw toSshError(error);
   }
+}
+
+// 事件监听按契约事件名统一装配：动态导入失败时静默降级，卸载时保证只取消一次。
+function listenEvent<T>(event: string, handler: (payload: T) => void): () => void {
+  let disposed = false;
+  let unlisten: (() => void) | null = null;
+  void loadEvents()
+    .then(({ listen }) => listen<T>(event, (payload) => handler(payload.payload)))
+    .then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    })
+    .catch(() => {
+      /* best-effort events */
+    });
+  return () => {
+    disposed = true;
+    unlisten?.();
+    unlisten = null;
+  };
 }
 
 export const tauriBackend: SshBackend = {
@@ -104,26 +141,104 @@ export const tauriBackend: SshBackend = {
     return call<void>('ssh_terminal_close', { serverId, terminalId });
   },
 
+  sftpHome(serverId: string) {
+    return call<string>('sftp_home', { serverId });
+  },
+
+  sftpList(serverId: string, path: string) {
+    return call<FileListing>('sftp_list', { serverId, path });
+  },
+
+  sftpStat(serverId: string, path: string) {
+    return call<FileEntry>('sftp_stat', { serverId, path });
+  },
+
+  sftpPreviewText(serverId: string, path: string) {
+    return call<TextPreview>('sftp_preview_text', { serverId, path });
+  },
+
+  sftpPreviewImage(serverId: string, path: string) {
+    return call<ImagePreview>('sftp_preview_image', { serverId, path });
+  },
+
+  async sftpDownload(input: DownloadInput) {
+    const { Channel } = await loadCore();
+    const channel = new Channel<TransferProgress>();
+    channel.onmessage = (event) => input.onEvent(event);
+    return call<DownloadResult>('sftp_download', {
+      serverId: input.serverId,
+      path: input.path,
+      kind: input.kind,
+      transferId: input.transferId,
+      onEvent: channel,
+    });
+  },
+
+  sftpTransferCancel(transferId: string) {
+    return call<void>('sftp_transfer_cancel', { transferId });
+  },
+
   resetLocalData() {
     return call<void>('ssh_reset_local_data');
   },
 
+  permitStatus(serverId: string) {
+    return call<PermitStatus>('permit_status', { serverId });
+  },
+
+  permitUnlock(serverId: string, minutes: number) {
+    return call<PermitStatus>('permit_unlock', { serverId, minutes });
+  },
+
+  permitLock(serverId: string) {
+    return call<PermitStatus>('permit_lock', { serverId });
+  },
+
+  writePreview(input: WritePreviewInput) {
+    return call<WritePreview>('write_preview', { ...input });
+  },
+
+  writeExecute(previewId: string) {
+    return call<WriteResult>('write_execute', { previewId });
+  },
+
+  writeRollback(auditId: number) {
+    return call<WriteResult>('write_rollback', { auditId });
+  },
+
+  auditList(limit: number, offset: number) {
+    return call<AuditEntry[]>('audit_list', { limit, offset });
+  },
+
+  alertsList(filter: AlertFilterName, limit: number, offset: number) {
+    return call<AlertsListResult>('alerts_list', { filter, limit, offset });
+  },
+
+  alertsIgnore(alertId: number, reason: string, untilMs: number) {
+    return call<void>('alerts_ignore', { alertId, reason, untilMs });
+  },
+
+  alertsMute(serverId: string, ruleId: string | null, untilMs: number) {
+    return call<void>('alerts_mute', { serverId, ruleId, untilMs });
+  },
+
+  testNotification() {
+    return call<boolean>('notify_test');
+  },
+
   onStatus(handler: (event: StatusEvent) => void) {
-    let disposed = false;
-    let unlisten: (() => void) | null = null;
-    void loadEvents()
-      .then(({ listen }) => listen<StatusEvent>('ssh://status', (event) => handler(event.payload)))
-      .then((stop) => {
-        if (disposed) stop();
-        else unlisten = stop;
-      })
-      .catch(() => {
-        /* status events are best-effort */
-      });
-    return () => {
-      disposed = true;
-      unlisten?.();
-      unlisten = null;
-    };
+    return listenEvent<StatusEvent>('ssh://status', handler);
+  },
+
+  onPermit(handler: (event: PermitEvent) => void) {
+    return listenEvent<PermitEvent>('ssh://permit', handler);
+  },
+
+  onWrite(handler: (event: WriteEvent) => void) {
+    return listenEvent<WriteEvent>('guard://write', handler);
+  },
+
+  onAlertsChanged(handler: (event: AlertsChangedEvent) => void) {
+    return listenEvent<AlertsChangedEvent>('alerts://changed', handler);
   },
 };

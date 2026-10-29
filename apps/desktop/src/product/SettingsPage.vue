@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import {
   LgButton,
   LgIcon,
@@ -12,11 +12,20 @@ import {
 import type { ThemeId, ThemeTokens } from '@lightguard/lightui';
 import BackupPanel from './BackupPanel.vue';
 import RenderSettingsPanel from '../render/RenderSettingsPanel.vue';
+import AlertRulesEditor from './alerts/AlertRulesEditor.vue';
+import { PERMIT_OPTIONS } from './alerts/settings';
 import { APP_BUILD, APP_VERSION } from './data';
-import { clearLocalData, restartLiveUpdates, state, updateSettings } from './store';
+import {
+  backendAvailable,
+  clearLocalData,
+  restartLiveUpdates,
+  state,
+  updateSettings,
+} from './store';
+import { ssh, toSshError } from './ssh';
 import { switchScopeTheme } from './theme';
 import { confirm, toast } from './ui';
-import type { CloseBehavior, DesktopBarMode, ThemeChoices } from './types';
+import type { AlertSettings, CloseBehavior, DesktopBarMode, ThemeChoices } from './types';
 
 const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 
@@ -144,18 +153,52 @@ function toggleSetting(key: 'hostKey' | 'clipboardClear' | 'notifyFailure' | 'no
   const title = {
     hostKey: '主机密钥校验',
     clipboardClear: '敏感内容自动清除',
-    notifyFailure: '连接失败提醒',
+    notifyFailure: '连接与安全提醒',
     notifyThreshold: '资源阈值提醒',
   }[key];
   toast({ title: `${title}${value ? '已开启' : '已关闭'}`, tone: value ? 'success' : 'info' });
 }
 
-function testNotify() {
+function setPermitMinutes(value: number) {
+  if (value !== 5 && value !== 15 && value !== 30) return;
+  updateSettings({ permit: { defaultMinutes: value } });
   toast({
-    title: '这是一条测试通知',
-    message: '正式版本中，连接失败或资源持续偏高时才会提醒。',
+    title: '默认许可时长已更新',
+    message: `解锁后 ${value} 分钟自动上锁`,
     tone: 'info',
+    duration: 2200,
   });
+}
+
+const alertServers = computed(() =>
+  state.servers.map((server) => ({ id: server.id, name: server.name })),
+);
+
+function onAlertSettings(next: AlertSettings) {
+  updateSettings({ alerts: next });
+}
+
+const notifyTesting = ref(false);
+
+const notifyError = ref('');
+
+async function testNotify() {
+  if (!backendAvailable || notifyTesting.value) return;
+  notifyTesting.value = true;
+  notifyError.value = '';
+  try {
+    const sent = await ssh.testNotification();
+    if (sent) {
+      toast({ title: '测试通知已发送', message: '请在系统通知中心查看', tone: 'success' });
+    } else {
+      notifyError.value = '系统未发出通知：请在 Windows 设置 → 通知中允许 LightGuard。';
+    }
+  } catch (error) {
+    const parsed = toSshError(error);
+    notifyError.value = parsed.hint || parsed.message;
+  } finally {
+    notifyTesting.value = false;
+  }
 }
 
 async function onReset() {
@@ -526,6 +569,51 @@ async function onReset() {
 
       <LgSurface tone="solid" padding="lg" class="settings-card">
         <header class="settings-card__head">
+          <span class="settings-card__icon"><LgIcon name="shield" :size="17" /></span>
+          <div class="settings-card__title">
+            <h2>运维许可</h2>
+            <p>写操作在许可有效期内才可执行</p>
+          </div>
+          <LgTag size="small" :bordered="false" type="warning">仅内存</LgTag>
+        </header>
+
+        <div class="setting-row">
+          <div class="setting-text">
+            <strong>默认解锁时长</strong>
+            <span>连接条解锁后，到期自动重新上锁；只影响之后发起的解锁</span>
+          </div>
+          <div class="settings-segment" role="group" aria-label="默认解锁时长">
+            <button
+              v-for="value in PERMIT_OPTIONS"
+              :key="value"
+              type="button"
+              :class="{ 'is-active': state.settings.permit.defaultMinutes === value }"
+              :aria-pressed="state.settings.permit.defaultMinutes === value"
+              @click="setPermitMinutes(value)"
+            >
+              {{ value }} 分钟
+            </button>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-text">
+            <strong>终端命令不受约束</strong>
+            <span>许可只拦截 LightGuard 发起的写操作；SSH 终端里输入的命令照常执行。</span>
+          </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-text">
+            <strong>审计保留</strong>
+            <span>最近 30 天或 500 条（先到者为准），不支持单独删除</span>
+          </div>
+          <LgTag size="small" :bordered="false" type="info">只读</LgTag>
+        </div>
+      </LgSurface>
+
+      <LgSurface tone="solid" padding="lg" class="settings-card">
+        <header class="settings-card__head">
           <span class="settings-card__icon"><LgIcon name="bell" :size="17" /></span>
           <div class="settings-card__title">
             <h2>通知</h2>
@@ -535,12 +623,12 @@ async function onReset() {
 
         <div class="setting-row">
           <div class="setting-text">
-            <strong>连接失败提醒</strong>
-            <span>主机不可达或认证失败时提醒一次</span>
+            <strong>连接与安全提醒</strong>
+            <span>离线、主机指纹变更或登录异常时提醒</span>
           </div>
           <LgSwitch
             :value="state.settings.notifyFailure"
-            aria-label="连接失败提醒"
+            aria-label="连接与安全提醒"
             @update:value="(value: boolean) => toggleSetting('notifyFailure', value)"
           />
         </div>
@@ -548,7 +636,7 @@ async function onReset() {
         <div class="setting-row">
           <div class="setting-text">
             <strong>资源阈值提醒</strong>
-            <span>CPU / 内存 / 磁盘连续 5 分钟超过 80% 时提醒</span>
+            <span>CPU / 内存 / 磁盘 / 负载持续超过阈值时提醒</span>
           </div>
           <LgSwitch
             :value="state.settings.notifyThreshold"
@@ -560,10 +648,26 @@ async function onReset() {
         <div class="setting-row">
           <div class="setting-text">
             <strong>测试通知</strong>
-            <span>发送一条本地示例通知，检查提醒样式</span>
+            <span v-if="backendAvailable">发送一条系统原生通知，检查权限与样式</span>
+            <span v-else>仅桌面客户端可用</span>
+            <span v-if="notifyError" class="setting-warn" role="alert">{{ notifyError }}</span>
           </div>
-          <LgButton size="small" @click="testNotify">发送测试</LgButton>
+          <LgButton size="small" :disabled="!backendAvailable || notifyTesting" @click="testNotify">
+            {{ notifyTesting ? '发送中…' : '发送测试' }}
+          </LgButton>
         </div>
+
+        <div class="setting-row rules-section">
+          <div class="setting-text">
+            <strong>告警规则</strong>
+            <span>更改后立即生效；选择单台服务器可写入独立规则</span>
+          </div>
+        </div>
+        <AlertRulesEditor
+          :settings="state.settings.alerts"
+          :servers="alertServers"
+          @update="onAlertSettings"
+        />
       </LgSurface>
 
       <LgSurface tone="solid" padding="lg" class="settings-card settings-card--wide">
@@ -1084,6 +1188,15 @@ async function onReset() {
   .theme-scopes {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+.setting-warn.setting-warn {
+  color: var(--lg-danger);
+}
+
+.rules-section {
+  border-top: 0;
+  padding-top: 4px;
 }
 
 @media (max-width: 640px) {

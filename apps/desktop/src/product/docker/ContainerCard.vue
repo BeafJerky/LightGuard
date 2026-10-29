@@ -1,0 +1,42 @@
+<script setup lang="ts">
+import type { DockerContainer } from './api';
+import { percent, shortText, stateLabel, stateTone } from './format';
+
+defineProps<{ row: DockerContainer; active?: boolean }>();
+const emit = defineEmits<{ detail: [row: DockerContainer] }>();
+</script>
+
+<template>
+  <article
+    class="lgdocker-card"
+    :class="{ 'is-active': active }"
+    tabindex="0"
+    @click="emit('detail', row)"
+    @keydown.enter="emit('detail', row)"
+  >
+    <header class="lgdocker-card__head">
+      <div>
+        <strong>{{ row.name || row.shortId }}</strong>
+        <span>{{ shortText(row.image, 36) }}</span>
+        <em v-if="row.project">{{ row.project }}<template v-if="row.service">/{{ row.service }}</template></em>
+      </div>
+      <span class="lgdocker-state" :class="`is-${stateTone(row.state)}`">
+        {{ stateLabel(row.state) }}
+      </span>
+    </header>
+    <div class="lgdocker-card__metrics">
+      <div><span>CPU</span><strong>{{ percent(row.cpuPercent) }}</strong></div>
+      <div><span>内存</span><strong>{{ percent(row.memPercent) }}</strong></div>
+      <div class="is-wide">
+        <span>网络</span>
+        <strong>{{ row.netRx || '—' }} ↓ / {{ row.netTx || '—' }} ↑</strong>
+      </div>
+    </div>
+    <footer class="lgdocker-card__foot">
+      <span>{{ row.ports || '无端口映射' }}</span>
+      <button type="button" class="lgdocker-btn is-small" @click.stop="emit('detail', row)">
+        详情
+      </button>
+    </footer>
+  </article>
+</template>

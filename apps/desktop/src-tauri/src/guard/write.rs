@@ -180,7 +180,7 @@ fn failed_unknown(action: &str, error: &SshError) -> SshError {
 /// 审计行没落库时的统一提示：用户必须知道这次尝试在审计里看不到。
 const AUDIT_LOST_HINT: &str = "操作已结束但审计记录写入失败，请在审计列表中确认状态。";
 
-fn record(
+pub(crate) fn record(
     db: &Database,
     server_id: &str,
     server_name: &str,
@@ -213,7 +213,11 @@ fn record(
 
 /// 操作本身已经以失败/未知收尾，但审计行没有写进去：保留操作自己的错误码与
 /// 消息，把审计失败追加进去，并把底层 DB 错误打到日志里。
-fn audit_write_failed(operation: SshError, audit: &SshError, may_have_run: bool) -> SshError {
+pub(crate) fn audit_write_failed(
+    operation: SshError,
+    audit: &SshError,
+    may_have_run: bool,
+) -> SshError {
     eprintln!(
         "[lightguard] audit insert failed for {}: {} ({})",
         operation.code, audit.code, audit.message
@@ -233,7 +237,7 @@ fn audit_write_failed(operation: SshError, audit: &SshError, may_have_run: bool)
 
 /// 远端变更已经生效，但审计行没有落库：既没有审计 id，也就没有可回退的记录。
 /// 返回值必须同时说明"操作可能已完成"和"没有审计编号"，前端才不会给出回退入口。
-fn audit_lost_after_success(action: &str, audit: &SshError) -> SshError {
+pub(crate) fn audit_lost_after_success(action: &str, audit: &SshError) -> SshError {
     eprintln!(
         "[lightguard] audit insert failed after {action}: {} ({})",
         audit.code, audit.message

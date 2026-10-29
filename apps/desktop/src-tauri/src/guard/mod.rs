@@ -143,6 +143,20 @@ impl GuardService {
         self.previews.insert(server_id, op, payload)
     }
 
+    pub fn store_preview_with_ttl(
+        &self,
+        server_id: &str,
+        op: &str,
+        payload: serde_json::Value,
+        ttl: std::time::Duration,
+    ) -> String {
+        self.previews.insert_with_ttl(server_id, op, payload, ttl)
+    }
+
+    pub fn peek_preview(&self, id: &str) -> Result<PreviewEntry, SshError> {
+        self.previews.peek(id)
+    }
+
     pub fn take_preview(&self, id: &str) -> Result<PreviewEntry, SshError> {
         self.previews.take(id)
     }
@@ -336,5 +350,22 @@ mod tests {
         assert_eq!(json["minutes"], 5);
         assert_eq!(json["writeActive"], false);
         assert!(json["expiresAtMs"].as_i64().unwrap_or(0) > 0);
+    }
+
+    #[test]
+    fn system_preview_can_be_peeked_before_it_is_taken() {
+        let guard = GuardService::new(None);
+        let id = guard.store_preview_with_ttl(
+            "srv",
+            "docker.service.stop",
+            serde_json::json!({}),
+            preview::SYSTEM_PREVIEW_TTL,
+        );
+        assert_eq!(
+            guard.peek_preview(&id).unwrap().op,
+            "docker.service.stop"
+        );
+        assert!(guard.take_preview(&id).is_ok());
+        assert_eq!(guard.peek_preview(&id).unwrap_err().code, "PREVIEW_EXPIRED");
     }
 }

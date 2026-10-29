@@ -699,6 +699,9 @@
   text-align: right;
 }
 
+/* 抽屉必须保持为 .lgdocker 的直接子节点：定位祖先由 .lgdocker 提供。
+   不要移入 .lgdocker-main —— 它是查询容器（布局包含）会改写绝对定位的包含块，
+   同时又是滚动容器，会让抽屉随列表一起滚走。 */
 .lgdocker-drawer {
   position: absolute;
   inset: 0;
@@ -804,7 +807,9 @@
   font-size: 9.5px;
 }
 
-@container docker (max-width: 715px) {
+/* 9 列需表格 ≥ 630 轨道 + 64 间隙 + 22 内边距 + 2 边框 = 718；表格 = 容器 − 28 页面内边距，故容器 ≥ 746。
+   因此 8 轨道规则在容器宽度 ≤ 745px 时触发。 */
+@container docker (max-width: 745px) {
   .lgdocker-table__head span:nth-child(8),
   .lgdocker-table__row > span:nth-child(8) {
     display: none;
@@ -816,7 +821,9 @@
   }
 }
 
-@container docker (max-width: 635px) {
+/* 8 列需表格 ≥ 556 轨道 + 56 间隙 + 22 内边距 + 2 边框 = 636；表格 = 容器 − 28 页面内边距，故容器 ≥ 664。
+   因此 4 轨道规则在容器宽度 ≤ 663px 时触发。 */
+@container docker (max-width: 663px) {
   .lgdocker-table__head span:nth-child(4),
   .lgdocker-table__head span:nth-child(5),
   .lgdocker-table__head span:nth-child(6),

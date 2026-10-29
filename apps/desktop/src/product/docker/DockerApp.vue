@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, provide, ref } from 'vue';
 import { LgIcon } from '@lightguard/lightui';
 import type { Server } from '../types';
 import { toast } from '../ui';
@@ -32,6 +32,9 @@ const nav: NavItem[] = [
 
 const page = ref<PageKey>('overview');
 const root = ref<HTMLElement | null>(null);
+// 详情抽屉需要绝对定位于 .lgdocker（而非滚动且带布局包含的 .lgdocker-main），
+// 因此把根节点提供给子页面做 Teleport 目标。
+provide('lg:docker-root', root);
 const narrow = ref(false);
 const locked = computed(() => permitOf(props.server.id).locked);
 let observer: ResizeObserver | null = null;

@@ -87,10 +87,11 @@ describe('docker containers', () => {
     expect(readLayout()).toBe('table');
     writeLayout('card');
     expect(readLayout()).toBe('card');
-    const getter = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+    const getter = vi.spyOn(window.localStorage, 'getItem').mockImplementation(() => {
       throw new Error('blocked');
     });
     expect(readLayout()).toBe('card');
+    expect(getter).toHaveBeenCalled();
     getter.mockRestore();
   });
 });

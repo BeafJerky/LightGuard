@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, inject, onMounted, ref, watch, type Ref } from 'vue';
 import { LgIcon } from '@lightguard/lightui';
 import type { Server } from '../types';
 import { toSshError } from '../ssh';
@@ -25,6 +25,8 @@ const errorCode = ref('');
 const keyword = ref('');
 const layout = ref<ContainerLayout>(readLayout());
 const selected = ref<DockerContainer | null>(null);
+// 抽屉挂到 Docker 应用根节点，避免随 .lgdocker-main 滚动或被其布局包含改写包含块。
+const dockerRoot = inject<Ref<HTMLElement | null>>('lg:docker-root', ref(null));
 
 const visible = computed(() => sortContainers(filterContainers(rows.value, keyword.value)));
 const running = computed(() => rows.value.filter((row) => row.state === 'running').length);
@@ -153,13 +155,14 @@ onMounted(load);
       @detail="selected = $event"
     />
 
-    <ContainerDetail
-      v-if="selected"
-      :key="selected.id"
-      :server="server"
-      :container-id="selected.id"
-      :container-name="selected.name || selected.shortId"
-      @close="selected = null"
-    />
+    <Teleport v-if="selected && dockerRoot" :to="dockerRoot">
+      <ContainerDetail
+        :key="selected.id"
+        :server="server"
+        :container-id="selected.id"
+        :container-name="selected.name || selected.shortId"
+        @close="selected = null"
+      />
+    </Teleport>
   </section>
 </template>

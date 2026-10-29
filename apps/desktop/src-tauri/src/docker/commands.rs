@@ -8,17 +8,22 @@ use crate::alerts::now_ms;
 use crate::db::{DbError, DbState};
 use crate::docker::dto::{
     DockerCapabilities, DockerContainer, DockerContainerDetail, DockerImage, DockerOverview,
-    DockerPreview, DockerProgress, DockerStatsSample, DockerTerminalHandle, DockerTerminalInput,
-    DockerWriteInput, DockerWriteResult, RegistrySearchItem,
+    DockerPreview, DockerProgress, DockerStatsSample, DockerSystemInput, DockerTerminalHandle,
+    DockerTerminalInput, DockerWriteInput, DockerWriteResult, RegistryConfig, RegistrySearchItem,
+    SudoStatus,
 };
 use crate::docker::exec::{self, ExecOptions};
 use crate::docker::read;
+use crate::docker::state::DockerState;
+use crate::docker::system::{self, SystemPayload};
 use crate::docker::validate;
 use crate::docker::write::{self, WritePayload};
+use crate::guard::preview;
 use crate::guard::GuardService;
 use crate::ssh::commands::{validate_server_id, validate_terminal_size};
 use crate::ssh::dto::TerminalEvent;
 use crate::ssh::error::SshError;
+use crate::ssh::session::ClientHandler;
 use crate::ssh::sftp::client;
 use crate::ssh::sftp::path::shell_quote;
 use crate::ssh::state::AppState;
@@ -193,6 +198,187 @@ pub async fn docker_write_execute(
 #[tauri::command]
 pub fn docker_write_cancel(state: State<'_, Arc<AppState>>, server_id: String) -> bool {
     state.docker.cancel_pull(&server_id)
+}
+
+/// 命令级密码暂存：任何分支返回都会清零；成功时把字节所有权交给 `DockerState`。
+struct PendingSecret(Option<Vec<u8>>);
+
+impl PendingSecret {
+    fn as_deref(&self) -> Option<&[u8]> {
+        self.0.as_deref()
+    }
+
+    fn take(&mut self) -> Option<Vec<u8>> {
+        self.0.take()
+    }
+}
+
+impl Drop for PendingSecret {
+    fn drop(&mut self) {
+        if let Some(bytes) = self.0.as_mut() {
+            DockerState::wipe(bytes);
+        }
+    }
+}
+
+async fn auth_for(
+    handle: &russh::client::Handle<ClientHandler>,
+    state: &AppState,
+    server_id: &str,
+    password: Option<String>,
+) -> Result<PendingSecret, SshError> {
+    if let Some(password) = password {
+        let mut bytes = password.into_bytes();
+        if bytes.iter().all(u8::is_ascii_whitespace) {
+            DockerState::wipe(&mut bytes);
+            return Err(SshError::sudo_failed("密码不能为空"));
+        }
+        return Ok(PendingSecret(Some(bytes)));
+    }
+    if let Some(bytes) = state.docker.password_copy(server_id) {
+        return Ok(PendingSecret(Some(bytes)));
+    }
+    match state.docker.passwordless(server_id) {
+        Some(true) => return Ok(PendingSecret(None)),
+        Some(false) => return Err(SshError::sudo_required()),
+        None => {}
+    }
+    let status = system::probe(handle).await?;
+    state
+        .docker
+        .set_passwordless(server_id, status.passwordless);
+    if status.passwordless {
+        Ok(PendingSecret(None))
+    } else if status.available {
+        Err(SshError::sudo_required())
+    } else {
+        Err(SshError::sudo_failed("当前账号没有 sudo 权限"))
+    }
+}
+
+#[tauri::command]
+pub async fn docker_sudo_status(
+    state: State<'_, Arc<AppState>>,
+    server_id: String,
+) -> Result<SudoStatus, SshError> {
+    validate_server_id(&server_id)?;
+    let handle = handle_for(state.inner(), &server_id).await?;
+    let status = system::probe(&handle).await?;
+    state
+        .docker
+        .set_passwordless(&server_id, status.passwordless);
+    Ok(status)
+}
+
+#[tauri::command]
+pub async fn docker_registry_config(
+    state: State<'_, Arc<AppState>>,
+    server_id: String,
+) -> Result<RegistryConfig, SshError> {
+    validate_server_id(&server_id)?;
+    let handle = handle_for(state.inner(), &server_id).await?;
+    let secret = PendingSecret(state.docker.password_copy(&server_id));
+    system::registry_config(&handle, secret.as_deref()).await
+}
+
+#[tauri::command]
+pub async fn docker_system_preview(
+    state: State<'_, Arc<AppState>>,
+    guard: State<'_, Arc<GuardService>>,
+    server_id: String,
+    input: DockerSystemInput,
+    password: Option<String>,
+) -> Result<DockerPreview, SshError> {
+    validate_server_id(&server_id)?;
+    let handle = handle_for(state.inner(), &server_id).await?;
+    let mut secret = auth_for(&handle, state.inner(), &server_id, password).await?;
+    if let Some(bytes) = secret.as_deref() {
+        if let Err(error) = system::verify_sudo(&handle, Some(bytes)).await {
+            state.docker.clear_password(&server_id);
+            return Err(error);
+        }
+    }
+    let (payload, view) = system::preview(&handle, &server_id, &input, secret.as_deref()).await?;
+    let value =
+        serde_json::to_value(&payload).map_err(|error| SshError::internal(error.to_string()))?;
+    let preview_id = guard.store_preview_with_ttl(
+        &server_id,
+        &system::audit_op(&input.kind),
+        value,
+        preview::SYSTEM_PREVIEW_TTL,
+    );
+    if let Some(bytes) = secret.take() {
+        state.docker.cache_password(&server_id, bytes);
+    }
+    Ok(write::build_preview(
+        preview_id,
+        &input.kind,
+        view,
+        now_ms() + preview::SYSTEM_PREVIEW_TTL.as_millis() as i64,
+    ))
+}
+
+#[tauri::command]
+pub async fn docker_system_execute(
+    state: State<'_, Arc<AppState>>,
+    guard: State<'_, Arc<GuardService>>,
+    db_state: State<'_, DbState>,
+    preview_id: String,
+    password: Option<String>,
+    on_event: tauri::ipc::Channel<DockerProgress>,
+) -> Result<DockerWriteResult, SshError> {
+    let entry = guard.peek_preview(&preview_id)?;
+    let payload: SystemPayload = serde_json::from_value(entry.payload.clone())
+        .map_err(|error| SshError::preview_failed(error.to_string()))?;
+    if entry.server_id != payload.server_id || entry.op != payload.audit_op {
+        return Err(SshError::preview_failed("预览与执行目标不一致"));
+    }
+    let handle = handle_for(state.inner(), &payload.server_id).await?;
+    let mut secret = auth_for(&handle, state.inner(), &payload.server_id, password).await?;
+    if let Some(bytes) = secret.as_deref() {
+        if let Err(error) = system::verify_sudo(&handle, Some(bytes)).await {
+            state.docker.clear_password(&payload.server_id);
+            return Err(error);
+        }
+    }
+    let passwordless = secret.as_deref().is_none();
+    let entry = guard.take_preview(&preview_id)?;
+    if entry.server_id != payload.server_id || entry.op != payload.audit_op {
+        return Err(SshError::preview_failed("预览与执行目标不一致"));
+    }
+    let db = database(&db_state)?;
+    let _write = guard.begin_write(&payload.server_id)?;
+    let mut emit = |line: &str| {
+        let _ = on_event.send(DockerProgress {
+            line: line.to_string(),
+        });
+    };
+    let result = system::execute(
+        state.inner(),
+        &db,
+        &payload,
+        secret.as_deref(),
+        "system",
+        &mut emit,
+    )
+    .await;
+    match result {
+        Ok(result) => {
+            if let Some(bytes) = secret.take() {
+                state.docker.cache_password(&payload.server_id, bytes);
+            }
+            state
+                .docker
+                .set_passwordless(&payload.server_id, passwordless);
+            Ok(result)
+        }
+        Err(error) => {
+            if matches!(error.code, "SUDO_FAILED" | "SUDO_REQUIRED") {
+                state.docker.clear_password(&payload.server_id);
+            }
+            Err(error)
+        }
+    }
 }
 
 pub fn container_title(container_name: &str, server_name: &str) -> String {

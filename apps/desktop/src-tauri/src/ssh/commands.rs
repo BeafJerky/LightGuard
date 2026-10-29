@@ -123,6 +123,7 @@ pub async fn ssh_disconnect(
     // 显式断开：立刻停掉采样与登录监控（不进入离线宽限），并让许可与预览失效。
     state.alerts.on_explicit_disconnect(&server_id);
     guard.clear_server(&server_id);
+    state.docker.clear_server(&server_id);
     if let Some(session) = removed {
         let entry = session.lock().await;
         let _ = entry
@@ -388,6 +389,7 @@ pub async fn ssh_reset_local_data(
     // 有效许可或一次性预览。放在删文件之前，确保即使删文件失败也不会留下授权。
     alerts.reset();
     guard.clear_all();
+    state.docker.clear_all();
 
     CredentialStore::from_config(&state.config_dir).clear()?;
     HostKeyStore::new(state.config_dir.join("known_hosts.json")).clear()
@@ -433,6 +435,7 @@ async fn replace_session(
     watch_session(app.clone(), state.inner().clone(), server_id.to_string(), session);
     // 新连接：上一轮遗留的许可与预览一律作废，然后开始采样与登录监控。
     state.guard.clear_server(server_id);
+    state.docker.clear_server(server_id);
     state.alerts.start(server_id.to_string(), handle);
 }
 
@@ -470,6 +473,7 @@ fn watch_session(
                 // 正在跑的写操作不在这里中止——它拿着自己的写锁，结束后自行释放。
                 state.alerts.on_session_closed(&server_id);
                 state.guard.clear_server(&server_id);
+                state.docker.clear_server(&server_id);
                 let _ = app.emit(
                     "ssh://status",
                     StatusEvent {

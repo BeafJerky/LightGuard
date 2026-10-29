@@ -100,4 +100,48 @@ describe('use docker', () => {
     await docker.load();
     expect(docker.error.value).toBe('未安装 Docker');
   });
+
+  it('recovers from an error after a later silent load succeeds', async () => {
+    const flaky = api();
+    const docker = useDocker({ id: 'srv_1' } as never, flaky);
+    vi.mocked(flaky.capabilities).mockRejectedValueOnce({
+      code: 'DOCKER_FAILED',
+      message: '读取超时',
+      hint: '',
+    });
+    await docker.load();
+    expect(docker.error.value).toBe('读取超时');
+    expect(docker.overview.value).toBeNull();
+
+    await docker.load(true, true);
+    expect(docker.error.value).toBe('');
+    expect(docker.overview.value?.counts.images).toBe(9);
+  });
+
+  it('a failing non-silent load clears a populated overview', async () => {
+    const flaky = api();
+    const docker = useDocker({ id: 'srv_1' } as never, flaky);
+    await docker.load();
+    expect(docker.overview.value?.counts.images).toBe(9);
+
+    vi.mocked(flaky.capabilities).mockRejectedValueOnce({
+      code: 'DOCKER_FAILED',
+      message: '读取超时',
+      hint: '',
+    });
+    await docker.load();
+    expect(docker.error.value).toBe('读取超时');
+    expect(docker.overview.value).toBeNull();
+  });
+
+  it('skips the overview when docker is not installed', async () => {
+    const missing = api({
+      capabilities: vi.fn(async () => capabilities({ installed: false, daemonRunning: false })),
+    });
+    const docker = useDocker({ id: 'srv_1' } as never, missing);
+    await docker.load();
+    expect(docker.installed.value).toBe(false);
+    expect(docker.overview.value).toBeNull();
+    expect(missing.overview).not.toHaveBeenCalled();
+  });
 });

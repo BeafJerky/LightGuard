@@ -20,13 +20,9 @@ export function useDocker(server: Server, api: DockerApi = dockerApi) {
     }
     try {
       capabilities.value = await api.capabilities(server.id);
-      if (!capabilities.value.installed) {
-        overview.value = null;
-        return;
-      }
-      overview.value = capabilities.value.daemonRunning
-        ? await api.overview(server.id, includeDf)
-        : null;
+      const usable = capabilities.value.installed && capabilities.value.daemonRunning;
+      overview.value = usable ? await api.overview(server.id, includeDf) : null;
+      error.value = '';
     } catch (caught) {
       if (!silent) {
         error.value = toSshError(caught).message;

@@ -6,6 +6,7 @@ import {
   auditResultLabel,
   canRollback,
   formatDurationMs,
+  rollbackLabel,
 } from './audit';
 
 function row(patch: Partial<AuditEntry> = {}): AuditEntry {
@@ -52,5 +53,47 @@ describe('audit helpers', () => {
     expect(canRollback(row({ result: 'failed' }), [])).toBe(false);
     expect(canRollback(row({ result: 'unknown' }), [])).toBe(false);
     expect(canRollback(original, [original, row({ id: 2, op: 'fs.mkdir.rollback', rollbackOf: 1 })])).toBe(false);
+    expect(
+      canRollback(original, [original, row({ id: 2, op: 'fs.mkdir.rollback', result: 'failed', rollbackOf: 1 })]),
+    ).toBe(true);
+  });
+
+  it('labels the rollback button by operation kind', () => {
+    expect(rollbackLabel('docker.container.start')).toBe('回退（启动/停止互换）');
+    expect(rollbackLabel('fs.mkdir')).toBe('回退（删除空目录）');
+  });
+
+  it('labels docker operations and their rollbacks', () => {
+    expect(auditOpLabel('docker.container.start')).toBe('启动容器');
+    expect(auditOpLabel('docker.container.stop')).toBe('停止容器');
+    expect(auditOpLabel('docker.container.stop.rollback')).toBe('启动容器（回退）');
+    expect(auditOpLabel('docker.image.pull')).toBe('拉取镜像');
+    expect(auditOpLabel('docker.daemon.update')).toBe('更新 Docker 配置');
+  });
+
+  it('summarizes docker audit params without duplicating the short id', () => {
+    const id = 'a'.repeat(64);
+    expect(auditParamsSummary(`{"action":"stop","containerId":"${id}","name":"web（aaaaaaaaaaaa）"}`)).toBe(
+      'web（aaaaaaaaaaaa）',
+    );
+    expect(auditParamsSummary(`{"action":"stop","containerId":"${id}","name":"web"}`)).toBe(
+      'web（aaaaaaaaaaaa）',
+    );
+    expect(auditParamsSummary(`{"action":"stop","containerId":"${id}"}`)).toBe('aaaaaaaaaaaa');
+    expect(auditParamsSummary('{"action":"pull","image":"nginx:1.27"}')).toBe('nginx:1.27');
+    expect(auditParamsSummary('{"file":"/etc/docker/daemon.json","changed":["registry-mirrors"]}')).toBe(
+      '/etc/docker/daemon.json',
+    );
+  });
+
+  it('allows rollback only for container start and stop', () => {
+    const start = row({ op: 'docker.container.start' });
+    expect(canRollback(start, [start])).toBe(true);
+    expect(canRollback(row({ op: 'docker.container.stop' }), [])).toBe(true);
+    expect(canRollback(row({ op: 'docker.container.restart' }), [])).toBe(false);
+    expect(canRollback(row({ op: 'docker.container.remove' }), [])).toBe(false);
+    expect(
+      canRollback(row({ op: 'docker.container.start', result: 'failed' }), []),
+    ).toBe(false);
   });
 });

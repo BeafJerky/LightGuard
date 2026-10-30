@@ -238,14 +238,14 @@ async function onClear() {
 
 .connections-intro h2 {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--lg-fs-body);
   font-weight: 650;
 }
 
 .connections-intro p {
   margin: 2px 0 0;
   color: var(--lg-text-muted);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
 }
 
 .connections-intro p strong {
@@ -293,14 +293,14 @@ async function onClear() {
   border-radius: 6px;
   background: transparent;
   color: var(--lg-text-muted);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
   white-space: nowrap;
 }
 
 .chip span {
   font-family: var(--lg-font-mono);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .chip:hover {
@@ -338,7 +338,7 @@ async function onClear() {
   border: 0;
   background: transparent;
   color: var(--lg-text-secondary);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   text-align: left;
   cursor: pointer;
 }
@@ -354,7 +354,7 @@ async function onClear() {
 .log-time {
   color: var(--lg-text-muted);
   font-family: var(--lg-font-mono);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .log-server {
@@ -367,7 +367,7 @@ async function onClear() {
 .log-server strong {
   overflow: hidden;
   color: var(--lg-text);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -376,7 +376,7 @@ async function onClear() {
 .log-server small {
   color: var(--lg-text-muted);
   font-family: var(--lg-font-mono);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .log-action {
@@ -389,19 +389,19 @@ async function onClear() {
 .log-duration {
   color: var(--lg-text-muted);
   font-family: var(--lg-font-mono);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .log-source {
   color: var(--lg-text-muted);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .log-badge {
   justify-self: start;
   padding: 2px 7px;
   border-radius: var(--lg-radius-full);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
   font-weight: 600;
 }
 
@@ -454,19 +454,19 @@ async function onClear() {
 
 .log-detail__grid span {
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .log-detail__grid strong {
   overflow-wrap: anywhere;
   color: var(--lg-text-secondary);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   font-weight: 500;
 }
 
 .mono {
   font-family: var(--lg-font-mono);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .log-hint {
@@ -478,7 +478,7 @@ async function onClear() {
   border-radius: var(--lg-radius-sm);
   background: var(--lg-warning-soft);
   color: var(--lg-text-secondary);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   line-height: 1.55;
 }
 
@@ -498,7 +498,7 @@ async function onClear() {
   gap: 6px;
   padding-top: 2px;
   color: var(--lg-text-muted);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
 }
 
 @media (max-width: 1080px) {

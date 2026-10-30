@@ -1,5 +1,6 @@
 pub mod alerts;
 pub mod db;
+pub mod docker;
 pub mod guard;
 pub mod ssh;
 
@@ -181,6 +182,22 @@ pub fn run() {
             guard::commands::write_execute,
             guard::commands::write_rollback,
             guard::commands::audit_list,
+            docker::commands::docker_capabilities,
+            docker::commands::docker_overview,
+            docker::commands::docker_containers,
+            docker::commands::docker_container_detail,
+            docker::commands::docker_stats,
+            docker::commands::docker_images,
+            docker::commands::docker_registry_search,
+            docker::commands::docker_registry_tags,
+            docker::commands::docker_write_preview,
+            docker::commands::docker_write_execute,
+            docker::commands::docker_write_cancel,
+            docker::commands::docker_sudo_status,
+            docker::commands::docker_registry_config,
+            docker::commands::docker_system_preview,
+            docker::commands::docker_system_execute,
+            docker::commands::docker_container_terminal_open,
             app_quit,
             app_close_ready,
             set_window_border_color,

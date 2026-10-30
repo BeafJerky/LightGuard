@@ -22,6 +22,8 @@ pub struct AppState {
     pub alerts: Arc<AlertService>,
     /// 同上。许可与预览是运行期状态，随连接生命周期归零。
     pub guard: Arc<GuardService>,
+    /// Docker 拉取取消与（Task 10 起）sudo 密码缓存；随连接生命周期清理。
+    pub docker: crate::docker::state::DockerState,
 }
 
 impl AppState {
@@ -40,6 +42,7 @@ impl AppState {
             transfer_slots: Arc::new(Semaphore::new(2)),
             alerts,
             guard,
+            docker: crate::docker::state::DockerState::new(),
         })
     }
 }

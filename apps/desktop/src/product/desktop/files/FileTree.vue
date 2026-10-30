@@ -56,10 +56,10 @@ function onKeydown(event: KeyboardEvent, path: string, node: TreeState) {
           :aria-label="node.expanded ? '收起' : '展开'"
           @click.stop="emit('toggle', node.path)"
         >
-          <LgIcon :name="node.expanded ? 'chevron-down' : 'chevron-right'" :size="12" />
+          <LgIcon :name="node.expanded ? 'chevron-down' : 'chevron-right'" :size="14" />
         </button>
         <span v-else class="lgfiles-tree__twist" />
-        <LgIcon :name="node.kind === 'symlink' ? 'link' : 'folder'" :size="13" />
+        <LgIcon :name="node.kind === 'symlink' ? 'link' : 'folder'" :size="15" />
         <span class="lgfiles-tree__name">{{ node.name }}</span>
         <span v-if="node.loading" class="lgfiles-tree__spin" aria-label="加载中" />
       </div>

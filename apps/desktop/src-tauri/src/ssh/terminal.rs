@@ -62,6 +62,51 @@ pub async fn open(
     Ok((entry, reader))
 }
 
+pub async fn open_exec(
+    handle: &russh::client::Handle<ClientHandler>,
+    server_id: &str,
+    default_title: &str,
+    cols: u32,
+    rows: u32,
+    command: &str,
+) -> Result<(TerminalEntry, TerminalRead), SshError> {
+    let channel = handle
+        .channel_open_session()
+        .await
+        .map_err(|error| SshError::terminal(error.to_string()))?;
+    channel
+        .request_pty(true, "xterm-256color", cols, rows, 0, 0, &[])
+        .await
+        .map_err(|error| SshError::terminal(error.to_string()))?;
+    channel
+        .exec(true, command)
+        .await
+        .map_err(|error| SshError::terminal(error.to_string()))?;
+
+    let (read, writer) = channel.split();
+    let id = uid("t");
+    let entry = TerminalEntry {
+        server_id: server_id.to_string(),
+        title: default_title.to_string(),
+        writer,
+    };
+    let reader = TerminalRead {
+        id,
+        default_title: default_title.to_string(),
+        read,
+    };
+    Ok((entry, reader))
+}
+
+/// 容器终端命令固定为 `docker exec -it <full-id> <shell>`；shell 只来自白名单。
+pub fn exec_command(container_id: &str, shell: &str) -> String {
+    format!(
+        "docker exec -it {} {}",
+        crate::ssh::sftp::path::shell_quote(container_id),
+        crate::ssh::sftp::path::shell_quote(shell)
+    )
+}
+
 pub fn spawn_reader(
     mut reader: TerminalRead,
     on_event: tauri::ipc::Channel<TerminalEvent>,
@@ -208,5 +253,18 @@ mod tests {
             Some("ab".to_string())
         );
         assert_eq!(extract_title(b"\x1b]0;\x07"), None);
+    }
+
+    #[test]
+    fn exec_command_uses_the_full_id_and_a_whitelisted_shell() {
+        let id = "a".repeat(64);
+        assert_eq!(
+            exec_command(&id, "/bin/sh"),
+            format!("docker exec -it '{id}' '/bin/sh'")
+        );
+        assert_eq!(
+            exec_command(&id, "/bin/bash"),
+            format!("docker exec -it '{id}' '/bin/bash'")
+        );
     }
 }

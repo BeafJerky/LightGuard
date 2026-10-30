@@ -393,7 +393,7 @@ onBeforeUnmount(() => {
   gap: 6px;
   margin: 0;
   color: var(--lg-text-secondary);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   overflow-wrap: anywhere;
 }
 
@@ -401,19 +401,19 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 6px;
   color: var(--lg-text-secondary);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
 }
 
 .new-folder__error {
   margin: 0;
   color: var(--lg-danger);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
 }
 
 .new-folder__note {
   margin: 0;
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   line-height: 1.55;
 }
 
@@ -437,13 +437,13 @@ onBeforeUnmount(() => {
 
 .new-folder__section dt {
   color: var(--lg-text-muted);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .new-folder__section dd {
   margin: 4px 0 0;
   color: var(--lg-text);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   word-break: break-all;
 }
 
@@ -456,7 +456,7 @@ onBeforeUnmount(() => {
   border-radius: var(--lg-radius-sm);
   background: var(--lg-danger-soft);
   color: var(--lg-danger);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   line-height: 1.55;
 }
 
@@ -476,7 +476,7 @@ onBeforeUnmount(() => {
 }
 
 .new-folder__failure button {
-  height: 26px;
+  height: var(--lg-control-h-sm);
   margin-top: 4px;
   padding: 0 10px;
   border: var(--lg-border-width) solid currentColor;
@@ -484,7 +484,7 @@ onBeforeUnmount(() => {
   background: transparent;
   color: inherit;
   font: inherit;
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
 }
 

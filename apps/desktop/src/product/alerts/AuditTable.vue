@@ -10,6 +10,7 @@ import {
   auditResultLabel,
   canRollback,
   formatDurationMs,
+  rollbackLabel,
 } from './audit';
 
 const PAGE = 200;
@@ -48,25 +49,36 @@ onMounted(() => {
 
 async function onRollback(row: AuditEntry): Promise<void> {
   const target = auditParamsSummary(row.params);
+  const docker = row.op.startsWith('docker.container.');
   const ok = await confirm({
-    title: '回退新建文件夹',
-    message: `将删除 ${target}（仅空目录）。回退会写入新的审计记录，且需要有效许可。`,
+    title: docker ? '回退容器操作' : '回退新建文件夹',
+    message: docker
+      ? `将对 ${target} 执行相反操作（启动与停止互换）。回退会写入新的审计记录，且需要有效许可。`
+      : `将删除 ${target}（仅空目录）。回退会写入新的审计记录，且需要有效许可。`,
     confirmLabel: '回退',
     tone: 'danger',
   });
   if (!ok) return;
   failure.value = '';
   if (await rollbackAudit(row.id)) {
-    toast({ title: '已回退', message: '空目录已删除，审计已记录', tone: 'success' });
+    toast({
+      title: '已回退',
+      message: docker ? '已执行相反操作，审计已记录' : '空目录已删除，审计已记录',
+      tone: 'success',
+    });
     await load(true);
     return;
   }
-  failure.value = guardState.errorHint || guardState.error || '请稍后重试';
+  // 具体原因优先，hint 只作兜底：后端拒绝回退时会给出「容器已在运行」这类
+  // 可操作信息，泛化的「请检查 Docker 状态后重试」会把它盖掉（实机复现）。
+  failure.value = guardState.error || guardState.errorHint || '请稍后重试';
   toast({
     title: '回退失败',
     message: failure.value,
     tone: 'error',
   });
+  // 失败回退行后端已落审计，刷新后当场可见。
+  await load(true);
 }
 </script>
 
@@ -117,7 +129,7 @@ async function onRollback(row: AuditEntry): Promise<void> {
           @click.stop="onRollback(row)"
         >
           <LgIcon name="refresh" :size="12" />
-          回退（删除空目录）
+          {{ rollbackLabel(row.op) }}
         </button>
       </div>
     </template>
@@ -155,7 +167,7 @@ async function onRollback(row: AuditEntry): Promise<void> {
 .audit__head {
   padding: 0 12px 6px;
   color: var(--lg-text-muted);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .audit__row {
@@ -165,7 +177,7 @@ async function onRollback(row: AuditEntry): Promise<void> {
   border-radius: var(--lg-radius-sm);
   background: var(--lg-surface);
   color: var(--lg-text-secondary);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
 }
 
@@ -202,7 +214,7 @@ async function onRollback(row: AuditEntry): Promise<void> {
   display: grid;
   gap: 4px;
   margin: 0;
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
 }
 
 .audit__detail dl div {
@@ -225,14 +237,14 @@ async function onRollback(row: AuditEntry): Promise<void> {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 26px;
+  height: var(--lg-control-h-sm);
   margin-top: 10px;
   padding: 0 10px;
   border: var(--lg-border-width) solid var(--lg-warning);
   border-radius: var(--lg-radius-full);
   background: transparent;
   color: var(--lg-warning);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
 }
 
@@ -244,26 +256,26 @@ async function onRollback(row: AuditEntry): Promise<void> {
 .audit__empty {
   margin: 24px 0;
   color: var(--lg-text-muted);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   text-align: center;
 }
 
 .audit__error {
   margin: 0 0 8px;
   color: var(--lg-danger);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
 }
 
 .audit__more {
   align-self: center;
-  height: 30px;
+  height: var(--lg-control-h);
   margin-top: 8px;
   padding: 0 16px;
   border: var(--lg-border-width) solid var(--lg-border);
   border-radius: var(--lg-radius-full);
   background: transparent;
   color: var(--lg-text-secondary);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
 }
 

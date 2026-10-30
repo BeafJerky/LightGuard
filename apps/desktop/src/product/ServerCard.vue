@@ -189,7 +189,7 @@ async function copyAddress() {
     </div>
 
     <footer class="server-card__foot">
-      <LgButton v-if="server.needsAuth" size="tiny" type="warning" ghost @click="emit('credentials', server)">
+      <LgButton v-if="server.needsAuth" size="small" type="warning" ghost @click="emit('credentials', server)">
         更新凭据
       </LgButton>
       <LgButton
@@ -220,8 +220,8 @@ async function copyAddress() {
 .server-card {
   display: flex;
   flex-direction: column;
-  gap: 11px;
-  padding: 16px;
+  gap: var(--lg-gap-md);
+  padding: var(--lg-pad-card);
   border: 1px solid var(--lg-border);
   border-radius: var(--lg-radius-lg);
   background: var(--lg-surface);
@@ -270,7 +270,7 @@ async function copyAddress() {
   border-radius: var(--lg-radius-full);
   background: var(--lg-hover);
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .server-card__auth {
@@ -280,7 +280,7 @@ async function copyAddress() {
 
 .server-card__title h3 {
   margin: 7px 0 0;
-  font-size: 15px;
+  font-size: var(--lg-fs-title);
   font-weight: 650;
   letter-spacing: 0.01em;
 }
@@ -302,7 +302,7 @@ async function copyAddress() {
 .server-card__title p {
   margin: 2px 0 0;
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
 }
 
 .server-card__actions {
@@ -314,11 +314,11 @@ async function copyAddress() {
 .server-card__icon {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: var(--lg-icon-btn);
+  height: var(--lg-icon-btn);
   padding: 0;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--lg-radius-sm);
   background: transparent;
   color: var(--lg-text-muted);
   cursor: pointer;
@@ -335,17 +335,18 @@ async function copyAddress() {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 7px 9px;
+  min-height: var(--lg-control-h);
+  padding: 0 10px;
   border: 1px solid var(--lg-border);
   border-radius: var(--lg-radius-sm);
   background: var(--lg-bg-soft);
   color: var(--lg-text-secondary);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
 }
 
 .mono {
   font-family: var(--lg-font-mono);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   letter-spacing: 0.02em;
 }
 
@@ -354,13 +355,13 @@ async function copyAddress() {
   align-items: center;
   gap: 4px;
   color: var(--lg-text-muted);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .server-card__spec {
   margin: 0;
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   overflow-wrap: anywhere;
 }
 
@@ -374,7 +375,7 @@ async function copyAddress() {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  padding: 8px 9px 6px;
+  padding: 9px 10px 7px;
   border: 1px solid var(--lg-border);
   border-radius: var(--lg-radius-sm);
   background: var(--lg-bg-soft);
@@ -387,13 +388,13 @@ async function copyAddress() {
   justify-content: space-between;
   gap: 6px;
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .metric__head strong {
   color: var(--lg-text);
   font-family: var(--lg-font-mono);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   font-weight: 600;
 }
 
@@ -429,7 +430,7 @@ async function copyAddress() {
   flex-wrap: wrap;
   gap: 8px;
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .metric__net span {
@@ -442,29 +443,29 @@ async function copyAddress() {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 14px 10px;
+  padding: 14px 12px;
   border: 1px dashed var(--lg-border-strong);
   border-radius: var(--lg-radius-sm);
   color: var(--lg-text-muted);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
 }
 
 .server-card__notice {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 8px 10px;
+  padding: 9px 11px;
   border-left: 2px solid var(--lg-info);
   border-radius: var(--lg-radius-sm);
   background: var(--lg-info-soft);
   color: var(--lg-text-secondary);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   line-height: 1.5;
 }
 
 .server-card__notice strong {
   color: var(--lg-info);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   font-weight: 600;
 }
 
@@ -499,13 +500,13 @@ async function copyAddress() {
   border: 1px solid var(--lg-border);
   border-radius: var(--lg-radius-full);
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .server-card__sync {
   margin-left: auto;
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .server-card__foot {

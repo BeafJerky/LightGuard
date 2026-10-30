@@ -117,8 +117,10 @@ pub fn audit_path(params: &str) -> Option<String> {
 }
 
 pub fn rollback_block_reason(row: &AuditRow, has_rollback: bool) -> Option<&'static str> {
-    if row.op != MKDIR_OP {
-        return Some("只有新建文件夹支持回退");
+    let supported = row.op == MKDIR_OP
+        || matches!(row.op.as_str(), "docker.container.start" | "docker.container.stop");
+    if !supported {
+        return Some("该操作不支持回退");
     }
     if row.result != "success" {
         return Some("只有成功执行的操作支持回退");
@@ -180,7 +182,7 @@ fn failed_unknown(action: &str, error: &SshError) -> SshError {
 /// 审计行没落库时的统一提示：用户必须知道这次尝试在审计里看不到。
 const AUDIT_LOST_HINT: &str = "操作已结束但审计记录写入失败，请在审计列表中确认状态。";
 
-fn record(
+pub(crate) fn record(
     db: &Database,
     server_id: &str,
     server_name: &str,
@@ -213,7 +215,11 @@ fn record(
 
 /// 操作本身已经以失败/未知收尾，但审计行没有写进去：保留操作自己的错误码与
 /// 消息，把审计失败追加进去，并把底层 DB 错误打到日志里。
-fn audit_write_failed(operation: SshError, audit: &SshError, may_have_run: bool) -> SshError {
+pub(crate) fn audit_write_failed(
+    operation: SshError,
+    audit: &SshError,
+    may_have_run: bool,
+) -> SshError {
     eprintln!(
         "[lightguard] audit insert failed for {}: {} ({})",
         operation.code, audit.code, audit.message
@@ -233,7 +239,7 @@ fn audit_write_failed(operation: SshError, audit: &SshError, may_have_run: bool)
 
 /// 远端变更已经生效，但审计行没有落库：既没有审计 id，也就没有可回退的记录。
 /// 返回值必须同时说明"操作可能已完成"和"没有审计编号"，前端才不会给出回退入口。
-fn audit_lost_after_success(action: &str, audit: &SshError) -> SshError {
+pub(crate) fn audit_lost_after_success(action: &str, audit: &SshError) -> SshError {
     eprintln!(
         "[lightguard] audit insert failed after {action}: {} ({})",
         audit.code, audit.message
@@ -673,6 +679,29 @@ mod tests {
         assert!(error.hint.contains("没有审计编号"), "{}", error.hint);
         assert!(!error.retryable);
         assert_eq!(error.stage, None);
+    }
+
+    #[test]
+    fn rollback_allows_container_start_and_stop() {
+        let row = AuditRow {
+            id: 7,
+            at_ms: 1,
+            server_id: "srv".to_string(),
+            server_name: "nas".to_string(),
+            op: "docker.container.start".to_string(),
+            params: "{}".to_string(),
+            result: "success".to_string(),
+            duration_ms: 1,
+            permit_source: "unlock:5m".to_string(),
+            rollback_of: None,
+        };
+        assert_eq!(rollback_block_reason(&row, false), None);
+        assert!(rollback_block_reason(
+            &AuditRow { op: "docker.container.restart".to_string(), ..row.clone() },
+            false,
+        )
+        .is_some());
+        assert!(rollback_block_reason(&AuditRow { result: "failed".to_string(), ..row }, false).is_some());
     }
 
     /// 真实服务器夹具：连接 → 建目录 → 重复建（失败落审计）→ 回退。

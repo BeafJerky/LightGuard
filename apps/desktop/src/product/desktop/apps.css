@@ -2,9 +2,9 @@
 .lgapp {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   min-height: 100%;
-  padding: 14px;
+  padding: 16px;
   color: var(--lg-text);
 }
 
@@ -17,7 +17,7 @@
 
 .lgapp-head h2 {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--lg-fs-title);
   font-weight: 650;
   letter-spacing: -0.01em;
 }
@@ -25,7 +25,7 @@
 .lgapp-head p {
   margin: 3px 0 0;
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
 }
 
 .lgapp-nav {
@@ -42,13 +42,13 @@
   flex: 1;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  padding: 6px 10px;
+  gap: 6px;
+  padding: 8px 12px;
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
   color: var(--lg-text-muted);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -69,7 +69,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px;
+  padding: 14px;
   border: 1px solid var(--lg-border);
   border-radius: var(--lg-radius-md);
   background: linear-gradient(135deg, var(--lg-primary-soft), transparent 68%);
@@ -98,7 +98,7 @@
 .lgapp-hero__text h2 {
   margin: 0;
   overflow: hidden;
-  font-size: 14px;
+  font-size: var(--lg-fs-title);
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -108,7 +108,7 @@
   margin: 0;
   overflow: hidden;
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -122,7 +122,7 @@
 .lgapp-section > h3 {
   margin: 0;
   color: var(--lg-text-secondary);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -151,13 +151,13 @@
 
 .lgapp-spec > span {
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgapp-spec > strong {
   overflow: hidden;
   color: var(--lg-text);
-  font-size: 12.5px;
+  font-size: var(--lg-fs-body);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -166,7 +166,7 @@
 .lgapp-spec > small {
   overflow: hidden;
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -185,7 +185,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 7px 10px;
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
 }
 
 .lgapp-info__row + .lgapp-info__row {
@@ -195,20 +195,20 @@
 .lgapp-info__row span {
   flex: 0 0 auto;
   color: var(--lg-text-muted);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgapp-info__row strong {
   overflow-wrap: anywhere;
   color: var(--lg-text-secondary);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   font-weight: 500;
   text-align: right;
 }
 
 .lgapp-mono {
   font-family: var(--lg-font-mono);
-  font-size: 10.5px !important;
+  font-size: var(--lg-fs-label) !important;
 }
 
 .lgapp-bar {
@@ -253,12 +253,12 @@
 
 .lgapp-metric__top span {
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgapp-metric__top strong {
   font-family: var(--lg-font-mono);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   font-weight: 600;
 }
 
@@ -280,18 +280,18 @@
 
 .lgapp-kpi span {
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgapp-kpi strong {
   font-family: var(--lg-font-mono);
-  font-size: 13px;
+  font-size: var(--lg-fs-body);
   font-weight: 600;
 }
 
 .lgapp-kpi small {
   color: var(--lg-text-muted);
-  font-size: 9.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgapp-core-grid {
@@ -310,7 +310,7 @@
   display: flex;
   justify-content: space-between;
   color: var(--lg-text-muted);
-  font-size: 9.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgapp-core span b {
@@ -335,14 +335,14 @@
 }
 
 .lgapp-chart__head strong {
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   font-weight: 600;
 }
 
 .lgapp-chart__head span {
   color: var(--lg-text-muted);
   font-family: var(--lg-font-mono);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgapp-chart__hint {
@@ -353,7 +353,7 @@
   border-radius: var(--lg-radius-sm);
   background: var(--lg-bg-soft);
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
 }
 
 .lgapp-toolbar {
@@ -383,7 +383,7 @@
   border-radius: 5px;
   background: transparent;
   color: var(--lg-text-muted);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
   white-space: nowrap;
   cursor: pointer;
 }
@@ -420,12 +420,12 @@
   border-bottom: 1px solid var(--lg-border);
   background: var(--lg-surface-2);
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgapp-table__row {
   height: 28px;
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgapp-table__row:nth-child(even) {
@@ -441,7 +441,7 @@
 
 .lgapp-table__row > span.is-mono {
   font-family: var(--lg-font-mono);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgapp-table__row > span.is-hot {
@@ -451,7 +451,7 @@
 .lgapp-table__empty {
   padding: 30px 12px;
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   text-align: center;
 }
 
@@ -498,7 +498,7 @@
 
 .lgapp-drive__name strong {
   font-family: var(--lg-font-mono);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   font-weight: 600;
 }
 
@@ -511,7 +511,7 @@
 
 .lgapp-drive__name span {
   color: var(--lg-text-muted);
-  font-size: 9.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgapp-drive__foot {
@@ -520,13 +520,13 @@
   justify-content: space-between;
   gap: 8px;
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgapp-drive__foot strong {
   color: var(--lg-text-secondary);
   font-family: var(--lg-font-mono);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
   font-weight: 500;
 }
 
@@ -539,7 +539,7 @@
   border-radius: var(--lg-radius-sm);
   background: var(--lg-info-soft);
   color: var(--lg-text-secondary);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
   line-height: 1.55;
 }
 
@@ -564,7 +564,7 @@
   overflow-wrap: anywhere;
   color: var(--lg-text-secondary);
   font-family: var(--lg-font-mono);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgapp-copy {
@@ -604,11 +604,11 @@
 
 .lgapp-empty strong {
   color: var(--lg-text-secondary);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
 }
 
 .lgapp-empty span {
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgapp-terminal {
@@ -624,7 +624,7 @@
   align-items: center;
   gap: 6px;
   color: var(--lg-text-muted);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgapp-terminal__note .lg-icon {
@@ -638,7 +638,8 @@
 .tile-processes,
 .tile-connection,
 .tile-files,
-.tile-terminal {
+.tile-terminal,
+.tile-docker {
   /* 图标底色由主题 token 派生，7 套主题与深浅模式保持一致。 */
   border: var(--lg-border-width) solid color-mix(in srgb, var(--tile-color) 34%, var(--lg-border));
   background: linear-gradient(
@@ -682,6 +683,10 @@
 
 .tile-terminal {
   --tile-color: var(--lg-text-secondary);
+}
+
+.tile-docker {
+  --tile-color: var(--lg-info);
 }
 
 @container (max-width: 700px) {

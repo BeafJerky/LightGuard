@@ -200,7 +200,7 @@ function setA11yForceDom(value: boolean) {
   align-items: center;
   gap: 8px;
   margin: 0;
-  font-size: 13px;
+  font-size: var(--lg-fs-body);
   font-weight: 650;
   color: var(--lg-text);
 }
@@ -212,7 +212,7 @@ function setA11yForceDom(value: boolean) {
 .panel-note {
   margin: 0;
   color: var(--lg-text-muted);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   line-height: 1.6;
 }
 
@@ -232,7 +232,7 @@ function setA11yForceDom(value: boolean) {
 }
 
 .render-global label {
-  font-size: 13px;
+  font-size: var(--lg-fs-body);
   color: var(--lg-text-secondary);
   white-space: nowrap;
 }
@@ -254,13 +254,13 @@ function setA11yForceDom(value: boolean) {
 }
 
 .render-row__meta strong {
-  font-size: 13px;
+  font-size: var(--lg-fs-body);
   font-weight: 600;
   color: var(--lg-text);
 }
 
 .render-row__meta span {
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   color: var(--lg-text-muted);
 }
 
@@ -280,7 +280,7 @@ function setA11yForceDom(value: boolean) {
   flex-wrap: wrap;
   gap: 10px;
   padding-top: 8px;
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   color: var(--lg-text-muted);
 }
 </style>

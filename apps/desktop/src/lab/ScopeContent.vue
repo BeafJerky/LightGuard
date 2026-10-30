@@ -649,20 +649,20 @@ const desktopIcons = [
   border: 1px solid var(--lg-border);
   border-radius: var(--lg-radius-full);
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .lab-head strong {
   font-family: var(--lg-font-display);
-  font-size: 17px;
+  font-size: var(--lg-fs-sub);
   letter-spacing: 0.01em;
 }
 
 .lab-head__desc {
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
 }
 
 /* ---------- 主题选择 ---------- */
@@ -682,7 +682,7 @@ const desktopIcons = [
   background: transparent;
   color: var(--lg-text-secondary);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
   transition:
     border-color var(--lg-dur-fast) var(--lg-ease),
@@ -759,7 +759,7 @@ const desktopIcons = [
   gap: 7px;
   margin: 0;
   font-family: var(--lg-font-display);
-  font-size: 13px;
+  font-size: var(--lg-fs-body);
   font-weight: 600;
   letter-spacing: 0.01em;
 }
@@ -770,7 +770,7 @@ const desktopIcons = [
 
 .panel-note {
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   line-height: 1.6;
 }
 
@@ -839,12 +839,12 @@ const desktopIcons = [
 }
 
 .motion-card strong {
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
 }
 
 .motion-card span {
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .modal-body {
@@ -888,12 +888,12 @@ const desktopIcons = [
 
 .desk__host {
   font-family: var(--lg-font-mono);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
 }
 
 .desk__meta {
   color: var(--lg-desktop-text-muted, var(--lg-text-muted));
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .win {
@@ -933,7 +933,7 @@ const desktopIcons = [
 .win__title {
   flex: 1;
   color: var(--lg-text-secondary);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
 }
 
 .win__menu {

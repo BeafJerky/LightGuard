@@ -206,7 +206,7 @@ function onAuth(value: BackendAuth) {
   background: var(--lg-bg-soft);
   color: var(--lg-text-secondary);
   font-family: var(--lg-font-mono);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   overflow-wrap: anywhere;
 }
 
@@ -225,7 +225,7 @@ function onAuth(value: BackendAuth) {
   border-radius: var(--lg-radius-sm);
   background: var(--lg-bg-soft);
   color: var(--lg-text-muted);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
 }
 
@@ -241,7 +241,7 @@ function onAuth(value: BackendAuth) {
   flex-direction: column;
   gap: 5px;
   color: var(--lg-text-secondary);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
 }
 
 .credentials__secret {
@@ -250,15 +250,15 @@ function onAuth(value: BackendAuth) {
 
 .credentials__toggle {
   position: absolute;
-  top: 7px;
-  right: 7px;
+  top: 5px;
+  right: 5px;
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
+  width: var(--lg-icon-btn-sm);
+  height: var(--lg-icon-btn-sm);
   padding: 0;
   border: 1px solid var(--lg-border);
-  border-radius: 7px;
+  border-radius: 6px;
   background: var(--lg-surface);
   color: var(--lg-text-muted);
   cursor: pointer;
@@ -276,7 +276,7 @@ function onAuth(value: BackendAuth) {
   border-radius: var(--lg-radius-sm);
   background: var(--lg-danger-soft);
   color: var(--lg-danger);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   line-height: 1.55;
 }
 
@@ -288,7 +288,7 @@ function onAuth(value: BackendAuth) {
   border-radius: var(--lg-radius-sm);
   background: var(--lg-info-soft);
   color: var(--lg-text-secondary);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   line-height: 1.55;
 }
 

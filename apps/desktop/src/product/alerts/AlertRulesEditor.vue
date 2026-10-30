@@ -293,7 +293,7 @@ function setToggle(key: 'hostkey' | 'login', enabled: boolean) {
 
 .rules-editor__scope label {
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
 }
 
 .rules-editor__select {
@@ -302,7 +302,7 @@ function setToggle(key: 'hostkey' | 'login', enabled: boolean) {
   border-radius: var(--lg-radius-sm);
   background: var(--lg-bg-soft);
   color: var(--lg-text);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
 }
 
 .rules-editor__select:focus-visible,
@@ -317,7 +317,7 @@ function setToggle(key: 'hostkey' | 'login', enabled: boolean) {
   border-radius: var(--lg-radius-full);
   background: var(--lg-warning-soft);
   color: var(--lg-warning);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .rules-editor__reset {
@@ -325,7 +325,7 @@ function setToggle(key: 'hostkey' | 'login', enabled: boolean) {
   border: 0;
   background: transparent;
   color: var(--lg-primary);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
 }
 
@@ -333,7 +333,7 @@ function setToggle(key: 'hostkey' | 'login', enabled: boolean) {
   flex: 0 0 100%;
   margin: 0;
   color: var(--lg-text-muted);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
   line-height: 1.5;
 }
 
@@ -355,7 +355,7 @@ function setToggle(key: 'hostkey' | 'login', enabled: boolean) {
   align-items: center;
   gap: 6px;
   min-width: 118px;
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   font-weight: 600;
 }
 
@@ -364,7 +364,7 @@ function setToggle(key: 'hostkey' | 'login', enabled: boolean) {
   align-items: center;
   gap: 6px;
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
 }
 
 .rules-editor__field input {
@@ -374,18 +374,18 @@ function setToggle(key: 'hostkey' | 'login', enabled: boolean) {
   border-radius: 6px;
   background: var(--lg-bg-soft);
   color: var(--lg-text);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
 }
 
 .rules-editor__unit {
   color: var(--lg-text-muted);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .rules-editor__hint {
   margin-left: auto;
   color: var(--lg-text-muted);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .rules-editor__toggle {

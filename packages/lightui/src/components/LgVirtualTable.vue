@@ -383,7 +383,7 @@ watch(canvas, async () => {
   min-width: 0;
   padding: 0 12px;
   overflow: hidden;
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   line-height: 32px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -391,7 +391,7 @@ watch(canvas, async () => {
 
 .lg-virtual-table__head .lg-virtual-table__cell {
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
 }
 
 .lg-virtual-table__row .lg-virtual-table__cell[style*='right'] {

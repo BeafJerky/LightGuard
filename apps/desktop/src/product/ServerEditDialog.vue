@@ -243,7 +243,7 @@ function openCredentials() {
       <div v-if="error" class="server-edit__error">
         <LgIcon name="alert" :size="15" />
         <span>{{ error }}</span>
-        <LgButton v-if="reconnectFailed" size="tiny" ghost type="warning" @click="openCredentials">
+        <LgButton v-if="reconnectFailed" size="small" ghost type="warning" @click="openCredentials">
           更新凭据
         </LgButton>
       </div>
@@ -284,7 +284,7 @@ function openCredentials() {
   border-radius: var(--lg-radius-sm);
   background: var(--lg-bg-soft);
   color: var(--lg-text-secondary);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   overflow-wrap: anywhere;
 }
 
@@ -292,7 +292,7 @@ function openCredentials() {
   margin-left: auto;
   color: var(--lg-text-muted);
   font-family: var(--lg-font-mono);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
   white-space: nowrap;
 }
 
@@ -315,7 +315,7 @@ function openCredentials() {
 
 .field__label {
   color: var(--lg-text-secondary);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   font-weight: 500;
 }
 
@@ -332,7 +332,7 @@ function openCredentials() {
 
 .field__error {
   color: var(--lg-danger);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
 }
 
 .server-edit__note,
@@ -345,7 +345,7 @@ function openCredentials() {
   border-radius: var(--lg-radius-sm);
   background: var(--lg-info-soft);
   color: var(--lg-text-secondary);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   line-height: 1.55;
 }
 

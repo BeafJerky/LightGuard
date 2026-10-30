@@ -517,13 +517,13 @@ function applyAttention() {
 
 .overview-alert__body strong {
   color: var(--lg-text);
-  font-size: 12.5px;
+  font-size: var(--lg-fs-body);
   font-weight: 600;
 }
 
 .overview-alert__body span {
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
 }
 
 .overview-toolbar {
@@ -560,7 +560,7 @@ function applyAttention() {
   border-radius: 6px;
   background: transparent;
   color: var(--lg-text-muted);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -568,7 +568,7 @@ function applyAttention() {
 .overview-segment button span {
   color: var(--lg-text-muted);
   font-family: var(--lg-font-mono);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .overview-segment button:hover {
@@ -611,7 +611,7 @@ function applyAttention() {
   border-radius: var(--lg-radius-sm);
   background: transparent;
   color: var(--lg-text-secondary);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
 }
 
@@ -639,7 +639,7 @@ function applyAttention() {
   justify-content: space-between;
   gap: 12px;
   color: var(--lg-text-muted);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .overview-foot__net {

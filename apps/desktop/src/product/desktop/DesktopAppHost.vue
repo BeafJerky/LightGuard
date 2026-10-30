@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import ConnectionApp from './ConnectionApp.vue';
 import DisksApp from './DisksApp.vue';
+import DockerApp from '../docker/DockerApp.vue';
 import FilesApp from './files/FilesApp.vue';
 import NetworkApp from './NetworkApp.vue';
 import PerformanceApp from './PerformanceApp.vue';
@@ -34,5 +35,6 @@ const emit = defineEmits<{ disconnect: [] }>();
     @disconnect="emit('disconnect')"
   />
   <FilesApp v-else-if="app === 'files'" :server="server" />
+  <DockerApp v-else-if="app === 'docker'" :server="server" />
   <TerminalApp v-else :server="server" />
 </template>

@@ -8,7 +8,8 @@ export type DesktopAppKey =
   | 'processes'
   | 'connection'
   | 'files'
-  | 'terminal';
+  | 'terminal'
+  | 'docker';
 
 export interface DesktopAppMeta {
   key: DesktopAppKey;
@@ -83,6 +84,15 @@ export const DESKTOP_APPS: DesktopAppMeta[] = [
     tile: 'tile-files',
     width: 920,
     height: 600,
+  },
+  {
+    key: 'docker',
+    title: '容器',
+    description: 'Docker 容器、镜像与仓库',
+    icon: 'layers',
+    tile: 'tile-docker',
+    width: 980,
+    height: 640,
   },
   {
     key: 'terminal',

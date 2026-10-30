@@ -175,6 +175,6 @@ async function refresh() {
   flex: 0 0 auto;
   color: var(--lg-text-muted);
   font-family: var(--lg-font-mono);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 </style>

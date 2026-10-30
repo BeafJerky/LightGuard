@@ -349,7 +349,7 @@ function onThemeSelect(key: string) {
 .console-app {
   position: relative;
   display: grid;
-  grid-template-columns: 236px minmax(0, 1fr);
+  grid-template-columns: 248px minmax(0, 1fr);
   min-height: 100vh;
   background-color: var(--lg-bg);
   background-image: var(--lg-app-bg-image), var(--lg-app-grid-image);
@@ -366,7 +366,7 @@ function onThemeSelect(key: string) {
   border-radius: var(--lg-radius-sm);
   background: var(--lg-primary);
   color: var(--lg-on-primary);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   text-decoration: none;
 }
 
@@ -380,9 +380,9 @@ function onThemeSelect(key: string) {
   z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 24px;
   height: 100vh;
-  padding: 22px 14px 18px;
+  padding: 22px 16px 20px;
   border-right: 1px solid var(--lg-border);
   background: color-mix(in srgb, var(--lg-bg-soft) 82%, transparent);
   backdrop-filter: blur(var(--lg-panel-blur));
@@ -401,10 +401,10 @@ function onThemeSelect(key: string) {
   display: grid;
   flex: 0 0 auto;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   border: 1px solid var(--lg-border-strong);
-  border-radius: 12px;
+  border-radius: var(--lg-radius-md);
   background: linear-gradient(155deg, var(--lg-primary-soft), var(--lg-accent-soft));
   color: var(--lg-primary);
 }
@@ -416,14 +416,14 @@ function onThemeSelect(key: string) {
 }
 
 .console-brand__text strong {
-  font-size: 15px;
+  font-size: var(--lg-fs-title);
   font-weight: 650;
   letter-spacing: 0.01em;
 }
 
 .console-brand__text small {
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
 }
 
 .console-nav {
@@ -437,11 +437,12 @@ function onThemeSelect(key: string) {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 11px;
+  min-height: var(--lg-nav-h);
+  padding: 0 12px;
   border: 1px solid transparent;
   border-radius: var(--lg-radius-sm);
   color: var(--lg-text-secondary);
-  font-size: 13px;
+  font-size: var(--lg-fs-body);
   text-decoration: none;
   transition:
     background-color var(--lg-dur-fast) var(--lg-ease),
@@ -477,7 +478,7 @@ function onThemeSelect(key: string) {
   border-radius: var(--lg-radius-full);
   background: var(--lg-danger-soft);
   color: var(--lg-danger);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
   font-weight: 700;
 }
 
@@ -516,14 +517,14 @@ function onThemeSelect(key: string) {
 }
 
 .console-workspace strong {
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   font-weight: 600;
 }
 
 .console-workspace small {
   overflow: hidden;
   color: var(--lg-text-muted);
-  font-size: 9.5px;
+  font-size: var(--lg-fs-label);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -539,7 +540,7 @@ function onThemeSelect(key: string) {
   background: linear-gradient(145deg, var(--lg-primary-soft), var(--lg-accent-soft));
   color: var(--lg-primary);
   font-family: var(--lg-font-mono);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
   font-weight: 700;
 }
 
@@ -563,13 +564,13 @@ function onThemeSelect(key: string) {
 }
 
 .console-mode strong {
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   font-weight: 600;
 }
 
 .console-mode small {
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .console-theme {
@@ -600,12 +601,12 @@ function onThemeSelect(key: string) {
 
 .console-theme small {
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .console-theme strong {
   color: var(--lg-text);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   font-weight: 600;
 }
 
@@ -639,7 +640,7 @@ function onThemeSelect(key: string) {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  height: 46px;
+  height: 50px;
   padding: 0 clamp(18px, 3vw, 38px);
   border-bottom: var(--lg-border-width) solid var(--lg-border);
   background: color-mix(in srgb, var(--lg-bg-soft) 78%, transparent);
@@ -652,7 +653,7 @@ function onThemeSelect(key: string) {
   gap: 7px;
   min-width: 0;
   color: var(--lg-text-muted);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   white-space: nowrap;
 }
 
@@ -679,7 +680,7 @@ function onThemeSelect(key: string) {
   border-radius: var(--lg-radius-full);
   background: var(--lg-surface);
   color: var(--lg-text-secondary);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
   white-space: nowrap;
   cursor: pointer;
 }
@@ -698,7 +699,7 @@ function onThemeSelect(key: string) {
   border-radius: var(--lg-radius-full);
   background: var(--lg-warning-soft);
   color: var(--lg-warning);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
   white-space: nowrap;
 }
 
@@ -710,7 +711,7 @@ function onThemeSelect(key: string) {
   border: var(--lg-border-width) solid var(--lg-border);
   border-radius: var(--lg-radius-full);
   color: var(--lg-text-muted);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
   white-space: nowrap;
 }
 
@@ -724,8 +725,8 @@ function onThemeSelect(key: string) {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 18px;
-  padding: 24px clamp(18px, 3vw, 38px) 0;
+  gap: 20px;
+  padding: 26px clamp(18px, 3vw, 38px) 0;
   flex-wrap: wrap;
 }
 
@@ -735,7 +736,7 @@ function onThemeSelect(key: string) {
   gap: 7px;
   margin-bottom: 8px;
   color: var(--lg-primary);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
   font-weight: 600;
   letter-spacing: 0.13em;
   text-transform: uppercase;
@@ -752,7 +753,7 @@ function onThemeSelect(key: string) {
 .console-head__meta h1 {
   margin: 0;
   font-family: var(--lg-font-display, var(--lg-font-sans));
-  font-size: clamp(23px, 2.4vw, 28px);
+  font-size: clamp(26px, 2.6vw, 30px);
   font-weight: 700;
   letter-spacing: -0.025em;
   line-height: 1.2;
@@ -761,7 +762,7 @@ function onThemeSelect(key: string) {
 .console-head__meta p {
   margin: 7px 0 0;
   color: var(--lg-text-secondary);
-  font-size: 12.5px;
+  font-size: var(--lg-fs-body);
 }
 
 .console-head__actions {
@@ -778,7 +779,7 @@ function onThemeSelect(key: string) {
   border: var(--lg-border-width) solid var(--lg-border);
   border-radius: var(--lg-radius-full);
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   white-space: nowrap;
 }
 
@@ -787,7 +788,7 @@ function onThemeSelect(key: string) {
   width: 100%;
   max-width: 1560px;
   margin: 0 auto;
-  padding: 20px clamp(18px, 3vw, 38px) 46px;
+  padding: 22px clamp(18px, 3vw, 38px) 48px;
   outline: none;
 }
 

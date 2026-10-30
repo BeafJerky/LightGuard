@@ -258,6 +258,69 @@ impl SshError {
             None,
         )
     }
+
+    pub fn docker_unavailable(message: impl Into<String>) -> Self {
+        Self::new(
+            "DOCKER_UNAVAILABLE",
+            message,
+            "请确认服务器已安装 Docker，且 Docker 服务正在运行。",
+            None,
+        )
+    }
+
+    pub fn docker_permission(message: impl Into<String>) -> Self {
+        Self::new(
+            "DOCKER_PERMISSION",
+            message,
+            "请使用有 docker 组权限的账号，或调整 /var/run/docker.sock 权限。",
+            None,
+        )
+    }
+
+    pub fn docker_failed(message: impl Into<String>) -> Self {
+        Self::new(
+            "DOCKER_FAILED",
+            message,
+            "请检查 Docker 状态后重试。",
+            None,
+        )
+    }
+
+    pub fn sudo_required() -> Self {
+        Self::new(
+            "SUDO_REQUIRED",
+            "该操作需要系统授权。",
+            "输入管理员密码后继续。",
+            None,
+        )
+    }
+
+    pub fn sudo_failed(message: impl Into<String>) -> Self {
+        Self::new(
+            "SUDO_FAILED",
+            message,
+            "请检查密码，或确认该账号具有 sudo 权限。",
+            None,
+        )
+    }
+
+    pub fn daemon_invalid(message: impl Into<String>) -> Self {
+        Self::new(
+            "DAEMON_INVALID",
+            message,
+            "请检查 /etc/docker/daemon.json 的内容后重试。",
+            None,
+        )
+    }
+
+    pub fn registry_failed(message: impl Into<String>) -> Self {
+        Self::new(
+            "REGISTRY_FAILED",
+            message,
+            "请检查网络与镜像仓库地址后重试。",
+            None,
+        )
+    }
 }
 
 impl std::fmt::Display for SshError {
@@ -347,5 +410,25 @@ mod tests {
             assert!(!json["hint"].as_str().unwrap_or_default().is_empty());
         }
         assert_eq!(SshError::preview_failed("x").message, "x");
+    }
+
+    #[test]
+    fn docker_errors_keep_the_wire_shape() {
+        let cases = [
+            (SshError::docker_unavailable("未安装"), "DOCKER_UNAVAILABLE"),
+            (SshError::docker_permission("无权限"), "DOCKER_PERMISSION"),
+            (SshError::docker_failed("命令失败"), "DOCKER_FAILED"),
+            (SshError::sudo_required(), "SUDO_REQUIRED"),
+            (SshError::sudo_failed("密码错误"), "SUDO_FAILED"),
+            (SshError::daemon_invalid("JSON 非法"), "DAEMON_INVALID"),
+            (SshError::registry_failed("搜索失败"), "REGISTRY_FAILED"),
+        ];
+        for (error, code) in cases {
+            let json = serde_json::to_value(&error).unwrap();
+            assert_eq!(json["code"], code);
+            assert!(json.get("stage").is_none(), "no stage for {code}");
+            assert!(!json["message"].as_str().unwrap_or_default().is_empty());
+            assert!(!json["hint"].as_str().unwrap_or_default().is_empty());
+        }
     }
 }

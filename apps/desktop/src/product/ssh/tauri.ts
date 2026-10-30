@@ -42,7 +42,7 @@ export function isTauriRuntime(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
-async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+export async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   const { invoke } = await loadCore();
   try {
     return await invoke<T>(command, args);
@@ -52,7 +52,7 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
 }
 
 // 事件监听按契约事件名统一装配：动态导入失败时静默降级，卸载时保证只取消一次。
-function listenEvent<T>(event: string, handler: (payload: T) => void): () => void {
+export function listenEvent<T>(event: string, handler: (payload: T) => void): () => void {
   let disposed = false;
   let unlisten: (() => void) | null = null;
   void loadEvents()

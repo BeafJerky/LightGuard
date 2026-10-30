@@ -67,6 +67,7 @@ function draw(ctx: CanvasRenderingContext2D, frame: CanvasFrame) {
     'tile-processes': theme.color.danger,
     'tile-connection': theme.color.success,
     'tile-terminal': theme.color.textSecondary,
+    'tile-docker': theme.color.info,
   };
 
   cells.value.forEach((cell, index) => {
@@ -207,7 +208,7 @@ function cellStyle(index: number) {
   background: transparent;
   color: var(--lg-desktop-text, var(--lg-text));
   font: inherit;
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   line-height: 1.3;
   cursor: pointer;
   pointer-events: auto;

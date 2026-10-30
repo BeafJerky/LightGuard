@@ -22,7 +22,7 @@ import { themeSwitching } from './product/theme';
   gap: 10px;
   background: color-mix(in srgb, var(--lg-bg) 82%, transparent);
   color: var(--lg-text-secondary);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   cursor: wait;
 }
 

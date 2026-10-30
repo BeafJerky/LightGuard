@@ -300,7 +300,7 @@ watch(
           />
         </form>
         <label class="lgfiles-search">
-          <LgIcon name="search" :size="13" />
+          <LgIcon name="search" :size="15" />
           <input v-model="files.view.query" aria-label="筛选当前目录" placeholder="筛选当前目录" />
         </label>
         <div class="lgfiles-menu-anchor">
@@ -325,7 +325,7 @@ watch(
               :aria-checked="files.view.mode === option.mode"
               @click="chooseMode(option.mode)"
             >
-              <LgIcon v-if="files.view.mode === option.mode" name="check" :size="11" />
+              <LgIcon v-if="files.view.mode === option.mode" name="check" :size="13" />
               <span v-else class="lgfiles-menu__blank" />
               {{ option.label }}
             </button>
@@ -397,7 +397,7 @@ watch(
           <footer class="lgfiles-status">
             <span>{{ statusText }}</span>
             <span v-if="activeDownloads.length" class="lgfiles-status__transfer">
-              <LgIcon name="download" :size="12" />
+              <LgIcon name="download" :size="14" />
               {{ activeDownloads.length }} 个传输中
             </span>
           </footer>

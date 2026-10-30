@@ -7,7 +7,7 @@ import type {
 } from './types';
 
 export const APP_VERSION = '0.13.0';
-export const APP_BUILD = '2026.10.29';
+export const APP_BUILD = '2026.10.30';
 export const HISTORY_POINTS = 120;
 export const MAX_LOGS = 80;
 

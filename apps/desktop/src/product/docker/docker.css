@@ -637,7 +637,10 @@
 .lgdocker-table__head,
 .lgdocker-table__row {
   display: grid;
-  grid-template-columns: 56px minmax(96px, 1.4fr) minmax(84px, 1.2fr) minmax(60px, 0.9fr) 46px 46px minmax(76px, 1fr) 74px 92px;
+  /* 创建时间 92px 刚好容纳 9.5px 等宽的 “YYYY-MM-DD HH:mm”（实测 89px）；
+     操作列 128px = 4 个 20px 图标 + 4 个 3px 间隙 + 详情 33px（实测 125px）。
+     轨道小于内容时 flex-end 会把按钮向左溢出、压住创建时间，改宽度前先量内容。 */
+  grid-template-columns: 56px minmax(96px, 1.4fr) minmax(84px, 1.2fr) minmax(60px, 0.9fr) 46px 46px minmax(76px, 1fr) 92px 128px;
   align-items: center;
   gap: 8px;
   padding: 0 11px;
@@ -812,9 +815,10 @@
   font-size: 9.5px;
 }
 
-/* 9 列需表格 ≥ 630 轨道 + 64 间隙 + 22 内边距 + 2 边框 = 718；表格 = 容器 − 28 页面内边距，故容器 ≥ 746。
-   像素与 NES 主题的边框宽 2px，最小宽度再 +2，按 748 计；因此 8 轨道规则在容器宽度 ≤ 747px 时触发。 */
-@container docker (max-width: 747px) {
+/* 9 列需表格 ≥ 684 轨道 + 64 间隙 + 22 内边距 + 2 边框 = 772；表格 = 容器 − 28 页面内边距，故容器 ≥ 800。
+   桌面窗口最小 960 − 侧栏 148 = 812，正好停在最挤的 9 列；因此 8 列在容器 ≤ 819 时触发（最小窗口默认 8 列）。
+   像素与 NES 主题的边框宽 2px，最小宽度再 +2，819 的阈值本身已留余量。 */
+@container docker (max-width: 819px) {
   /* 上述轨道数只针对容器表；仓库表是 5 列，保持自身轨道，避免表头与行错位。 */
   .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__head span:nth-child(8),
   .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__row > span:nth-child(8) {
@@ -823,13 +827,13 @@
 
   .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__head,
   .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__row {
-    grid-template-columns: 56px minmax(96px, 1.4fr) minmax(84px, 1.2fr) minmax(60px, 0.9fr) 46px 46px minmax(76px, 1fr) 92px;
+    grid-template-columns: 56px minmax(96px, 1.4fr) minmax(84px, 1.2fr) minmax(60px, 0.9fr) 46px 46px minmax(76px, 1fr) 128px;
   }
 }
 
-/* 8 列需表格 ≥ 556 轨道 + 56 间隙 + 22 内边距 + 2 边框 = 636；表格 = 容器 − 28 页面内边距，故容器 ≥ 664。
-   像素与 NES 主题的边框宽 2px，最小宽度再 +2，按 666 计；因此 4 轨道规则在容器宽度 ≤ 665px 时触发。 */
-@container docker (max-width: 665px) {
+/* 8 列需表格 ≥ 592 轨道 + 56 间隙 + 22 内边距 + 2 边框 = 672；表格 = 容器 − 28 页面内边距，故容器 ≥ 700。
+   像素与 NES 主题的边框宽 2px，最小宽度再 +2（容器 ≥ 702），因此 4 轨道规则在容器宽度 ≤ 703px 时触发。 */
+@container docker (max-width: 703px) {
   /* 同上：4 轨道规则只作用于容器表，仓库表在 ≤600 时由自身规则收窄。 */
   .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__head span:nth-child(4),
   .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__head span:nth-child(5),
@@ -844,7 +848,16 @@
 
   .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__head,
   .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__row {
-    grid-template-columns: 56px minmax(96px, 1.4fr) minmax(84px, 1.2fr) 92px;
+    grid-template-columns: 56px minmax(96px, 1.4fr) minmax(84px, 1.2fr) 128px;
+  }
+}
+
+/* 容器 < 440 时四列的最小轨道也放不下（仅 Web 预览等极窄场景，桌面窗口最小 960 不触发）。
+   让名称与镜像继续收缩，避免操作列被表格的 overflow: hidden 裁掉。 */
+@container docker (max-width: 439px) {
+  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__head,
+  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__row {
+    grid-template-columns: 56px minmax(0, 1.4fr) minmax(0, 1.2fr) 128px;
   }
 }
 

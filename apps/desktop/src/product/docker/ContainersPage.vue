@@ -8,19 +8,11 @@ import { dockerApi, type DockerContainer, type DockerContainerDetail } from './a
 import type { ContainerMenuKind } from './actions';
 import type { DesktopAppKey } from '../desktop/apps';
 import { requestContainerTerminal } from '../terminal/bus';
-import {
-  filterContainers,
-  mergeStats,
-  readLayout,
-  sortContainers,
-  writeLayout,
-  type ContainerLayout,
-} from './containers';
+import { filterContainers, mergeStats, sortContainers } from './containers';
 import { shortText } from './format';
 import { permissionHint } from './status';
 import { useDockerWrite } from './useDockerAction';
 import ContainerCard from './ContainerCard.vue';
-import ContainerTable from './ContainerTable.vue';
 import ContainerDetail from './ContainerDetail.vue';
 import DockerActionDialog from './DockerActionDialog.vue';
 
@@ -31,7 +23,6 @@ const loading = ref(true);
 const error = ref('');
 const errorCode = ref('');
 const keyword = ref('');
-const layout = ref<ContainerLayout>(readLayout());
 const selected = ref<DockerContainer | null>(null);
 // 抽屉挂到 Docker 应用根节点，避免随 .lgdocker-main 滚动或被其布局包含改写包含块。
 const dockerRoot = inject<Ref<HTMLElement | null>>('lg:docker-root', ref(null));
@@ -92,11 +83,6 @@ async function refreshStats(): Promise<void> {
   } catch {
     // stats 失败只影响资源列，保留已渲染的列表。
   }
-}
-
-function setLayout(next: ContainerLayout): void {
-  layout.value = next;
-  writeLayout(next);
 }
 
 async function runAction(row: DockerContainer, kind: ContainerMenuKind): Promise<void> {
@@ -182,26 +168,6 @@ onMounted(load);
         <LgIcon name="search" :size="13" />
         <input v-model="keyword" type="search" placeholder="搜索名称、镜像或项目" aria-label="搜索容器" />
       </label>
-      <div class="lgdocker-segment" role="group" aria-label="容器布局">
-        <button
-          type="button"
-          :class="{ 'is-active': layout === 'card' }"
-          :aria-pressed="layout === 'card'"
-          aria-label="卡片视图"
-          @click="setLayout('card')"
-        >
-          <LgIcon name="grid" :size="13" />
-        </button>
-        <button
-          type="button"
-          :class="{ 'is-active': layout === 'table' }"
-          :aria-pressed="layout === 'table'"
-          aria-label="表格视图"
-          @click="setLayout('table')"
-        >
-          <LgIcon name="menu" :size="13" />
-        </button>
-      </div>
       <span class="lgdocker-count">{{ summary }}</span>
     </div>
 
@@ -230,7 +196,7 @@ onMounted(load);
       <span>试试 {{ shortText(keyword, 24) }} 以外的关键词。</span>
     </div>
 
-    <div v-else-if="layout === 'card'" class="lgdocker-cards">
+    <div v-else class="lgdocker-rows">
       <ContainerCard
         v-for="row in visible"
         :key="row.id"
@@ -240,14 +206,6 @@ onMounted(load);
         @action="runAction"
       />
     </div>
-
-    <ContainerTable
-      v-else
-      :rows="visible"
-      :active-id="selected?.id"
-      @detail="selected = $event"
-      @action="runAction"
-    />
 
     <Teleport v-if="selected && dockerRoot" :to="dockerRoot">
       <ContainerDetail

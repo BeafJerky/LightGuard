@@ -189,6 +189,7 @@ pub fn run() {
             docker::commands::docker_stats,
             docker::commands::docker_images,
             docker::commands::docker_registry_search,
+            docker::commands::docker_registry_tags,
             docker::commands::docker_write_preview,
             docker::commands::docker_write_execute,
             docker::commands::docker_write_cancel,

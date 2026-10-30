@@ -232,7 +232,7 @@ function confirmMute() {
   align-self: start;
   padding-top: 1px;
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   white-space: nowrap;
 }
 
@@ -256,7 +256,7 @@ function confirmMute() {
 }
 
 .alert-row__head strong {
-  font-size: 13px;
+  font-size: var(--lg-fs-body);
   font-weight: 600;
   overflow-wrap: anywhere;
 }
@@ -267,7 +267,7 @@ function confirmMute() {
   align-items: center;
   gap: 5px;
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   white-space: nowrap;
 }
 
@@ -294,7 +294,7 @@ function confirmMute() {
 .alert-row__detail {
   margin: 4px 0 0;
   color: var(--lg-text-secondary);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
@@ -311,13 +311,13 @@ function confirmMute() {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 26px;
+  height: var(--lg-control-h-sm);
   padding: 0 9px;
   border: var(--lg-border-width) solid var(--lg-border);
   border-radius: var(--lg-radius-full);
   background: transparent;
   color: var(--lg-text-secondary);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -348,13 +348,13 @@ function confirmMute() {
 }
 
 .alert-row__durations button {
-  height: 26px;
+  height: var(--lg-control-h-sm);
   padding: 0 10px;
   border: var(--lg-border-width) solid var(--lg-border);
   border-radius: var(--lg-radius-full);
   background: var(--lg-surface);
   color: var(--lg-text-secondary);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
 }
 
@@ -369,17 +369,17 @@ function confirmMute() {
   gap: 4px;
   margin-top: 10px;
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
 }
 
 .alert-row__reason input {
-  height: 30px;
+  height: var(--lg-control-h);
   padding: 0 10px;
   border: var(--lg-border-width) solid var(--lg-border);
   border-radius: var(--lg-radius-sm);
   background: var(--lg-surface);
   color: var(--lg-text);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
 }
 
 .alert-row__reason input:focus-visible {
@@ -391,7 +391,7 @@ function confirmMute() {
 .alert-row__error {
   margin: 8px 0 0;
   color: var(--lg-danger);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
 }
 
 .alert-row__actions {
@@ -402,13 +402,13 @@ function confirmMute() {
 }
 
 .alert-row__actions button {
-  height: 28px;
+  height: var(--lg-control-h);
   padding: 0 12px;
   border: var(--lg-border-width) solid var(--lg-border);
   border-radius: var(--lg-radius-sm);
   background: transparent;
   color: var(--lg-text-secondary);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
 }
 

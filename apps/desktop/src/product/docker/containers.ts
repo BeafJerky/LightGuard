@@ -1,40 +1,5 @@
 import type { DockerContainer, DockerStatsSample } from './api';
 
-export type ContainerLayout = 'card' | 'table';
-export const LAYOUT_KEY = 'lg.docker.containers.layout';
-
-function safeStorage(): Storage | null {
-  try {
-    return typeof localStorage === 'undefined' ? null : localStorage;
-  } catch {
-    return null;
-  }
-}
-
-export function normalizeLayout(value: string | null | undefined): ContainerLayout {
-  return value === 'table' ? 'table' : 'card';
-}
-
-export function readLayout(): ContainerLayout {
-  const storage = safeStorage();
-  if (!storage) return 'card';
-  try {
-    return normalizeLayout(storage.getItem(LAYOUT_KEY));
-  } catch {
-    return 'card';
-  }
-}
-
-export function writeLayout(layout: ContainerLayout): void {
-  const storage = safeStorage();
-  if (!storage) return;
-  try {
-    storage.setItem(LAYOUT_KEY, layout);
-  } catch {
-    // 隐私模式或配额不足时只保留本次会话的选择。
-  }
-}
-
 export function mergeStats(
   rows: DockerContainer[],
   samples: DockerStatsSample[],

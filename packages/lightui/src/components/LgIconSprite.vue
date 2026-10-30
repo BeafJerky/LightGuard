@@ -8,6 +8,7 @@
     <symbol id="lg-i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
     <symbol id="lg-i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-13.7-5.6L4 8" /><path d="M4 4v4h4" /><path d="M4 13a8 8 0 0 0 13.7 5.6L20 16" /><path d="M20 20v-4h-4" /></symbol>
     <symbol id="lg-i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></symbol>
+    <symbol id="lg-i-chevron-up" viewBox="0 0 24 24"><path d="m6 15 6-6 6 6" /></symbol>
     <symbol id="lg-i-chevron-right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" /></symbol>
     <symbol id="lg-i-chevron-left" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6" /></symbol>
     <symbol id="lg-i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6" /></symbol>
@@ -41,6 +42,7 @@
     <symbol id="lg-i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4" /><path d="m11 12 7-7M15 5l3 3M17 3l3 3" /></symbol>
     <symbol id="lg-i-wifi" viewBox="0 0 24 24"><path d="M2.5 9a15 15 0 0 1 19 0M5.5 12.5a10 10 0 0 1 13 0M8.5 16a5 5 0 0 1 7 0" /><circle cx="12" cy="19" r="1" /></symbol>
     <symbol id="lg-i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h8" /></symbol>
+    <symbol id="lg-i-clipboard" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="17" rx="2" /><path d="M9 4V3h6v1M9 9h6M9 13h6M9 17h4" /></symbol>
     <symbol id="lg-i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16" /></symbol>
     <symbol id="lg-i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" /><circle cx="12" cy="12" r="2.5" /></symbol>
     <symbol id="lg-i-eye-off" viewBox="0 0 24 24"><path d="m3 3 18 18" /><path d="M10.6 6.2A10.8 10.8 0 0 1 12 6c6.5 0 10 6 10 6a17 17 0 0 1-3 3.7M6.6 6.6A17 17 0 0 0 2 12s3.5 6 10 6a10 10 0 0 0 4.2-.9" /></symbol>

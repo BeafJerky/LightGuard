@@ -157,6 +157,12 @@ export interface RegistrySearchItem {
   automated: boolean;
 }
 
+/** 加速源上的标签列表；`repo` 已归一化（单段名字带 `library/`）。 */
+export interface RegistryTags {
+  repo: string;
+  tags: string[];
+}
+
 export interface DockerPreview {
   previewId: string;
   kind: string;
@@ -214,6 +220,7 @@ export interface DockerApi {
   images(serverId: string): Promise<DockerImage[]>;
   registryConfig(serverId: string): Promise<RegistryConfig>;
   registrySearch(serverId: string, term: string, limit?: number): Promise<RegistrySearchItem[]>;
+  registryTags(serverId: string, repo: string): Promise<RegistryTags>;
   writePreview(serverId: string, input: DockerWriteInput): Promise<DockerPreview>;
   writeExecute(previewId: string, onLine: (line: string) => void): Promise<DockerWriteResult>;
   writeCancel(serverId: string): Promise<boolean>;
@@ -253,6 +260,9 @@ export function createTauriDockerApi(): DockerApi {
     },
     registrySearch(serverId, term, limit = 25) {
       return call('docker_registry_search', { serverId, term, limit });
+    },
+    registryTags(serverId, repo) {
+      return call('docker_registry_tags', { serverId, repo });
     },
     writePreview(serverId, input) {
       return call('docker_write_preview', { serverId, input });
@@ -324,6 +334,7 @@ export function createUnsupportedDockerApi(): DockerApi {
     images: reject,
     registryConfig: reject,
     registrySearch: reject,
+    registryTags: reject,
     writePreview: reject,
     writeExecute: reject,
     writeCancel: reject,

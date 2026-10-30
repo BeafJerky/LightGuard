@@ -716,10 +716,16 @@ async function onRetry() {
           <p class="desk-offline__hint">{{ server.error?.hint ?? '请检查网络与凭据后重试。' }}</p>
         </template>
         <div class="desk-offline__actions">
-          <LgButton size="small" :disabled="connecting || retrying" :loading="retrying" @click="onRetry">
+          <LgButton
+            size="small"
+            type="primary"
+            :disabled="connecting || retrying"
+            :loading="retrying"
+            @click="onRetry"
+          >
             重新连接
           </LgButton>
-          <LgButton size="small" secondary @click="goConsole">返回控制台</LgButton>
+          <LgButton size="small" @click="goConsole">返回控制台</LgButton>
         </div>
       </div>
     </div>
@@ -788,7 +794,8 @@ async function onRetry() {
   box-shadow: var(--lg-shadow-sm);
   backdrop-filter: blur(var(--lg-panel-blur));
   color: var(--lg-text-secondary);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
+  /* 状态条保持单行；内部浮层（如许可面板）必须自行重置 white-space: normal。 */
   white-space: nowrap;
 }
 
@@ -852,7 +859,7 @@ async function onRetry() {
   border-radius: var(--lg-radius-full);
   color: var(--lg-text-muted);
   font-family: var(--lg-font-mono);
-  font-size: 8.5px;
+  font-size: var(--lg-fs-label);
   letter-spacing: 0.08em;
 }
 
@@ -860,7 +867,7 @@ async function onRetry() {
   overflow: hidden;
   max-width: 180px;
   color: var(--lg-text);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   font-weight: 650;
   text-overflow: ellipsis;
 }
@@ -870,7 +877,7 @@ async function onRetry() {
   max-width: 190px;
   color: var(--lg-text-muted);
   font-family: var(--lg-font-mono);
-  font-size: 9.5px;
+  font-size: var(--lg-fs-label);
   text-overflow: ellipsis;
 }
 
@@ -880,7 +887,7 @@ async function onRetry() {
   gap: 4px;
   color: var(--lg-text-muted);
   font-family: var(--lg-font-mono);
-  font-size: 9.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .conn-bar__power {
@@ -890,7 +897,7 @@ async function onRetry() {
   border-radius: var(--lg-radius-full);
   background: var(--lg-surface);
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
   cursor: pointer;
 }
 
@@ -924,13 +931,13 @@ async function onRetry() {
 
 .serverdesk.is-bar-full .conn-bar__mode {
   padding: 2px 7px;
-  font-size: 9px;
+  font-size: var(--lg-fs-label);
 }
 
 .serverdesk.is-bar-full .conn-bar__name {
   min-width: 0;
   max-width: 220px;
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
 }
 
 .serverdesk.is-bar-full .conn-bar__addr {
@@ -938,7 +945,7 @@ async function onRetry() {
   max-width: 240px;
   padding-left: 10px;
   border-left: var(--lg-border-width) solid var(--lg-border);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .serverdesk.is-bar-full .conn-bar__stats {
@@ -953,13 +960,13 @@ async function onRetry() {
 }
 
 .serverdesk.is-bar-full .conn-bar__meta {
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .serverdesk.is-bar-full .conn-bar__power {
   height: 28px;
   padding: 0 12px;
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .desk-watermark {
@@ -978,7 +985,7 @@ async function onRetry() {
   bottom: 76px;
   z-index: 2;
   color: var(--lg-desktop-text-muted, var(--lg-text-muted));
-  font-size: 9.5px;
+  font-size: var(--lg-fs-label);
   letter-spacing: 0.18em;
   text-transform: uppercase;
   opacity: 0.65;
@@ -1005,7 +1012,7 @@ async function onRetry() {
   background: color-mix(in srgb, var(--lg-surface) 42%, transparent);
   backdrop-filter: blur(var(--lg-panel-blur));
   color: var(--lg-desktop-text-muted, var(--lg-text-muted));
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
   pointer-events: none;
   animation: desk-hint-fade 9s var(--lg-ease) forwards;
 }
@@ -1065,13 +1072,13 @@ async function onRetry() {
 }
 
 .desk-start__head strong {
-  font-size: 12.5px;
+  font-size: var(--lg-fs-body);
 }
 
 .desk-start__head small {
   overflow: hidden;
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1094,7 +1101,7 @@ async function onRetry() {
 .desk-start__empty {
   margin: 4px 0;
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   text-align: center;
 }
 
@@ -1108,7 +1115,7 @@ async function onRetry() {
 .desk-start__section h3 {
   margin: 0;
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -1148,14 +1155,14 @@ async function onRetry() {
 }
 
 .desk-start__app strong {
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   font-weight: 600;
 }
 
 .desk-start__app small {
   overflow: hidden;
   color: var(--lg-text-muted);
-  font-size: 9.5px;
+  font-size: var(--lg-fs-label);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1184,7 +1191,7 @@ async function onRetry() {
   border-radius: var(--lg-radius-full);
   background: var(--lg-bg-soft);
   color: var(--lg-text-muted);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
   cursor: pointer;
 }
 
@@ -1223,7 +1230,7 @@ async function onRetry() {
   border-radius: 6px;
   background: var(--lg-surface);
   color: var(--lg-text-secondary);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
   cursor: pointer;
 }
 
@@ -1240,7 +1247,7 @@ async function onRetry() {
 .desk-start__foot span {
   margin-left: auto;
   color: var(--lg-text-muted);
-  font-size: 9.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .desk-tray {
@@ -1273,12 +1280,12 @@ async function onRetry() {
 }
 
 .desk-tray__head strong {
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
 }
 
 .desk-tray__head small {
   color: var(--lg-text-muted);
-  font-size: 9.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .desk-tray__mark {
@@ -1297,18 +1304,18 @@ async function onRetry() {
   justify-content: space-between;
   gap: 8px;
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .desk-tray__mono {
   font-family: var(--lg-font-mono);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .desk-tray__row strong {
   overflow: hidden;
   color: var(--lg-text-secondary);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1347,7 +1354,7 @@ async function onRetry() {
   border-radius: 6px;
   background: var(--lg-surface);
   color: var(--lg-text-secondary);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
   cursor: pointer;
 }
 
@@ -1445,7 +1452,7 @@ async function onRetry() {
   border-radius: var(--lg-radius-full);
   background: var(--lg-surface-2);
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   white-space: nowrap;
   cursor: pointer;
 }
@@ -1543,13 +1550,13 @@ async function onRetry() {
 }
 
 .desk-clock strong {
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   font-weight: 600;
 }
 
 .desk-clock span {
   color: var(--lg-desktop-text-muted, var(--lg-text-muted));
-  font-size: 9px;
+  font-size: var(--lg-fs-label);
 }
 
 .desk-offline {
@@ -1593,13 +1600,13 @@ async function onRetry() {
 
 .desk-offline h2 {
   margin: 2px 0 0;
-  font-size: 14px;
+  font-size: var(--lg-fs-title);
 }
 
 .desk-offline p {
   margin: 0;
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   line-height: 1.6;
 }
 
@@ -1650,7 +1657,7 @@ async function onRetry() {
 
 .desk-boot h1 {
   margin: 12px 0 0;
-  font-size: 17px;
+  font-size: var(--lg-fs-sub);
   letter-spacing: -0.01em;
 }
 
@@ -1658,7 +1665,7 @@ async function onRetry() {
   margin: 3px 0 0;
   color: var(--lg-text-muted);
   font-family: var(--lg-font-mono);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .desk-boot__steps {
@@ -1677,7 +1684,7 @@ async function onRetry() {
   align-items: center;
   gap: 7px;
   color: var(--lg-text-muted);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .desk-boot__steps li.is-active {
@@ -1770,7 +1777,7 @@ async function onRetry() {
 
 .desk-taskbar__permit {
   color: var(--lg-warning);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
   font-variant-numeric: tabular-nums;
 }
 

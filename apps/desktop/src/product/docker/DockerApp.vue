@@ -62,15 +62,6 @@ function select(item: NavItem) {
 <template>
   <div ref="root" class="lgdocker" :class="{ 'is-narrow': narrow }">
     <aside class="lgdocker-nav">
-      <div class="lgdocker-brand">
-        <span class="lgdocker-brand__icon" aria-hidden="true">
-          <LgIcon name="cartridge" :size="16" />
-        </span>
-        <div>
-          <strong>容器</strong>
-          <span>{{ props.server.name || props.server.ip }}</span>
-        </div>
-      </div>
       <nav class="lgdocker-nav__list" aria-label="容器导航">
         <button
           v-for="item in nav"
@@ -81,17 +72,17 @@ function select(item: NavItem) {
           :aria-current="page === item.key ? 'page' : undefined"
           @click="select(item)"
         >
-          <LgIcon :name="item.icon" :size="14" />
+          <LgIcon :name="item.icon" :size="16" />
           <span>{{ item.label }}</span>
           <em v-if="item.soon">后续开放</em>
         </button>
       </nav>
-      <p class="lgdocker-nav__foot">Docker 只读采集 · 写操作需授权</p>
+      <p class="lgdocker-nav__foot">Docker 只读采集<br />写操作需先解锁</p>
     </aside>
 
     <main class="lgdocker-main">
       <div v-if="locked" class="lgdocker-lockbar" role="status">
-        <LgIcon name="lock" :size="13" />
+        <LgIcon name="lock" :size="15" />
         <span>当前服务器已锁定，仅可查看。解锁后可执行 Docker 写操作。</span>
         <button type="button" class="lgdocker-btn is-small" @click="openPermitPanel()">解锁</button>
       </div>

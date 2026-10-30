@@ -1,13 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { DockerContainer, DockerStatsSample } from './api';
-import {
-  filterContainers,
-  mergeStats,
-  normalizeLayout,
-  readLayout,
-  sortContainers,
-  writeLayout,
-} from './containers';
+import { filterContainers, mergeStats, sortContainers } from './containers';
 
 function row(patch: Partial<DockerContainer> = {}): DockerContainer {
   return {
@@ -46,13 +39,6 @@ function sample(patch: Partial<DockerStatsSample> = {}): DockerStatsSample {
 }
 
 describe('docker containers', () => {
-  it('keeps only known layouts', () => {
-    expect(normalizeLayout('table')).toBe('table');
-    expect(normalizeLayout('card')).toBe('card');
-    expect(normalizeLayout('')).toBe('card');
-    expect(normalizeLayout(null)).toBe('card');
-  });
-
   it('merges stats by full id', () => {
     const other = row({ id: 'b'.repeat(64), name: 'shop-db-1' });
     const merged = mergeStats([row(), other], [sample()]);
@@ -80,18 +66,5 @@ describe('docker containers', () => {
       'b-running',
       'z-exited',
     ]);
-  });
-
-  it('persists the layout and survives storage failures', () => {
-    writeLayout('table');
-    expect(readLayout()).toBe('table');
-    writeLayout('card');
-    expect(readLayout()).toBe('card');
-    const getter = vi.spyOn(window.localStorage, 'getItem').mockImplementation(() => {
-      throw new Error('blocked');
-    });
-    expect(readLayout()).toBe('card');
-    expect(getter).toHaveBeenCalled();
-    getter.mockRestore();
   });
 });

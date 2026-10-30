@@ -251,10 +251,10 @@ onBeforeUnmount(() => {
   position: relative;
   z-index: 400;
   display: flex;
-  flex: 0 0 38px;
+  flex: 0 0 40px;
   align-items: center;
   gap: 9px;
-  padding-left: 12px;
+  padding-left: 14px;
   border-bottom: var(--lg-border-width) solid var(--lg-border);
   background: color-mix(in srgb, var(--lg-surface) 74%, transparent);
   user-select: none;
@@ -271,8 +271,8 @@ onBeforeUnmount(() => {
   display: grid;
   flex: 0 0 auto;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border: var(--lg-border-width) solid color-mix(in srgb, var(--lg-primary) 32%, var(--lg-border));
   border-radius: var(--lg-radius-sm);
   background: linear-gradient(145deg, var(--lg-primary-soft), var(--lg-accent-soft));
@@ -280,7 +280,7 @@ onBeforeUnmount(() => {
 }
 
 .window-bar__brand strong {
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   font-weight: 650;
   letter-spacing: 0.01em;
   white-space: nowrap;
@@ -292,7 +292,7 @@ onBeforeUnmount(() => {
   padding-left: 9px;
   border-left: var(--lg-border-width) solid var(--lg-border);
   color: var(--lg-text-muted);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -374,8 +374,8 @@ html.lg-tauri-framed .window-frame .console-main {
 
 @media (max-width: 980px) {
   html.lg-tauri-framed .window-frame .console-side {
-    top: 38px;
-    height: calc(100dvh - 38px);
+    top: 40px;
+    height: calc(100dvh - 40px);
   }
 }
 </style>

@@ -182,13 +182,13 @@ async function onMute(payload: { serverId: string; ruleId: string | null; untilM
 }
 
 .alerts-tabs button {
-  height: 28px;
+  height: var(--lg-control-h);
   padding: 0 16px;
   border: 0;
   border-radius: var(--lg-radius-full);
   background: transparent;
   color: var(--lg-text-muted);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
 }
 
@@ -213,13 +213,13 @@ async function onMute(payload: { serverId: string; ruleId: string | null; untilM
 }
 
 .alerts-filters button {
-  height: 26px;
+  height: var(--lg-control-h-sm);
   padding: 0 12px;
   border: var(--lg-border-width) solid var(--lg-border);
   border-radius: var(--lg-radius-full);
   background: transparent;
   color: var(--lg-text-secondary);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
 }
 
@@ -231,13 +231,13 @@ async function onMute(payload: { serverId: string; ruleId: string | null; untilM
 .alerts-count {
   margin-left: auto;
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
 }
 
 .alerts-error {
   margin: 0;
   color: var(--lg-danger);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
 }
 
 .alerts-monitor {
@@ -250,14 +250,14 @@ async function onMute(payload: { serverId: string; ruleId: string | null; untilM
   border-radius: var(--lg-radius-sm);
   background: var(--lg-warning-soft);
   color: var(--lg-text-secondary);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
 }
 
 .alerts-loading,
 .alerts-empty {
   margin: 24px 0;
   color: var(--lg-text-muted);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   text-align: center;
 }
 
@@ -274,30 +274,30 @@ async function onMute(payload: { serverId: string; ruleId: string | null; untilM
 .alerts-empty p {
   margin: 0;
   color: var(--lg-text);
-  font-size: 13px;
+  font-size: var(--lg-fs-body);
 }
 
 .alerts-empty button {
-  height: 28px;
+  height: var(--lg-control-h);
   margin-top: 4px;
   padding: 0 12px;
   border: var(--lg-border-width) solid var(--lg-primary);
   border-radius: var(--lg-radius-full);
   background: transparent;
   color: var(--lg-primary);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
 }
 
 .alerts-more {
   align-self: center;
-  height: 30px;
+  height: var(--lg-control-h);
   padding: 0 16px;
   border: var(--lg-border-width) solid var(--lg-border);
   border-radius: var(--lg-radius-full);
   background: transparent;
   color: var(--lg-text-secondary);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
 }
 

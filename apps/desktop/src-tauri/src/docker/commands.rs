@@ -10,7 +10,7 @@ use crate::docker::dto::{
     DockerCapabilities, DockerContainer, DockerContainerDetail, DockerImage, DockerOverview,
     DockerPreview, DockerProgress, DockerStatsSample, DockerSystemInput, DockerTerminalHandle,
     DockerTerminalInput, DockerWriteInput, DockerWriteResult, RegistryConfig, RegistrySearchItem,
-    SudoStatus,
+    RegistryTags, SudoStatus,
 };
 use crate::docker::exec::{self, ExecOptions};
 use crate::docker::read;
@@ -104,6 +104,16 @@ pub async fn docker_registry_search(
     let term = validate::search_term(&term)?;
     let handle = handle_for(state.inner(), &server_id).await?;
     read::registry_search(&handle, &term, limit.unwrap_or(25)).await
+}
+
+#[tauri::command]
+pub async fn docker_registry_tags(
+    state: State<'_, Arc<AppState>>,
+    server_id: String,
+    repo: String,
+) -> Result<RegistryTags, SshError> {
+    let handle = handle_for(state.inner(), &server_id).await?;
+    read::registry_tags(&handle, &repo).await
 }
 
 fn database(state: &State<'_, DbState>) -> Result<Arc<crate::db::Database>, SshError> {

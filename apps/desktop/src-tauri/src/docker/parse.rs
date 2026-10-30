@@ -339,6 +339,48 @@ pub fn search(stdout: &str) -> Vec<RegistrySearchItem> {
         .collect()
 }
 
+/// 加速源 `tags/list` 的返回：脚本把 HTTP 状态码附在响应末尾，
+/// 这里同时处理正常标签、404、401 与无法解析的响应。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TagLookup {
+    Tags(Vec<String>),
+    NotFound,
+    Unauthorized,
+    Failed(String),
+}
+
+pub fn tag_lookup(stdout: &str) -> TagLookup {
+    const MARKER: &str = "__LG_HTTP__";
+    let Some(index) = stdout.rfind(MARKER) else {
+        return TagLookup::Failed("加速源没有返回内容".to_string());
+    };
+    let status = stdout[index + MARKER.len()..].trim();
+    let body = stdout[..index].trim();
+    match status {
+        "200" => match serde_json::from_str::<Value>(body) {
+            Ok(value) => TagLookup::Tags(
+                value
+                    .get("tags")
+                    .and_then(Value::as_array)
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(str::trim)
+                            .filter(|tag| !tag.is_empty())
+                            .map(str::to_string)
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            ),
+            Err(_) => TagLookup::Failed("加速源返回的内容无法解析".to_string()),
+        },
+        "404" => TagLookup::NotFound,
+        "401" | "403" => TagLookup::Unauthorized,
+        other => TagLookup::Failed(format!("HTTP {other}")),
+    }
+}
+
 fn boolish(value: Option<&Value>) -> bool {
     match value {
         Some(Value::Bool(flag)) => *flag,
@@ -599,5 +641,20 @@ mod tests {
         assert!(rows[0].official);
         assert!(!rows[0].automated);
         assert!(rows[1].automated);
+    }
+
+    #[test]
+    fn reads_tag_lists_and_http_statuses() {
+        let ok = tag_lookup("{\"name\":\"library/nginx\",\"tags\":[\"1.29\",\"latest\",\" \"]}\n__LG_HTTP__200");
+        assert_eq!(ok, TagLookup::Tags(vec!["1.29".to_string(), "latest".to_string()]));
+
+        let empty = tag_lookup("{\"name\":\"library/nginx\",\"tags\":null}\n__LG_HTTP__200");
+        assert_eq!(empty, TagLookup::Tags(Vec::new()));
+
+        assert_eq!(tag_lookup("{\"errors\":[]}\n__LG_HTTP__404"), TagLookup::NotFound);
+        assert_eq!(tag_lookup("denied\n__LG_HTTP__401"), TagLookup::Unauthorized);
+        assert_eq!(tag_lookup("oops\n__LG_HTTP__500"), TagLookup::Failed("HTTP 500".to_string()));
+        assert_eq!(tag_lookup("not json\n__LG_HTTP__200"), TagLookup::Failed("加速源返回的内容无法解析".to_string()));
+        assert_eq!(tag_lookup(""), TagLookup::Failed("加速源没有返回内容".to_string()));
     }
 }

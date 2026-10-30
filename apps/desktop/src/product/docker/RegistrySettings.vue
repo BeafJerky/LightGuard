@@ -1,16 +1,24 @@
 <script setup lang="ts">
-import { computed, inject, reactive, ref, watch, type Ref } from 'vue';
+import { computed, inject, nextTick, reactive, ref, watch, type Ref } from 'vue';
 import { LgIcon } from '@lightguard/lightui';
 import type { Server } from '../types';
 import { toSshError } from '../ssh';
 import { toast } from '../ui';
 import { dockerApi, type RegistryConfig } from './api';
-import { buildDaemonPayload, formFromConfig, type ProxyKey, type SettingsForm } from './settings';
+import {
+  buildMirrorsPayload,
+  buildProxyPayload,
+  mirrorRowsFromConfig,
+  proxyFormFromConfig,
+  MAX_MIRRORS,
+  type MirrorRow,
+  type ProxyForm,
+} from './settings';
 import { useDockerSystem } from './useDockerAction';
 import DockerActionDialog from './DockerActionDialog.vue';
 import SystemAuthDialog from './SystemAuthDialog.vue';
 
-const props = defineProps<{ server: Server; open: boolean }>();
+const props = defineProps<{ server: Server; open: boolean; mode: 'mirrors' | 'proxy' }>();
 const emit = defineEmits<{ close: []; applied: [] }>();
 
 // 弹窗挂到 Docker 应用根节点：.lgdocker-main 是查询容器，会改写绝对定位的包含块。
@@ -24,13 +32,26 @@ const localError = ref('');
 const asking = ref(false);
 // 读取请求序号：慢响应不能覆盖后发起的读取，也不能冲掉用户已经输入的内容。
 let seq = 0;
-const form = reactive<SettingsForm>({
-  mirrors: '',
-  httpProxy: '',
-  httpsProxy: '',
+
+const rows = ref<MirrorRow[]>([]);
+const selected = ref(-1);
+const dragFrom = ref(-1);
+const table = ref<HTMLElement | null>(null);
+
+const proxy = reactive<ProxyForm>({
+  enabled: false,
+  server: '',
+  account: '',
+  password: '',
   noProxy: '',
-  clear: [],
 });
+
+const title = computed(() => (props.mode === 'mirrors' ? '加速源设置' : '代理设置'));
+const subtitle = computed(() =>
+  props.mode === 'mirrors'
+    ? '/etc/docker/daemon.json · 需要系统授权'
+    : '访问 Docker 仓库时使用代理',
+);
 
 // 面板常驻：切换服务器后写操作必须落到当前服务器，因此传入实时读取 id 的视图。
 const systemServer = {
@@ -63,18 +84,46 @@ const readable = computed(() => config.value?.readable !== false && !invalid.val
 const proxySupported = computed(() => config.value?.proxySupported !== false);
 const proxyConfigured = computed(() => config.value?.proxyConfigured ?? false);
 
-const proxyRows: Array<{ key: ProxyKey; label: string; placeholder: string }> = [
-  { key: 'httpProxy', label: 'HTTP 代理', placeholder: 'http://proxy:3128' },
-  { key: 'httpsProxy', label: 'HTTPS 代理', placeholder: 'http://proxy:3128' },
-  { key: 'noProxy', label: 'NO_PROXY', placeholder: 'localhost,127.0.0.1,10.0.0.0/8' },
-];
+const NOTES_KEY = 'lg.docker.mirrorNotes.v1';
+
+function readNotes(serverId: string): Record<string, string> {
+  try {
+    const raw = window.localStorage.getItem(`${NOTES_KEY}:${serverId}`);
+    const value = raw ? JSON.parse(raw) : null;
+    if (!value || typeof value !== 'object') return {};
+    const notes: Record<string, string> = {};
+    for (const [url, note] of Object.entries(value)) {
+      if (typeof note === 'string' && note.trim()) notes[url] = note;
+    }
+    return notes;
+  } catch {
+    return {};
+  }
+}
+
+function writeNotes(serverId: string): void {
+  try {
+    const notes: Record<string, string> = {};
+    for (const row of rows.value) {
+      const url = row.url.trim();
+      const note = row.note.trim();
+      if (url && note) notes[url] = note;
+    }
+    window.localStorage.setItem(`${NOTES_KEY}:${serverId}`, JSON.stringify(notes));
+  } catch {
+    // 本机备注只是辅助信息，写不进去不影响 daemon.json。
+  }
+}
 
 function reset(): void {
   config.value = null;
   loading.value = false;
   loadError.value = '';
   localError.value = '';
-  Object.assign(form, { mirrors: '', httpProxy: '', httpsProxy: '', noProxy: '', clear: [] });
+  rows.value = [];
+  selected.value = -1;
+  dragFrom.value = -1;
+  Object.assign(proxy, { enabled: false, server: '', account: '', password: '', noProxy: '' });
   closeSystemState();
 }
 
@@ -87,7 +136,8 @@ async function load(): Promise<void> {
     const value = await dockerApi.registryConfig(props.server.id);
     if (request !== seq) return;
     config.value = value;
-    Object.assign(form, formFromConfig(value));
+    rows.value = mirrorRowsFromConfig(value, readNotes(props.server.id));
+    Object.assign(proxy, proxyFormFromConfig(value));
   } catch (caught) {
     if (request !== seq) return;
     loadError.value = toSshError(caught).message;
@@ -96,7 +146,7 @@ async function load(): Promise<void> {
   }
 }
 
-/** 只刷新配置状态、不改写表单：用户已输入的代理值要保留下来。 */
+/** 只刷新配置状态、不改写表单：用户已输入的加速源与代理值要保留下来。 */
 async function reloadConfig(): Promise<void> {
   const request = ++seq;
   try {
@@ -133,47 +183,73 @@ function requestClose(): void {
   emit('close');
 }
 
-function isCleared(key: ProxyKey): boolean {
-  return form.clear.includes(key);
+function selectRow(index: number): void {
+  selected.value = index;
 }
 
-function toggleClear(key: ProxyKey): void {
-  if (form.clear.includes(key)) {
-    form.clear = form.clear.filter((item) => item !== key);
-    return;
+function addRow(): void {
+  rows.value.push({ url: '', note: '' });
+  selected.value = rows.value.length - 1;
+  void nextTick(() => {
+    const inputs = table.value?.querySelectorAll<HTMLInputElement>('[data-mirror-url]');
+    inputs?.[rows.value.length - 1]?.focus();
+  });
+}
+
+function removeRow(): void {
+  const index = selected.value;
+  if (index < 0 || index >= rows.value.length) return;
+  rows.value.splice(index, 1);
+  selected.value = -1;
+  dragFrom.value = -1;
+}
+
+function onDragStart(event: DragEvent, index: number): void {
+  dragFrom.value = index;
+  selected.value = index;
+  event.dataTransfer?.setData('text/plain', String(index));
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+}
+
+function onDrop(index: number): void {
+  const from = dragFrom.value;
+  dragFrom.value = -1;
+  if (from < 0 || from === index) return;
+  const list = rows.value;
+  const [moved] = list.splice(from, 1);
+  if (!moved) return;
+  list.splice(index, 0, moved);
+  selected.value = index;
+}
+
+function draft() {
+  if (props.mode === 'mirrors') {
+    return buildMirrorsPayload(rows.value, { mirrorsKnown: readable.value });
   }
-  form.clear = [...form.clear, key];
-  form[key] = '';
-}
-
-function editProxy(key: ProxyKey): void {
-  if (form.clear.includes(key)) form.clear = form.clear.filter((item) => item !== key);
-}
-
-function placeholderFor(key: ProxyKey, fallback: string): string {
-  if (isCleared(key)) return '保存后清除';
-  if (proxyConfigured.value && !form[key]) return '已配置，留空保持不变';
-  return fallback;
+  return buildProxyPayload(proxy, {
+    configured: proxyConfigured.value,
+    currentNoProxy: config.value?.noProxy ?? '',
+  });
 }
 
 async function save(): Promise<void> {
   if (!config.value || loading.value || systemBusy.value || asking.value) return;
   localError.value = '';
-  const draft = buildDaemonPayload(form, { mirrorsKnown: readable.value });
-  if (draft.errors.length > 0) {
-    localError.value = draft.errors[0];
+  const value = draft();
+  if (value.errors.length > 0) {
+    localError.value = value.errors[0];
     return;
   }
   let ready = false;
   asking.value = true;
   try {
-    ready = await askSystem({ kind: 'daemon.update', payload: { ...draft.payload } });
+    ready = await askSystem({ kind: 'daemon.update', payload: { ...value.payload } });
   } finally {
     asking.value = false;
   }
   if (!ready && !authVisible.value) {
     localError.value = systemError.value || '无法生成配置预览';
-    // daemon.json 在别处被改坏时只刷新只读状态，保留用户已输入的表单。
+    // daemon.json 在别处被改坏时只刷新只读状态，保留用户已输入的列表与代理表单。
     if (errorCode.value === 'DAEMON_INVALID') void reloadConfig();
   }
 }
@@ -182,9 +258,13 @@ function finishSystem(): void {
   const finished = systemDone.value;
   closeSystemState();
   if (finished?.result === 'success') {
+    if (props.mode === 'mirrors') writeNotes(props.server.id);
     toast({
       title: '已应用并重启 Docker',
-      message: 'daemon.json 已更新，可在预览日志中确认结果。',
+      message:
+        props.mode === 'mirrors'
+          ? '加速源已写入 daemon.json，可在预览日志中确认结果。'
+          : '代理配置已写入 daemon.json，可在预览日志中确认结果。',
       tone: 'success',
     });
     // 父组件把 applied 映射为关闭面板：同一件事只发一次。
@@ -199,18 +279,18 @@ function finishSystem(): void {
 
 <template>
   <Teleport v-if="dockerRoot" :to="dockerRoot">
-    <div v-if="open" class="lgdocker-modal" role="dialog" aria-modal="true" aria-label="仓库设置">
+    <div v-if="open" class="lgdocker-modal" role="dialog" aria-modal="true" :aria-label="title">
       <div class="lgdocker-modal__mask" @click="requestClose" />
       <section class="lgdocker-modal__panel is-wide">
         <header class="lgdocker-modal__head">
           <div>
-            <strong>仓库设置</strong>
-            <span>/etc/docker/daemon.json · 需要系统授权</span>
+            <strong>{{ title }}</strong>
+            <span>{{ subtitle }}</span>
           </div>
           <button
             type="button"
             class="lgdocker-btn is-small"
-            aria-label="关闭仓库设置"
+            :aria-label="`关闭${title}`"
             :disabled="systemBusy || asking"
             @click="requestClose"
           >
@@ -240,7 +320,7 @@ function finishSystem(): void {
               </button>
             </div>
 
-            <template v-else>
+            <template v-else-if="mode === 'mirrors'">
               <div v-if="!readable" class="lgdocker-settings__notice">
                 <LgIcon name="key" :size="14" />
                 <div>
@@ -249,60 +329,173 @@ function finishSystem(): void {
                 </div>
               </div>
 
-              <label class="lgdocker-settings__block">
-                <span>镜像加速源</span>
-                <textarea
-                  v-model="form.mirrors"
-                  rows="3"
-                  spellcheck="false"
-                  :placeholder="readable ? 'https://docker.mirrors.ustc.edu.cn' : '已配置，留空保持不变'"
-                  aria-label="镜像加速源"
-                />
-                <small>一行一个地址，仅支持 http:// 或 https://；留空表示不配置加速源。</small>
-              </label>
+              <div class="lgdocker-mirror__bar">
+                <button type="button" class="lgdocker-btn is-small" @click="addRow">
+                  <LgIcon name="plus" :size="13" />
+                  添加
+                </button>
+                <button
+                  type="button"
+                  class="lgdocker-btn is-small"
+                  :disabled="selected < 0"
+                  @click="removeRow"
+                >
+                  <LgIcon name="trash" :size="13" />
+                  删除
+                </button>
+              </div>
 
-              <fieldset class="lgdocker-settings__group" :disabled="!proxySupported">
-                <legend>代理</legend>
-                <p v-if="!proxySupported" class="lgdocker-muted">
-                  Docker 版本未知或低于 23.0（需要 Docker 23+ 的 daemon.json proxies），暂不支持代理配置。
-                </p>
-                <div v-for="row in proxyRows" :key="row.key" class="lgdocker-settings__proxy">
-                  <label class="lgdocker-field">
-                    <span>{{ row.label }}</span>
-                    <input
-                      v-model="form[row.key]"
-                      type="text"
-                      spellcheck="false"
-                      :disabled="isCleared(row.key)"
-                      :placeholder="placeholderFor(row.key, row.placeholder)"
-                      :aria-label="row.label"
-                      @input="editProxy(row.key)"
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    class="lgdocker-btn is-small"
-                    :aria-label="(isCleared(row.key) ? '撤销清除 ' : '清除 ') + row.label"
-                    :disabled="!isCleared(row.key) && !proxyConfigured"
-                    @click="toggleClear(row.key)"
-                  >
-                    {{ isCleared(row.key) ? '撤销' : '清除' }}
-                  </button>
+              <div ref="table" class="lgdocker-mirror">
+                <div class="lgdocker-mirror__head" aria-hidden="true">
+                  <span />
+                  <span>URL</span>
+                  <span>备注</span>
                 </div>
-              </fieldset>
+                <div
+                  v-for="(row, index) in rows"
+                  :key="index"
+                  class="lgdocker-mirror__row"
+                  :class="{ 'is-selected': selected === index, 'is-dragging': dragFrom === index }"
+                  draggable="true"
+                  @click="selectRow(index)"
+                  @dragstart="onDragStart($event, index)"
+                  @dragover.prevent
+                  @drop.prevent="onDrop(index)"
+                  @dragend="dragFrom = -1"
+                >
+                  <span class="lgdocker-mirror__grip" aria-hidden="true">
+                    <LgIcon name="menu" :size="13" />
+                  </span>
+                  <input
+                    v-model="row.url"
+                    type="text"
+                    spellcheck="false"
+                    placeholder="https://docker.mirrors.example.com"
+                    aria-label="加速源地址"
+                    data-mirror-url
+                    @focus="selectRow(index)"
+                  />
+                  <input
+                    v-model="row.note"
+                    type="text"
+                    placeholder="选填"
+                    aria-label="加速源备注"
+                    @focus="selectRow(index)"
+                  />
+                </div>
+                <p v-if="rows.length === 0" class="lgdocker-mirror__empty">
+                  还没有加速源，点击「添加」输入镜像加速地址。
+                </p>
+              </div>
 
-              <p v-if="config.note && readable" class="lgdocker-muted">{{ config.note }}</p>
               <p v-if="localError || systemError" class="lgdocker-field-error" role="alert">
                 {{ localError || systemError }}
               </p>
               <p class="lgdocker-muted">
-                保存前会展示将要修改的键与脱敏后的值，并重启 Docker；写入或重启失败会自动恢复原配置。
+                最多 {{ MAX_MIRRORS }} 个；备注只保存在本机，不会写入 daemon.json。
+              </p>
+            </template>
+
+            <template v-else>
+              <div v-if="!proxySupported" class="lgdocker-settings__notice">
+                <LgIcon name="alert" :size="14" />
+                <div>
+                  <strong>当前 Docker 不支持代理配置</strong>
+                  <span>需要 Docker 23 及以上的 daemon.json proxies，升级后可在此启用。</span>
+                </div>
+              </div>
+
+              <div class="lgdocker-proxy__toggle">
+                <span>启动代理</span>
+                <label class="lgdocker-radio">
+                  <input
+                    v-model="proxy.enabled"
+                    type="radio"
+                    :value="true"
+                    aria-label="开启代理"
+                    :disabled="!proxySupported"
+                  />
+                  <span>开启</span>
+                </label>
+                <label class="lgdocker-radio">
+                  <input
+                    v-model="proxy.enabled"
+                    type="radio"
+                    :value="false"
+                    aria-label="关闭代理"
+                    :disabled="!proxySupported"
+                  />
+                  <span>关闭</span>
+                </label>
+              </div>
+
+              <label class="lgdocker-formfield">
+                <span>服务器</span>
+                <input
+                  v-model="proxy.server"
+                  type="text"
+                  spellcheck="false"
+                  placeholder="http://127.0.0.1:7890"
+                  aria-label="代理服务器"
+                  :disabled="!proxy.enabled || !proxySupported"
+                />
+              </label>
+
+              <label class="lgdocker-formfield">
+                <span>账号</span>
+                <input
+                  v-model="proxy.account"
+                  type="text"
+                  spellcheck="false"
+                  autocomplete="off"
+                  placeholder="选填"
+                  aria-label="代理账号"
+                  :disabled="!proxy.enabled || !proxySupported"
+                />
+              </label>
+
+              <label class="lgdocker-formfield">
+                <span>密码</span>
+                <input
+                  v-model="proxy.password"
+                  type="password"
+                  autocomplete="new-password"
+                  placeholder="选填"
+                  aria-label="代理密码"
+                  :disabled="!proxy.enabled || !proxySupported"
+                />
+              </label>
+
+              <label class="lgdocker-formfield">
+                <span>不代理域名</span>
+                <textarea
+                  v-model="proxy.noProxy"
+                  rows="3"
+                  spellcheck="false"
+                  placeholder="选填，每行一个"
+                  aria-label="不代理域名"
+                  :disabled="!proxy.enabled || !proxySupported"
+                />
+              </label>
+
+              <p v-if="config.note && readable" class="lgdocker-muted">{{ config.note }}</p>
+              <p v-if="proxyConfigured && !proxy.server" class="lgdocker-muted">
+                服务器留空将保持现有代理地址，只更新不代理域名。
+              </p>
+              <p v-if="localError || systemError" class="lgdocker-field-error" role="alert">
+                {{ localError || systemError }}
+              </p>
+              <p class="lgdocker-muted">
+                账号密码会编码进代理地址；预览与审计只展示脱敏结果。
               </p>
             </template>
           </template>
         </div>
 
         <footer class="lgdocker-modal__foot">
+          <p v-if="mode === 'mirrors' && config && !invalid" class="lgdocker-modal__hint">
+            可拖拽调整顺序，提高加速源的优先级
+          </p>
           <button
             type="button"
             class="lgdocker-btn"
@@ -317,7 +510,7 @@ function finishSystem(): void {
             :disabled="!config || invalid || loading || systemBusy || asking"
             @click="save()"
           >
-            {{ asking ? '正在生成预览…' : systemBusy ? '处理中…' : '保存并应用' }}
+            {{ asking ? '正在生成预览…' : systemBusy ? '处理中…' : '保存并重启 Docker' }}
           </button>
         </footer>
       </section>

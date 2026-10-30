@@ -119,7 +119,7 @@ function onShow(value: boolean) {
     <template #footer>
       <div class="ui-confirm__actions">
         <LgButton size="small" @click="resolveClosePrompt(null)">取消</LgButton>
-        <LgButton size="small" secondary @click="chooseClose('tray')">最小化到托盘</LgButton>
+        <LgButton size="small" @click="chooseClose('tray')">最小化到托盘</LgButton>
         <LgButton size="small" type="error" secondary @click="chooseClose('quit')">退出应用</LgButton>
       </div>
     </template>
@@ -199,14 +199,14 @@ function onShow(value: boolean) {
 }
 
 .ui-toast__body strong {
-  font-size: 13px;
+  font-size: var(--lg-fs-body);
   font-weight: 600;
   color: var(--lg-text);
 }
 
 .ui-toast__body p {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   line-height: 1.5;
   color: var(--lg-text-secondary);
   overflow-wrap: anywhere;
@@ -268,7 +268,7 @@ function onShow(value: boolean) {
 .ui-confirm__body p {
   margin: 0;
   padding-top: 6px;
-  font-size: 13px;
+  font-size: var(--lg-fs-body);
   line-height: 1.6;
   color: var(--lg-text-secondary);
 }

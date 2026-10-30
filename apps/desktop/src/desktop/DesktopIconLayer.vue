@@ -208,7 +208,7 @@ function cellStyle(index: number) {
   background: transparent;
   color: var(--lg-desktop-text, var(--lg-text));
   font: inherit;
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   line-height: 1.3;
   cursor: pointer;
   pointer-events: auto;

@@ -46,6 +46,60 @@ pub fn search_term(value: &str) -> Result<String, SshError> {
     Ok(trimmed.to_string())
 }
 
+/// 仓库名归一化成 `<namespace>/<name>`：用户可能贴整条引用（带协议、docker.io、
+/// 标签或 digest），而 `tags/list` 只认仓库路径；单段名字补 `library/`。
+pub fn repo_name(value: &str) -> Result<String, SshError> {
+    let mut name = value.trim().to_ascii_lowercase();
+    if name.is_empty() {
+        return Err(SshError::invalid_input("镜像名不能为空"));
+    }
+    if name.chars().count() > MAX_SEARCH_TERM {
+        return Err(SshError::invalid_input("镜像名不能超过 128 个字符"));
+    }
+    if name.chars().any(char::is_control) {
+        return Err(SshError::invalid_input("镜像名包含控制字符"));
+    }
+    for scheme in ["https://", "http://"] {
+        if let Some(rest) = name.strip_prefix(scheme) {
+            name = rest.to_string();
+        }
+    }
+    name = name.trim_end_matches('/').to_string();
+    for prefix in ["registry-1.docker.io/", "index.docker.io/", "docker.io/"] {
+        if let Some(rest) = name.strip_prefix(prefix) {
+            name = rest.to_string();
+        }
+    }
+    if let Some(at) = name.find('@') {
+        name.truncate(at);
+    }
+    let segment_start = name.rfind('/').map(|index| index + 1).unwrap_or(0);
+    if let Some(colon) = name[segment_start..].find(':') {
+        name.truncate(segment_start + colon);
+    }
+    let segments: Vec<&str> = name.split('/').collect();
+    if segments.len() > 4 {
+        return Err(SshError::invalid_input("镜像名层级过多"));
+    }
+    for segment in &segments {
+        if segment.is_empty() || *segment == "." || *segment == ".." {
+            return Err(SshError::invalid_input("镜像名含有空的或无效的路径段"));
+        }
+        let valid = segment
+            .chars()
+            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '.' | '_' | '-'));
+        if !valid {
+            return Err(SshError::invalid_input(
+                "镜像名只能包含小写字母、数字与 . _ - /",
+            ));
+        }
+    }
+    if segments.len() == 1 {
+        name = format!("library/{name}");
+    }
+    Ok(name)
+}
+
 pub fn proxy_url(value: &str) -> Result<String, SshError> {
     let trimmed = value.trim();
     let scheme_ok = trimmed.starts_with("http://") || trimmed.starts_with("https://");
@@ -203,6 +257,26 @@ mod tests {
     fn urls_are_redacted_for_preview() {
         assert_eq!(redact_url("http://u:p@proxy:3128"), "http://***@proxy:3128");
         assert_eq!(redact_url("http://proxy:3128"), "http://proxy:3128");
+    }
+
+    #[test]
+    fn repo_names_are_normalized_to_a_registry_path() {
+        assert_eq!(repo_name("nginx").unwrap(), "library/nginx");
+        assert_eq!(repo_name("  NGINX  ").unwrap(), "library/nginx");
+        assert_eq!(repo_name("library/nginx").unwrap(), "library/nginx");
+        assert_eq!(repo_name("docker.io/library/nginx").unwrap(), "library/nginx");
+        assert_eq!(repo_name("https://docker.io/bitnami/nginx").unwrap(), "bitnami/nginx");
+        assert_eq!(repo_name("nginx:1.21.6").unwrap(), "library/nginx");
+        assert_eq!(repo_name("bitnami/nginx@sha256:abc").unwrap(), "bitnami/nginx");
+        assert_eq!(repo_name("nginx/").unwrap(), "library/nginx");
+    }
+
+    #[test]
+    fn repo_names_reject_empty_traversal_and_foreign_segments() {
+        for bad in ["", "   ", "nginx//latest", "nginx/../x", "localhost:5000/nginx", "a b", "镜像"] {
+            assert_eq!(repo_name(bad).unwrap_err().code, "INVALID_INPUT", "input {bad}");
+        }
+        assert_eq!(repo_name(&"a".repeat(129)).unwrap_err().code, "INVALID_INPUT");
     }
 
     #[test]

@@ -280,8 +280,8 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   align-items: center;
   gap: 8px;
-  height: 34px;
-  padding: 0 6px 0 8px;
+  height: 36px;
+  padding: 0 6px 0 9px;
   border-bottom: var(--lg-border-width) solid var(--lg-border);
   background: var(--lg-surface-2);
   cursor: grab;
@@ -309,7 +309,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   overflow: hidden;
   color: var(--lg-text);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   font-weight: 600;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -318,7 +318,7 @@ onBeforeUnmount(() => {
 .lgdesk-win__title span {
   color: var(--lg-text-muted);
   font-family: var(--lg-font-mono);
-  font-size: 9.5px;
+  font-size: var(--lg-fs-label);
   font-weight: 400;
 }
 
@@ -421,11 +421,11 @@ onBeforeUnmount(() => {
 .lgdesk-win__ctrl {
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 24px;
+  width: 28px;
+  height: 26px;
   padding: 0;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--lg-radius-sm);
   background: transparent;
   color: var(--lg-text-muted);
   cursor: pointer;

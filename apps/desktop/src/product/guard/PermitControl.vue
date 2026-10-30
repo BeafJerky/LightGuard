@@ -155,7 +155,7 @@ onBeforeUnmount(() => {
   border-radius: var(--lg-radius-full);
   background: transparent;
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
   font-variant-numeric: tabular-nums;
   cursor: pointer;
 }
@@ -203,8 +203,12 @@ onBeforeUnmount(() => {
   background: var(--lg-surface);
   box-shadow: var(--lg-shadow-lg);
   color: var(--lg-text);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   text-align: left;
+  /* 状态条是 nowrap（单行连接信息），white-space 会继承到浮层，
+     使说明文字无法换行而溢出面板；面板必须重置。 */
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .permit-control__head {
@@ -215,19 +219,19 @@ onBeforeUnmount(() => {
 }
 
 .permit-control__head strong {
-  font-size: 13px;
+  font-size: var(--lg-fs-body);
 }
 
 .permit-control__head span {
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   font-variant-numeric: tabular-nums;
 }
 
 .permit-control__note {
   margin: 8px 0 12px;
   color: var(--lg-text-secondary);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   line-height: 1.6;
 }
 
@@ -238,12 +242,12 @@ onBeforeUnmount(() => {
 }
 
 .permit-control__segments button {
-  height: 30px;
+  height: var(--lg-control-h);
   border: var(--lg-border-width) solid var(--lg-border);
   border-radius: var(--lg-radius-sm);
   background: var(--lg-surface-2);
   color: var(--lg-text-secondary);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
 }
 
@@ -264,7 +268,7 @@ onBeforeUnmount(() => {
   flex: 1;
   height: 32px;
   border-radius: var(--lg-radius-sm);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
 }
 
@@ -290,7 +294,7 @@ onBeforeUnmount(() => {
 .permit-control__hint,
 .permit-control__error {
   margin: 10px 0 0;
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   line-height: 1.5;
 }
 

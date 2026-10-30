@@ -181,6 +181,14 @@ pub struct RegistrySearchItem {
     pub automated: bool,
 }
 
+/// 加速源上的标签列表：`repo` 是归一化后的仓库名，前端去掉 `library/` 再展示。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegistryTags {
+    pub repo: String,
+    pub tags: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DockerPreview {

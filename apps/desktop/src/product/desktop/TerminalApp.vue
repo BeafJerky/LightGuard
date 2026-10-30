@@ -459,16 +459,16 @@ onBeforeUnmount(() => {
         {{ server.user }}@{{ server.name }} · SSH 终端
       </span>
       <div class="lgapp-actions">
-        <LgButton size="tiny" secondary :disabled="!canUse || !online || tabs.length >= MAX_TABS" @click="newTab">
-          <template #icon><LgIcon name="plus" :size="12" /></template>
+        <LgButton size="small" :disabled="!canUse || !online || tabs.length >= MAX_TABS" @click="newTab">
+          <template #icon><LgIcon name="plus" :size="13" /></template>
           新建标签
         </LgButton>
-        <LgButton size="tiny" secondary :disabled="!activeTab" @click="toggleSearch">
-          <template #icon><LgIcon name="search" :size="12" /></template>
+        <LgButton size="small" :disabled="!activeTab" @click="toggleSearch">
+          <template #icon><LgIcon name="search" :size="13" /></template>
           搜索
         </LgButton>
-        <LgButton size="tiny" secondary :disabled="!activeTab" @click="clearScreen">
-          <template #icon><LgIcon name="trash" :size="12" /></template>
+        <LgButton size="small" :disabled="!activeTab" @click="clearScreen">
+          <template #icon><LgIcon name="trash" :size="13" /></template>
           清屏
         </LgButton>
       </div>
@@ -511,14 +511,14 @@ onBeforeUnmount(() => {
         >
           <template #prefix><LgIcon name="search" :size="13" /></template>
         </LgInput>
-        <LgButton size="tiny" secondary @click="applySearch('previous')">
-          <LgIcon name="chevron-up" :size="12" />
+        <LgButton class="term-icon-btn" size="small" aria-label="搜索上一处" @click="applySearch('previous')">
+          <LgIcon name="chevron-up" :size="13" />
         </LgButton>
-        <LgButton size="tiny" secondary @click="applySearch('next')">
-          <LgIcon name="chevron-down" :size="12" />
+        <LgButton class="term-icon-btn" size="small" aria-label="搜索下一处" @click="applySearch('next')">
+          <LgIcon name="chevron-down" :size="13" />
         </LgButton>
-        <LgButton size="tiny" secondary @click="toggleSearch">
-          <LgIcon name="x" :size="12" />
+        <LgButton class="term-icon-btn" size="small" aria-label="关闭搜索" @click="toggleSearch">
+          <LgIcon name="x" :size="13" />
         </LgButton>
       </div>
 
@@ -574,12 +574,12 @@ onBeforeUnmount(() => {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
   height: 100%;
   min-width: 0;
   min-height: 0;
-  padding: 14px;
+  padding: 16px;
 }
 
 .lgapp-terminal .lgapp-actions {
@@ -588,7 +588,7 @@ onBeforeUnmount(() => {
 
 .term-tabs {
   display: flex;
-  gap: 4px;
+  gap: 6px;
   overflow-x: auto;
   padding-bottom: 2px;
 }
@@ -596,14 +596,15 @@ onBeforeUnmount(() => {
 .term-tab {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  max-width: 220px;
-  padding: 4px 6px 4px 9px;
+  gap: 7px;
+  max-width: 240px;
+  min-height: var(--lg-control-h);
+  padding: 0 7px 0 12px;
   border: 1px solid var(--lg-border);
   border-radius: var(--lg-radius-sm);
   background: var(--lg-surface);
   color: var(--lg-text-secondary);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -641,17 +642,17 @@ onBeforeUnmount(() => {
 
 .term-tab__state {
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .term-tab__close {
   display: grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
+  width: var(--lg-icon-btn-sm);
+  height: var(--lg-icon-btn-sm);
   padding: 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: 5px;
   background: transparent;
   color: var(--lg-text-muted);
   cursor: pointer;
@@ -670,6 +671,13 @@ onBeforeUnmount(() => {
 
 .term-search .lg-input {
   flex: 1;
+}
+
+/* 图标按钮与 26px 搜索框同高、正方形，风格对齐 Docker 行内图标按钮。 */
+.term-icon-btn {
+  width: var(--lg-control-h-sm);
+  min-width: var(--lg-control-h-sm);
+  padding: 0;
 }
 
 .term-panes {
@@ -693,13 +701,13 @@ onBeforeUnmount(() => {
 
 .term-overlay {
   position: absolute;
-  inset: 32px 1px 1px;
+  inset: 36px 1px 1px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 16px;
+  gap: 8px;
+  padding: 20px;
   border-radius: 0 0 var(--lg-radius-md) var(--lg-radius-md);
   background: color-mix(in srgb, var(--lg-bg) 82%, transparent);
   backdrop-filter: blur(3px);
@@ -711,14 +719,14 @@ onBeforeUnmount(() => {
 }
 
 .term-overlay strong {
-  font-size: 13px;
+  font-size: var(--lg-fs-body);
 }
 
 .term-overlay p {
   margin: 0;
   max-width: 360px;
   color: var(--lg-text-secondary);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -732,8 +740,8 @@ onBeforeUnmount(() => {
   z-index: 40;
   display: flex;
   flex-direction: column;
-  min-width: 132px;
-  padding: 4px;
+  min-width: 148px;
+  padding: 5px;
   border: 1px solid var(--lg-border-strong);
   border-radius: var(--lg-radius-sm);
   background: var(--lg-surface-glass);
@@ -744,13 +752,13 @@ onBeforeUnmount(() => {
 .term-menu button {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 6px 9px;
+  gap: 8px;
+  padding: 8px 11px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 7px;
   background: transparent;
   color: var(--lg-text-secondary);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   text-align: left;
   cursor: pointer;
 }

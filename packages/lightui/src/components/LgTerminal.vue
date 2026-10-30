@@ -126,8 +126,8 @@ onMounted(() => {
 
   terminal = new Terminal({
     fontFamily: theme.font.mono,
-    fontSize: 12,
-    lineHeight: 1.32,
+    fontSize: 13,
+    lineHeight: 1.38,
     cursorBlink: reduced.value !== 'reduce',
     cursorStyle: 'bar',
     scrollback: 2000,
@@ -270,7 +270,7 @@ defineExpose({
   padding: 6px 10px;
   border-bottom: var(--lg-border-width) solid var(--lg-border);
   background: var(--lg-surface-2);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
 }
 
 .lg-terminal__title {
@@ -299,7 +299,7 @@ defineExpose({
   padding: 1px 7px;
   border: var(--lg-border-width) solid var(--lg-border);
   border-radius: var(--lg-radius-full);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
   letter-spacing: 0.03em;
 }
 

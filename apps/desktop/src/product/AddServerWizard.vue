@@ -626,7 +626,7 @@ function onShow(value: boolean) {
 
 .wizard__step-label {
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
 }
 
 .wizard__step.is-active .wizard__step-label {
@@ -663,7 +663,7 @@ function onShow(value: boolean) {
 
 .field__label {
   color: var(--lg-text-secondary);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   font-weight: 500;
 }
 
@@ -680,7 +680,7 @@ function onShow(value: boolean) {
 
 .field__hint {
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
 }
 
 .field__error {
@@ -688,7 +688,7 @@ function onShow(value: boolean) {
   align-items: center;
   gap: 4px;
   color: var(--lg-danger);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
 }
 
 .wizard__note {
@@ -700,7 +700,7 @@ function onShow(value: boolean) {
   border-radius: var(--lg-radius-sm);
   background: var(--lg-info-soft);
   color: var(--lg-text-secondary);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   line-height: 1.55;
 }
 
@@ -727,13 +727,13 @@ function onShow(value: boolean) {
 
 .wizard__summary small {
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .wizard__summary strong {
   color: var(--lg-text);
   font-family: var(--lg-font-mono);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   font-weight: 600;
   overflow-wrap: anywhere;
 }
@@ -766,12 +766,12 @@ function onShow(value: boolean) {
 
 .auth-option strong {
   color: var(--lg-text);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   font-weight: 600;
 }
 
 .auth-option small {
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
   line-height: 1.4;
 }
 
@@ -791,15 +791,15 @@ function onShow(value: boolean) {
 
 .secret__toggle {
   position: absolute;
-  top: 7px;
-  right: 7px;
+  top: 5px;
+  right: 5px;
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
+  width: var(--lg-icon-btn-sm);
+  height: var(--lg-icon-btn-sm);
   padding: 0;
   border: 1px solid var(--lg-border);
-  border-radius: 7px;
+  border-radius: 6px;
   background: var(--lg-surface);
   color: var(--lg-text-muted);
   cursor: pointer;
@@ -828,13 +828,13 @@ function onShow(value: boolean) {
 
 .field--switch strong {
   color: var(--lg-text);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   font-weight: 600;
 }
 
 .field--switch small {
   color: var(--lg-text-muted);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
   line-height: 1.45;
 }
 
@@ -856,7 +856,7 @@ function onShow(value: boolean) {
   padding: 6px;
   border-radius: 6px;
   color: var(--lg-text-muted);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
 }
 
 .probe__row.is-active {
@@ -904,7 +904,7 @@ function onShow(value: boolean) {
 .probe__ms {
   color: var(--lg-text-muted);
   font-family: var(--lg-font-mono);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
   text-align: right;
 }
 
@@ -948,13 +948,13 @@ function onShow(value: boolean) {
 
 .result-card strong {
   color: var(--lg-text);
-  font-size: 12.5px;
+  font-size: var(--lg-fs-body);
 }
 
 .result-card p {
   margin: 3px 0 0;
   color: var(--lg-text-secondary);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   line-height: 1.55;
 }
 
@@ -964,13 +964,13 @@ function onShow(value: boolean) {
   gap: 12px;
   margin-top: 6px;
   color: var(--lg-text-muted);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .result-card__meta strong {
   color: var(--lg-text);
   font-family: var(--lg-font-mono);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
 }
 
 .result-card__fingerprint {
@@ -980,13 +980,13 @@ function onShow(value: boolean) {
   gap: 8px;
   margin-top: 7px;
   color: var(--lg-text-muted);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .result-card__fingerprint code {
   color: var(--lg-text-secondary);
   font-family: var(--lg-font-mono);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
   overflow-wrap: anywhere;
 }
 
@@ -996,7 +996,7 @@ function onShow(value: boolean) {
   border: 0;
   background: none;
   color: var(--lg-primary);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 3px;

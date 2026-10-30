@@ -10,50 +10,12 @@
 
 .lgdocker-nav {
   display: flex;
-  flex: 0 0 168px;
+  flex: 0 0 196px;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px 8px 10px;
+  gap: 12px;
+  padding: 14px 10px 12px;
   border-right: var(--lg-border-width) solid var(--lg-border);
   background: var(--lg-surface);
-}
-
-.lgdocker-brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 2px 6px 10px;
-  border-bottom: var(--lg-border-width) solid var(--lg-border);
-}
-
-.lgdocker-brand__icon {
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: var(--lg-info-soft, color-mix(in srgb, var(--lg-info) 16%, transparent));
-  color: var(--lg-info);
-}
-
-.lgdocker-brand div {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.lgdocker-brand strong {
-  font-size: 12.5px;
-}
-
-.lgdocker-brand span {
-  overflow: hidden;
-  color: var(--lg-text-muted);
-  font-size: 9.5px;
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }
 
 .lgdocker-nav__list {
@@ -65,14 +27,14 @@
 .lgdocker-nav__item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 30px;
-  padding: 0 8px;
+  gap: 9px;
+  min-height: var(--lg-nav-h);
+  padding: 0 10px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 8px;
   background: transparent;
   color: var(--lg-text-secondary);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   text-align: left;
   cursor: pointer;
 }
@@ -100,15 +62,15 @@
 .lgdocker-nav__item em {
   margin-left: auto;
   color: var(--lg-text-muted);
-  font-size: 8.5px;
+  font-size: var(--lg-fs-label);
   font-style: normal;
 }
 
 .lgdocker-nav__foot {
-  margin: auto 6px 0;
+  margin: auto 8px 0;
   color: var(--lg-text-muted);
-  font-size: 9px;
-  line-height: 1.5;
+  font-size: var(--lg-fs-label);
+  line-height: 1.6;
 }
 
 .lgdocker.is-narrow {
@@ -126,7 +88,6 @@
   overflow-x: auto;
 }
 
-.lgdocker.is-narrow .lgdocker-brand,
 .lgdocker.is-narrow .lgdocker-nav__foot {
   display: none;
 }
@@ -163,12 +124,12 @@
   z-index: 5;
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 7px 12px;
+  gap: 8px;
+  padding: 9px 16px;
   border-bottom: var(--lg-border-width) solid var(--lg-border);
   background: color-mix(in srgb, var(--lg-warning) 14%, var(--lg-bg));
   color: var(--lg-warning);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgdocker-lockbar span {
@@ -178,8 +139,8 @@
 .lgdocker-page {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 14px;
+  gap: 16px;
+  padding: 18px;
 }
 
 .lgdocker-pagehead {
@@ -196,28 +157,28 @@
 
 .lgdocker-pagehead h2 {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--lg-fs-title);
   font-weight: 650;
 }
 
 .lgdocker-pagehead p {
   margin: 2px 0 0;
   color: var(--lg-text-muted);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgdocker-btn {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 5px;
-  height: 28px;
-  padding: 0 10px;
+  gap: 6px;
+  height: var(--lg-control-h);
+  padding: 0 12px;
   border: var(--lg-border-width) solid var(--lg-border);
-  border-radius: 6px;
+  border-radius: var(--lg-radius-sm);
   background: var(--lg-surface-2);
   color: var(--lg-text-secondary);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
 }
 
@@ -234,15 +195,15 @@
 .lgdocker-kpis {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  gap: 12px;
 }
 
 .lgdocker-kpi {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 3px;
-  padding: 11px 12px;
+  gap: 4px;
+  padding: 13px 14px;
   border: var(--lg-border-width) solid var(--lg-border);
   border-radius: var(--lg-radius-md);
   background: var(--lg-surface);
@@ -251,12 +212,12 @@
 
 .lgdocker-kpi span {
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgdocker-kpi strong {
   overflow: hidden;
-  font-size: 20px;
+  font-size: var(--lg-fs-metric);
   font-variant-numeric: tabular-nums;
   line-height: 1.15;
   white-space: nowrap;
@@ -265,26 +226,26 @@
 
 .lgdocker-kpi em {
   color: var(--lg-text-muted);
-  font-size: 9.5px;
+  font-size: var(--lg-fs-label);
   font-style: normal;
 }
 
 .lgdocker-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
 }
 
 .lgdocker-panel {
-  padding: 12px;
+  padding: 14px;
   border: var(--lg-border-width) solid var(--lg-border);
   border-radius: var(--lg-radius-md);
   background: var(--lg-surface);
 }
 
 .lgdocker-panel h3 {
-  margin: 0 0 9px;
-  font-size: 11.5px;
+  margin: 0 0 10px;
+  font-size: var(--lg-fs-sm);
   font-weight: 650;
 }
 
@@ -292,7 +253,7 @@
   display: flex;
   margin: 0;
   flex-direction: column;
-  gap: 7px;
+  gap: 8px;
 }
 
 .lgdocker-kv div {
@@ -303,8 +264,10 @@
 }
 
 .lgdocker-kv dt {
+  flex: 0 0 auto;
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
+  white-space: nowrap;
 }
 
 .lgdocker-kv dd {
@@ -312,7 +275,7 @@
   margin: 0;
   overflow: hidden;
   color: var(--lg-text-secondary);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
   text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -320,7 +283,7 @@
 
 .lgdocker-kv dd.is-mono {
   font-family: var(--lg-font-mono);
-  font-size: 9.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgdocker-kv dd.is-row {
@@ -342,12 +305,12 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 22px 16px;
+  padding: 26px 18px;
   border: var(--lg-border-width) dashed var(--lg-border-strong);
   border-radius: var(--lg-radius-md);
   background: var(--lg-surface);
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
 }
 
 .lgdocker-empty {
@@ -358,11 +321,11 @@
 
 .lgdocker-empty strong {
   color: var(--lg-text-secondary);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
 }
 
 .lgdocker-empty span {
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgdocker-error {
@@ -380,13 +343,20 @@
 
 .lgdocker-error span {
   color: var(--lg-text-secondary);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
+}
+
+.lgdocker-error .lgdocker-error__actions {
+  flex: 0 0 auto;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
 }
 
 .lgdocker-muted {
   margin: 0;
   color: var(--lg-text-muted);
-  font-size: 9.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgdocker-kv + .lgdocker-muted {
@@ -394,9 +364,9 @@
 }
 
 .lgdocker-btn.is-small {
-  height: 22px;
-  padding: 0 7px;
-  font-size: 9.5px;
+  height: var(--lg-control-h-sm);
+  padding: 0 8px;
+  font-size: var(--lg-fs-label);
 }
 
 @container docker (max-width: 640px) {
@@ -411,14 +381,15 @@
 
 .lgdocker-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .lgdocker-count {
   margin-left: auto;
   color: var(--lg-text-muted);
-  font-size: 9.5px;
+  font-size: var(--lg-fs-label);
   white-space: nowrap;
 }
 
@@ -427,11 +398,11 @@
   flex: 1 1 220px;
   align-items: center;
   gap: 6px;
-  height: 28px;
-  max-width: 360px;
-  padding: 0 9px;
+  height: var(--lg-control-h);
+  max-width: 400px;
+  padding: 0 11px;
   border: var(--lg-border-width) solid var(--lg-border);
-  border-radius: 6px;
+  border-radius: var(--lg-radius-sm);
   background: var(--lg-surface);
   color: var(--lg-text-muted);
 }
@@ -442,150 +413,138 @@
   border: 0;
   background: transparent;
   color: var(--lg-text);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   outline: none;
 }
 
-.lgdocker-segment {
+/* 容器列表：长条卡片（参考新版列表形态）。
+   左侧图标 + 名称/状态/元信息，右侧固定行内操作；表格视图已移除，
+   窄窗口下元信息换行而不是让列互相挤压。 */
+.lgdocker-rows {
   display: flex;
-  flex: 0 0 auto;
-  gap: 1px;
-  padding: 2px;
-  border: var(--lg-border-width) solid var(--lg-border);
-  border-radius: 6px;
-  background: var(--lg-surface-2);
-}
-
-.lgdocker-segment button {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 22px;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--lg-text-muted);
-  cursor: pointer;
-}
-
-.lgdocker-segment button.is-active {
-  background: var(--lg-surface);
-  color: var(--lg-info);
-  box-shadow: var(--lg-shadow-sm);
-}
-
-.lgdocker-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-  gap: 9px;
-}
-
-.lgdocker-card {
-  display: flex;
-  min-width: 0;
   flex-direction: column;
-  gap: 9px;
-  padding: 11px;
+  gap: var(--lg-gap-sm);
+}
+
+.lgdocker-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 68px;
+  padding: 12px 16px;
   border: var(--lg-border-width) solid var(--lg-border);
   border-radius: var(--lg-radius-md);
   background: var(--lg-surface);
   box-shadow: var(--lg-shadow-sm);
   cursor: pointer;
+  transition:
+    border-color var(--lg-dur-fast) var(--lg-ease),
+    background-color var(--lg-dur-fast) var(--lg-ease);
 }
 
-.lgdocker-card:hover,
-.lgdocker-card.is-active {
+.lgdocker-row:hover,
+.lgdocker-row.is-active {
   border-color: color-mix(in srgb, var(--lg-info) 42%, var(--lg-border));
 }
 
-.lgdocker-card__head {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
+.lgdocker-row:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--lg-info) 55%, transparent);
+  outline-offset: 2px;
 }
 
-.lgdocker-card__head div {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.lgdocker-card__head strong {
-  overflow: hidden;
-  font-size: 11.5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.lgdocker-card__head div span {
-  overflow: hidden;
-  color: var(--lg-text-muted);
-  font-size: 9.5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.lgdocker-card__head em {
-  overflow: hidden;
-  color: var(--lg-text-muted);
-  font-size: 8.5px;
-  font-style: normal;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.lgdocker-card__metrics {
+.lgdocker-row__icon {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-  padding: 8px;
-  border-radius: 6px;
-  background: var(--lg-surface-2);
+  flex: 0 0 auto;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--lg-info) 12%, transparent);
+  color: var(--lg-info);
 }
 
-.lgdocker-card__metrics div {
+.lgdocker-row__main {
   display: flex;
+  flex: 1;
   min-width: 0;
   flex-direction: column;
-  gap: 1px;
+  gap: 4px;
 }
 
-.lgdocker-card__metrics div.is-wide {
-  grid-column: 1 / -1;
-}
-
-.lgdocker-card__metrics span {
-  color: var(--lg-text-muted);
-  font-size: 8.5px;
-}
-
-.lgdocker-card__metrics strong {
-  overflow: hidden;
-  font-family: var(--lg-font-mono);
-  font-size: 10px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.lgdocker-card__foot {
+.lgdocker-row__title {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
-.lgdocker-card__foot > span {
-  flex: 1;
-  min-width: 0;
+.lgdocker-row__title strong {
   overflow: hidden;
-  color: var(--lg-text-muted);
-  font-family: var(--lg-font-mono);
-  font-size: 9px;
+  font-size: var(--lg-fs-title);
+  font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.lgdocker-row__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px 14px;
+  min-width: 0;
+  color: var(--lg-text-muted);
+  font-size: var(--lg-fs-sm);
+}
+
+.lgdocker-row__meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.lgdocker-row__meta b {
+  color: var(--lg-text-secondary);
+  font-weight: 500;
+}
+
+.lgdocker-row__meta .is-mono {
+  font-family: var(--lg-font-mono);
+  font-size: var(--lg-fs-mono);
+}
+
+/* 项目标签：与镜像仓库里的信息色一致，避免再引入一种新颜色。 */
+.lgdocker-chip {
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--lg-info) 12%, transparent);
+  color: var(--lg-info);
+}
+
+.lgdocker-chip b {
+  color: var(--lg-info);
+}
+
+.lgdocker-row__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.lgdocker-row__enter {
+  width: var(--lg-icon-btn);
+  height: var(--lg-icon-btn);
+  border-color: transparent;
+  background: transparent;
+  color: var(--lg-text-muted);
+}
+
+.lgdocker-row__enter:hover:not(:disabled) {
+  border-color: var(--lg-border);
+  background: var(--lg-surface-2);
+  color: var(--lg-text);
 }
 
 .lgdocker-state {
@@ -593,10 +552,10 @@
   flex: 0 0 auto;
   align-items: center;
   gap: 4px;
-  height: 18px;
-  padding: 0 6px;
+  height: 22px;
+  padding: 0 8px;
   border-radius: 999px;
-  font-size: 9px;
+  font-size: var(--lg-fs-label);
   font-weight: 600;
 }
 
@@ -637,28 +596,26 @@
 .lgdocker-table__head,
 .lgdocker-table__row {
   display: grid;
-  /* 创建时间 92px 刚好容纳 9.5px 等宽的 “YYYY-MM-DD HH:mm”（实测 89px）；
-     操作列 128px = 4 个 20px 图标 + 4 个 3px 间隙 + 详情 33px（实测 125px）。
-     轨道小于内容时 flex-end 会把按钮向左溢出、压住创建时间，改宽度前先量内容。 */
-  grid-template-columns: 56px minmax(96px, 1.4fr) minmax(84px, 1.2fr) minmax(60px, 0.9fr) 46px 46px minmax(76px, 1fr) 92px 128px;
+  /* 表格现在只服务镜像仓库搜索（名称 / 仓库 / 星标 / 拉取数 / 操作）。 */
+  grid-template-columns: minmax(120px, 1fr) minmax(160px, 1.8fr) 54px 54px 74px;
   align-items: center;
   gap: 8px;
-  padding: 0 11px;
+  padding: 0 14px;
 }
 
 .lgdocker-table__head {
-  height: 32px;
+  height: 38px;
   border-bottom: var(--lg-border-width) solid var(--lg-border);
   background: var(--lg-surface-2);
   color: var(--lg-text-muted);
-  font-size: 9px;
+  font-size: var(--lg-fs-label);
   font-weight: 600;
 }
 
 .lgdocker-table__row {
-  min-height: 40px;
+  min-height: var(--lg-row-h);
   border-bottom: var(--lg-border-width) solid var(--lg-border);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
 }
 
@@ -689,7 +646,7 @@
 
 .lgdocker-table__row .is-num {
   font-family: var(--lg-font-mono);
-  font-size: 9.5px;
+  font-size: var(--lg-fs-mono);
   text-align: right;
 }
 
@@ -715,7 +672,7 @@
   position: relative;
   z-index: 1;
   display: flex;
-  width: min(420px, 92%);
+  width: min(460px, 94%);
   flex-direction: column;
   border-left: var(--lg-border-width) solid var(--lg-border-strong);
   background: var(--lg-bg);
@@ -726,8 +683,8 @@
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: 10px;
+  padding: 13px 16px;
   border-bottom: var(--lg-border-width) solid var(--lg-border);
   background: var(--lg-surface-2);
 }
@@ -742,7 +699,7 @@
 
 .lgdocker-drawer__head strong {
   overflow: hidden;
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -750,7 +707,7 @@
 .lgdocker-drawer__head span {
   color: var(--lg-text-muted);
   font-family: var(--lg-font-mono);
-  font-size: 9px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgdocker-drawer__body {
@@ -758,8 +715,8 @@
   flex: 1;
   min-height: 0;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px;
+  gap: 12px;
+  padding: 16px;
   overflow: auto;
 }
 
@@ -767,12 +724,12 @@
   display: grid;
   flex: 0 0 auto;
   place-items: center;
-  width: 20px;
-  height: 20px;
+  width: var(--lg-icon-btn);
+  height: var(--lg-icon-btn);
   margin: 0;
   padding: 0;
   border: var(--lg-border-width) solid var(--lg-border);
-  border-radius: 4px;
+  border-radius: 7px;
   background: var(--lg-surface-2);
   color: var(--lg-text-secondary);
   cursor: pointer;
@@ -794,7 +751,10 @@
 
 /* 抽屉里的复制按钮需要与前面的键值对保持 4px 间距。 */
 .lgdocker-kv .lgdocker-iconbtn {
+  width: 26px;
+  height: 26px;
   margin-left: 4px;
+  border-radius: 6px;
 }
 
 .lgdocker-list {
@@ -805,60 +765,14 @@
   gap: 5px;
   list-style: none;
   color: var(--lg-text-secondary);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
   line-height: 1.45;
   word-break: break-all;
 }
 
 .lgdocker-list.is-mono {
   font-family: var(--lg-font-mono);
-  font-size: 9.5px;
-}
-
-/* 9 列需表格 ≥ 684 轨道 + 64 间隙 + 22 内边距 + 2 边框 = 772；表格 = 容器 − 28 页面内边距，故容器 ≥ 800。
-   桌面窗口最小 960 − 侧栏 148 = 812，正好停在最挤的 9 列；因此 8 列在容器 ≤ 819 时触发（最小窗口默认 8 列）。
-   像素与 NES 主题的边框宽 2px，最小宽度再 +2，819 的阈值本身已留余量。 */
-@container docker (max-width: 819px) {
-  /* 上述轨道数只针对容器表；仓库表是 5 列，保持自身轨道，避免表头与行错位。 */
-  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__head span:nth-child(8),
-  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__row > span:nth-child(8) {
-    display: none;
-  }
-
-  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__head,
-  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__row {
-    grid-template-columns: 56px minmax(96px, 1.4fr) minmax(84px, 1.2fr) minmax(60px, 0.9fr) 46px 46px minmax(76px, 1fr) 128px;
-  }
-}
-
-/* 8 列需表格 ≥ 592 轨道 + 56 间隙 + 22 内边距 + 2 边框 = 672；表格 = 容器 − 28 页面内边距，故容器 ≥ 700。
-   像素与 NES 主题的边框宽 2px，最小宽度再 +2（容器 ≥ 702），因此 4 轨道规则在容器宽度 ≤ 703px 时触发。 */
-@container docker (max-width: 703px) {
-  /* 同上：4 轨道规则只作用于容器表，仓库表在 ≤600 时由自身规则收窄。 */
-  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__head span:nth-child(4),
-  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__head span:nth-child(5),
-  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__head span:nth-child(6),
-  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__head span:nth-child(7),
-  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__row > span:nth-child(4),
-  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__row > span:nth-child(5),
-  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__row > span:nth-child(6),
-  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__row > span:nth-child(7) {
-    display: none;
-  }
-
-  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__head,
-  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__row {
-    grid-template-columns: 56px minmax(96px, 1.4fr) minmax(84px, 1.2fr) 128px;
-  }
-}
-
-/* 容器 < 440 时四列的最小轨道也放不下（仅 Web 预览等极窄场景，桌面窗口最小 960 不触发）。
-   让名称与镜像继续收缩，避免操作列被表格的 overflow: hidden 裁掉。 */
-@container docker (max-width: 439px) {
-  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__head,
-  .lgdocker-table:not(.lgdocker-registry) .lgdocker-table__row {
-    grid-template-columns: 56px minmax(0, 1.4fr) minmax(0, 1.2fr) 128px;
-  }
+  font-size: var(--lg-fs-label);
 }
 
 .lgdocker-pagehead__actions {
@@ -881,13 +795,6 @@
   color: var(--lg-danger);
 }
 
-.lgdocker-card__actions {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 3px;
-}
-
 .lgdocker-table__actions {
   display: flex;
   align-items: center;
@@ -896,8 +803,8 @@
 }
 
 .lgdocker-table__actions .lgdocker-btn.is-small {
-  height: 20px;
-  padding: 0 6px;
+  height: var(--lg-control-h-sm);
+  padding: 0 8px;
 }
 
 .lgdocker-modal {
@@ -921,7 +828,7 @@
   position: relative;
   z-index: 1;
   display: flex;
-  width: min(440px, 100%);
+  width: min(480px, 100%);
   max-height: 100%;
   flex-direction: column;
   overflow: hidden;
@@ -936,7 +843,7 @@
   flex: 0 0 auto;
   align-items: flex-start;
   gap: 10px;
-  padding: 12px 14px;
+  padding: 14px 16px;
   border-bottom: var(--lg-border-width) solid var(--lg-border);
   background: var(--lg-surface-2);
 }
@@ -950,14 +857,14 @@
 }
 
 .lgdocker-modal__head strong {
-  font-size: 13px;
+  font-size: var(--lg-fs-body);
 }
 
 .lgdocker-modal__head > div span {
   overflow: hidden;
   color: var(--lg-text-muted);
   font-family: var(--lg-font-mono);
-  font-size: 9.5px;
+  font-size: var(--lg-fs-label);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -972,7 +879,7 @@
   border-radius: 999px;
   background: color-mix(in srgb, var(--lg-info) 14%, transparent);
   color: var(--lg-info);
-  font-size: 9.5px;
+  font-size: var(--lg-fs-label);
   font-variant-numeric: tabular-nums;
 }
 
@@ -985,8 +892,8 @@
   display: flex;
   min-height: 0;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px 14px;
+  gap: 12px;
+  padding: 14px 16px;
   overflow: auto;
 }
 
@@ -1006,13 +913,13 @@
 
 .lgdocker-modal__facts dt {
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgdocker-modal__facts dd {
   margin: 0;
   color: var(--lg-text-secondary);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
   line-height: 1.5;
   word-break: break-word;
 }
@@ -1022,7 +929,7 @@
   flex: 0 0 auto;
   justify-content: flex-end;
   gap: 8px;
-  padding: 10px 14px;
+  padding: 12px 16px;
   border-top: var(--lg-border-width) solid var(--lg-border);
   background: var(--lg-surface-2);
 }
@@ -1036,7 +943,7 @@
   border-radius: 6px;
   background: color-mix(in srgb, var(--lg-danger) 12%, transparent);
   color: var(--lg-danger);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
   line-height: 1.45;
 }
 
@@ -1052,7 +959,7 @@
   background: var(--lg-surface-2);
   color: var(--lg-text-secondary);
   font-family: var(--lg-font-mono);
-  font-size: 9.5px;
+  font-size: var(--lg-fs-label);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-all;
@@ -1096,17 +1003,17 @@
   border-radius: 6px;
   background: color-mix(in srgb, var(--lg-success) 12%, transparent);
   color: var(--lg-success);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgdocker-field {
   display: flex;
   align-items: center;
-  gap: 7px;
-  height: 30px;
-  padding: 0 9px;
+  gap: 8px;
+  height: var(--lg-control-h);
+  padding: 0 11px;
   border: var(--lg-border-width) solid var(--lg-border);
-  border-radius: 6px;
+  border-radius: var(--lg-radius-sm);
   background: var(--lg-surface);
   color: var(--lg-text-muted);
 }
@@ -1117,14 +1024,96 @@
   border: 0;
   background: transparent;
   color: var(--lg-text);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   outline: none;
+}
+
+/* 拉取弹窗的版本下拉：输入框保留自由输入，右侧 chevron 展开版本列表。 */
+.lgdocker-tagcombo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lgdocker-tagcombo .lgdocker-field {
+  padding-right: 4px;
+}
+
+.lgdocker-tagcombo__toggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--lg-text-muted);
+  cursor: pointer;
+}
+
+.lgdocker-tagcombo__toggle:hover,
+.lgdocker-tagcombo__toggle[aria-expanded='true'] {
+  background: var(--lg-hover);
+  color: var(--lg-text);
+}
+
+.lgdocker-tagcombo__list {
+  display: flex;
+  max-height: 188px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  overflow: auto;
+  border: var(--lg-border-width) solid var(--lg-border);
+  border-radius: var(--lg-radius-sm);
+  background: var(--lg-surface);
+}
+
+.lgdocker-tagcombo__option {
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--lg-text);
+  font-family: var(--lg-font-mono);
+  font-size: var(--lg-fs-label);
+  text-align: left;
+  cursor: pointer;
+}
+
+.lgdocker-tagcombo__option:hover,
+.lgdocker-tagcombo__option.is-active {
+  background: var(--lg-hover);
+}
+
+.lgdocker-tagcombo__option[aria-selected='true'] {
+  color: var(--lg-accent);
+  font-weight: 600;
+}
+
+.lgdocker-tagcombo__hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  padding: 7px 9px;
+  color: var(--lg-text-muted);
+  font-size: var(--lg-fs-label);
+  line-height: 1.45;
+}
+
+.lgdocker-tagcombo__hint.is-error {
+  color: var(--lg-danger);
 }
 
 .lgdocker-field-error {
   margin: 0;
   color: var(--lg-danger);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
   line-height: 1.45;
 }
 
@@ -1148,9 +1137,9 @@
 .lgdocker-imagerow {
   display: flex;
   align-items: center;
-  gap: 9px;
-  min-height: 46px;
-  padding: 7px 11px;
+  gap: 10px;
+  min-height: 54px;
+  padding: 10px 14px;
   border-bottom: var(--lg-border-width) solid var(--lg-border);
 }
 
@@ -1174,9 +1163,9 @@
   display: grid;
   flex: 0 0 auto;
   place-items: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
   background: var(--lg-surface-2);
   color: var(--lg-info);
 }
@@ -1192,7 +1181,7 @@
 .lgdocker-imagerow__main strong {
   overflow: hidden;
   font-family: var(--lg-font-mono);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1203,7 +1192,7 @@
   flex-wrap: wrap;
   gap: 8px;
   color: var(--lg-text-muted);
-  font-size: 9px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgdocker-imagerow__meta em {
@@ -1231,13 +1220,13 @@
 }
 
 .lgdocker-rowmenu__list button {
-  height: 24px;
-  padding: 0 8px;
+  height: var(--lg-control-h-sm);
+  padding: 0 10px;
   border: 0;
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
   color: var(--lg-text-secondary);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
   text-align: left;
   cursor: pointer;
 }
@@ -1262,12 +1251,12 @@
   padding: 8px 2px;
   background: var(--lg-bg);
   color: var(--lg-text-muted);
-  font-size: 9.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgdocker-quick h3 {
   margin: 0 0 8px;
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
 }
 
 .lgdocker-quick__grid {
@@ -1296,21 +1285,81 @@
 
 .lgdocker-quick__item strong {
   font-family: var(--lg-font-mono);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgdocker-quick__item span {
   overflow: hidden;
   color: var(--lg-text-muted);
-  font-size: 9.5px;
+  font-size: var(--lg-fs-label);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 /* 仓库结果行只有「拉取」按钮可点，通用行规则的手型光标会误导。 */
-.lgdocker-registry .lgdocker-table__head,
 .lgdocker-registry .lgdocker-table__row {
-  grid-template-columns: minmax(120px, 1fr) minmax(160px, 1.8fr) 54px 54px 74px;
+  cursor: default;
+}
+
+/* 按名字查版本：只读加速源的标签列表，长列表在面板内滚动、表头吸顶。 */
+.lgdocker-tagpanel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lgdocker-tagpanel__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.lgdocker-tagpanel__title {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lgdocker-tagpanel__title strong {
+  overflow: hidden;
+  font-family: var(--lg-font-mono);
+  font-size: var(--lg-fs-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lgdocker-tagpanel__title span {
+  color: var(--lg-text-muted);
+  font-size: var(--lg-fs-label);
+}
+
+.lgdocker-search.is-compact {
+  flex: 0 1 260px;
+  max-width: 260px;
+  height: var(--lg-control-h-sm);
+}
+
+.lgdocker-tagtable {
+  max-height: 46vh;
+  overflow: auto;
+}
+
+.lgdocker-tagtable .lgdocker-table__head,
+.lgdocker-tagtable .lgdocker-table__row {
+  grid-template-columns: minmax(0, 1fr) 74px;
+}
+
+.lgdocker-tagtable .lgdocker-table__head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.lgdocker-tagtable .lgdocker-table__row {
   cursor: default;
 }
 
@@ -1328,9 +1377,9 @@
   }
 }
 
-/* 仓库设置：daemon.json 的加速源与代理。 */
+/* 仓库设置：加速源列表与代理表单。 */
 .lgdocker-modal__panel.is-wide {
-  width: min(520px, 100%);
+  width: min(560px, 100%);
 }
 
 .lgdocker-settings__notice {
@@ -1350,86 +1399,199 @@
 }
 
 .lgdocker-settings__notice strong {
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .lgdocker-settings__notice span {
   color: var(--lg-text-secondary);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
   line-height: 1.45;
 }
 
-.lgdocker-settings__block {
+/* 设置入口：与镜像行菜单同一套下拉样式，条目带图标。 */
+.lgdocker-settingsmenu .lgdocker-rowmenu__list {
+  min-width: 168px;
+  padding: 4px;
+}
+
+.lgdocker-rowmenu__list.is-settings button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  font-size: var(--lg-fs-sm);
+  color: var(--lg-text);
+}
+
+.lgdocker-rowmenu__list.is-settings .lg-icon {
+  flex: 0 0 auto;
+  color: var(--lg-text-muted);
+}
+
+.lgdocker-mirror__bar {
+  display: flex;
+  gap: 6px;
+}
+
+/* 加速源表格：行内直接编辑，左侧手柄拖拽排序。 */
+.lgdocker-mirror {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: var(--lg-border-width) solid var(--lg-border);
+  border-radius: var(--lg-radius-sm);
+  background: var(--lg-surface);
+}
+
+.lgdocker-mirror__head,
+.lgdocker-mirror__row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1.6fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+}
+
+.lgdocker-mirror__head {
+  height: var(--lg-control-h-sm);
+  border-bottom: var(--lg-border-width) solid var(--lg-border);
+  background: var(--lg-surface-2);
+  color: var(--lg-text-muted);
+  font-size: var(--lg-fs-label);
+}
+
+.lgdocker-mirror__row {
+  height: var(--lg-control-h);
+  border-bottom: var(--lg-border-width) solid var(--lg-border);
+}
+
+.lgdocker-mirror__row:last-child {
+  border-bottom: 0;
+}
+
+.lgdocker-mirror__row.is-selected {
+  background: color-mix(in srgb, var(--lg-info) 10%, transparent);
+}
+
+.lgdocker-mirror__row.is-dragging {
+  opacity: 0.5;
+}
+
+.lgdocker-mirror__grip {
+  display: grid;
+  place-items: center;
+  color: var(--lg-text-muted);
+  cursor: grab;
+}
+
+.lgdocker-mirror__row input {
+  width: 100%;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  border: var(--lg-border-width) solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--lg-text);
+  font-size: var(--lg-fs-sm);
+  outline: none;
+}
+
+.lgdocker-mirror__row input[data-mirror-url] {
+  font-family: var(--lg-font-mono);
+  font-size: var(--lg-fs-label);
+}
+
+.lgdocker-mirror__row input::placeholder {
+  color: var(--lg-text-muted);
+}
+
+.lgdocker-mirror__row input:focus {
+  border-color: var(--lg-accent);
+  background: var(--lg-bg);
+}
+
+.lgdocker-mirror__empty {
+  margin: 0;
+  padding: 14px 10px;
+  color: var(--lg-text-muted);
+  font-size: var(--lg-fs-label);
+  text-align: center;
+}
+
+.lgdocker-proxy__toggle {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: var(--lg-text-secondary);
+  font-size: var(--lg-fs-sm);
+}
+
+.lgdocker-proxy__toggle > span:first-child {
+  margin-right: auto;
+  color: var(--lg-text-muted);
+  font-size: var(--lg-fs-label);
+}
+
+.lgdocker-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+
+.lgdocker-radio input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--lg-accent);
+}
+
+.lgdocker-formfield {
   display: flex;
   flex-direction: column;
   gap: 5px;
 }
 
-.lgdocker-settings__block > span,
-.lgdocker-settings__group legend {
+.lgdocker-formfield > span {
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
 }
 
-.lgdocker-settings__block textarea {
-  padding: 7px 9px;
+.lgdocker-formfield input,
+.lgdocker-formfield textarea {
+  height: var(--lg-control-h);
+  padding: 0 10px;
   border: var(--lg-border-width) solid var(--lg-border);
   border-radius: 6px;
   background: var(--lg-surface);
   color: var(--lg-text);
-  font-family: var(--lg-font-mono);
-  font-size: 10.5px;
-  line-height: 1.5;
+  font-size: var(--lg-fs-sm);
   outline: none;
+}
+
+.lgdocker-formfield textarea {
+  height: auto;
+  padding: 7px 10px;
+  font-family: var(--lg-font-mono);
+  font-size: var(--lg-fs-label);
+  line-height: 1.5;
   resize: vertical;
 }
 
-.lgdocker-settings__block textarea:focus {
+.lgdocker-formfield input:focus,
+.lgdocker-formfield textarea:focus {
   border-color: var(--lg-accent);
 }
 
-.lgdocker-settings__block small,
-.lgdocker-settings__group .lgdocker-muted {
-  margin: 0;
+.lgdocker-formfield input:disabled,
+.lgdocker-formfield textarea:disabled {
+  opacity: 0.6;
+}
+
+.lgdocker-modal__foot .lgdocker-modal__hint {
+  margin: 0 auto 0 0;
   color: var(--lg-text-muted);
-  font-size: 9.5px;
-  line-height: 1.45;
-}
-
-.lgdocker-settings__group {
-  display: flex;
-  margin: 0;
-  padding: 0;
-  flex-direction: column;
-  gap: 7px;
-  border: 0;
-}
-
-.lgdocker-settings__group:disabled {
-  opacity: 0.55;
-}
-
-.lgdocker-settings__proxy {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.lgdocker-settings__proxy .lgdocker-field {
-  flex: 1;
-  min-width: 0;
-}
-
-.lgdocker-settings__proxy .lgdocker-field > span {
-  flex: 0 0 62px;
-  color: var(--lg-text-muted);
-  font-size: 9.5px;
-}
-
-.lgdocker-settings__proxy .lgdocker-btn {
-  flex: 0 0 auto;
-}
-
-.lgdocker-settings__proxy input:disabled {
-  color: var(--lg-text-muted);
+  font-size: var(--lg-fs-label);
+  line-height: 1.4;
 }

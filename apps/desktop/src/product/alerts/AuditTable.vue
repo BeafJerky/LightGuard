@@ -167,7 +167,7 @@ async function onRollback(row: AuditEntry): Promise<void> {
 .audit__head {
   padding: 0 12px 6px;
   color: var(--lg-text-muted);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
 }
 
 .audit__row {
@@ -177,7 +177,7 @@ async function onRollback(row: AuditEntry): Promise<void> {
   border-radius: var(--lg-radius-sm);
   background: var(--lg-surface);
   color: var(--lg-text-secondary);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
 }
 
@@ -214,7 +214,7 @@ async function onRollback(row: AuditEntry): Promise<void> {
   display: grid;
   gap: 4px;
   margin: 0;
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
 }
 
 .audit__detail dl div {
@@ -237,14 +237,14 @@ async function onRollback(row: AuditEntry): Promise<void> {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 26px;
+  height: var(--lg-control-h-sm);
   margin-top: 10px;
   padding: 0 10px;
   border: var(--lg-border-width) solid var(--lg-warning);
   border-radius: var(--lg-radius-full);
   background: transparent;
   color: var(--lg-warning);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
 }
 
@@ -256,26 +256,26 @@ async function onRollback(row: AuditEntry): Promise<void> {
 .audit__empty {
   margin: 24px 0;
   color: var(--lg-text-muted);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   text-align: center;
 }
 
 .audit__error {
   margin: 0 0 8px;
   color: var(--lg-danger);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
 }
 
 .audit__more {
   align-self: center;
-  height: 30px;
+  height: var(--lg-control-h);
   margin-top: 8px;
   padding: 0 16px;
   border: var(--lg-border-width) solid var(--lg-border);
   border-radius: var(--lg-radius-full);
   background: transparent;
   color: var(--lg-text-secondary);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
 }
 

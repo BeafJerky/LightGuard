@@ -12,6 +12,31 @@
   background-color: var(--lg-bg);
 }
 
+/* ---------- 密度与排版 ----------
+   全站一套读数区间：标签 11.5 / 辅助 12.5 / 正文 13.5 / 卡片标题 16.5 / 页题 30。
+   控制台、Docker、终端、文件管理都从这里取值，避免某个窗口单独缩小一档；
+   主题只换颜色与圆角，不换字号。 */
+:root {
+  --lg-fs-label: 11.5px;
+  --lg-fs-sm: 12.5px;
+  --lg-fs-body: 13.5px;
+  --lg-fs-title: 16.5px;
+  --lg-fs-sub: 18.5px;
+  --lg-fs-metric: 22px;
+  --lg-fs-display: 30px;
+  --lg-fs-mono: 12px;
+  --lg-control-h: 32px;
+  --lg-control-h-sm: 26px;
+  --lg-icon-btn: 28px;
+  --lg-icon-btn-sm: 22px;
+  --lg-row-h: 44px;
+  --lg-nav-h: 36px;
+  --lg-pad-card: 18px;
+  --lg-gap-sm: 8px;
+  --lg-gap-md: 12px;
+  --lg-gap-lg: 16px;
+}
+
 .lg-icon-sprite {
   position: absolute;
   width: 0;
@@ -120,7 +145,7 @@
 
 .lg-kpi__label {
   color: var(--lg-text-muted);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   letter-spacing: 0.02em;
 }
 
@@ -129,7 +154,7 @@
   align-items: baseline;
   gap: 4px;
   font-family: var(--lg-font-display);
-  font-size: 28px;
+  font-size: var(--lg-fs-display);
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   line-height: 1.1;
@@ -138,7 +163,7 @@
 
 .lg-kpi__value small {
   font-family: var(--lg-font-sans);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   font-weight: 500;
   color: var(--lg-text-muted);
 }
@@ -158,7 +183,7 @@
 
 .lg-kpi__foot {
   color: var(--lg-text-muted);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
 }
 
 /* ---------- status pill ---------- */
@@ -170,7 +195,7 @@
   padding: 0 9px;
   border: var(--lg-border-width) solid transparent;
   border-radius: var(--lg-radius-full);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   font-weight: 500;
   line-height: 1;
   white-space: nowrap;

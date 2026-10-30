@@ -34,9 +34,9 @@ const emit = defineEmits<{
   context: [payload: { entry: FileEntry; x: number; y: number }];
 }>();
 
-const DETAIL_ROW_HEIGHT = 30;
-const LIST_ROW_HEIGHT = 28;
-const GRID_ROW_HEIGHT = 96;
+const DETAIL_ROW_HEIGHT = 34;
+const LIST_ROW_HEIGHT = 32;
+const GRID_ROW_HEIGHT = 104;
 const GRID_CELL_MIN = 96;
 const GRID_GAP = 8;
 const OVERSCAN = 6;
@@ -286,7 +286,7 @@ watch(() => props.resetKey, async () => {
             @dblclick="emit('open', cell.entry)"
             @contextmenu.prevent="emit('context', { entry: cell.entry, x: $event.clientX, y: $event.clientY })"
           >
-            <LgIcon :name="fileIcon(cell.entry)" :size="26" />
+            <LgIcon :name="fileIcon(cell.entry)" :size="30" />
             <span class="lgfiles-grid__name">{{ cell.entry.name }}</span>
             <span class="lgfiles-grid__meta">{{ cell.entry.kind === 'dir' ? '' : formatSize(cell.entry.size) }}</span>
           </div>
@@ -307,7 +307,7 @@ watch(() => props.resetKey, async () => {
           @contextmenu.prevent="emit('context', { entry: row.entry, x: $event.clientX, y: $event.clientY })"
         >
           <span class="lgfiles-list__cell is-name">
-            <LgIcon :name="fileIcon(row.entry)" :size="14" />
+            <LgIcon :name="fileIcon(row.entry)" :size="16" />
             <span class="lgfiles-list__name">{{ row.entry.name }}</span>
           </span>
           <span v-if="mode === 'list'" class="lgfiles-list__cell is-size">

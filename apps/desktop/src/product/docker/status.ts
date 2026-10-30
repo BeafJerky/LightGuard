@@ -8,3 +8,19 @@ export const PERMISSION_HINT =
 export function permissionHint(code: string): string {
   return code === 'DOCKER_PERMISSION' ? PERMISSION_HINT : '';
 }
+
+/** 搜索由服务器直连 Docker Hub，加速源只作用于拉取，失败时给出可操作的下一步。 */
+export const REGISTRY_HINT =
+  '加速源只作用于拉取；搜索需要服务器能访问 Docker Hub，失败时可重试或直接拉取。';
+
+export function registryHint(code: string): string {
+  return code === 'REGISTRY_FAILED' ? REGISTRY_HINT : '';
+}
+
+/** 查版本只读加速源的 tags/list，不经过 Docker Hub，失败提示不能套用搜索文案。 */
+export const TAG_HINT =
+  '查版本读取的是加速源上的标签列表，不经过 Docker Hub；加速源不可达时请检查「加速源设置」。';
+
+export function tagHint(code: string): string {
+  return code === 'REGISTRY_FAILED' ? TAG_HINT : '';
+}

@@ -857,13 +857,13 @@ async function onReset() {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 30px;
+  height: var(--lg-control-h);
   padding: 0 14px;
   border: 0;
   border-radius: var(--lg-radius-full);
   background: transparent;
   color: var(--lg-text-muted);
-  font-size: 12px;
+  font-size: var(--lg-fs-sm);
   cursor: pointer;
   transition:
     background var(--lg-dur-fast) var(--lg-ease),
@@ -931,7 +931,7 @@ async function onReset() {
 
 .settings-card__title h2 {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--lg-fs-title);
   font-weight: 650;
   letter-spacing: -0.01em;
 }
@@ -939,7 +939,7 @@ async function onReset() {
 .settings-card__title p {
   margin: 0;
   color: var(--lg-text-muted);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   line-height: 1.5;
 }
 
@@ -974,13 +974,13 @@ async function onReset() {
 }
 
 .theme-scope__head strong {
-  font-size: 12.5px;
+  font-size: var(--lg-fs-body);
   font-weight: 600;
 }
 
 .theme-scope__head span {
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
 }
 
 .theme-scope__badge {
@@ -989,7 +989,7 @@ async function onReset() {
   border: 1px solid var(--lg-border);
   border-radius: var(--lg-radius-full);
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
   white-space: nowrap;
 }
 
@@ -1007,7 +1007,7 @@ async function onReset() {
 
 .theme-gallery__label {
   color: var(--lg-text-muted);
-  font-size: 10.5px;
+  font-size: var(--lg-fs-label);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -1199,14 +1199,14 @@ async function onReset() {
 }
 
 .theme-card__meta strong {
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
   font-weight: 600;
 }
 
 .theme-card__meta small {
   overflow: hidden;
   color: var(--lg-text-muted);
-  font-size: 10px;
+  font-size: var(--lg-fs-label);
   line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1241,7 +1241,7 @@ async function onReset() {
   gap: 6px;
   margin: 0;
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   line-height: 1.6;
 }
 
@@ -1268,13 +1268,13 @@ async function onReset() {
 }
 
 .setting-text strong {
-  font-size: 12.5px;
+  font-size: var(--lg-fs-body);
   font-weight: 600;
 }
 
 .setting-text span {
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   line-height: 1.5;
 }
 
@@ -1294,7 +1294,7 @@ async function onReset() {
   border-radius: 6px;
   background: transparent;
   color: var(--lg-text-muted);
-  font-size: 11px;
+  font-size: var(--lg-fs-sm);
   white-space: nowrap;
   cursor: pointer;
 }
@@ -1324,7 +1324,7 @@ async function onReset() {
   gap: 12px;
   padding: 7px 0;
   border-top: 1px solid var(--lg-border);
-  font-size: 11.5px;
+  font-size: var(--lg-fs-sm);
 }
 
 .about-list div:first-child {

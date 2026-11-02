@@ -8,8 +8,6 @@ import type {
   UpdaterBridge,
 } from './types';
 
-export const MAX_BUFFERED_BYTES = 100 * 1024 * 1024;
-
 function initialState(): UpdateState {
   return {
     phase: 'idle',
@@ -49,6 +47,7 @@ export function updateErrorMessage(kind: UpdateErrorKind): string {
 export class UpdateController {
   readonly state = reactive<UpdateState>(initialState());
   private downloadedVersion = '';
+  private runId = 0;
 
   constructor(private readonly bridge: UpdaterBridge) {}
 
@@ -77,6 +76,15 @@ export class UpdateController {
       }
       if (info.version !== this.state.info?.version) this.downloadedVersion = '';
       this.state.info = info;
+      if (info.cached) {
+        this.downloadedVersion = info.version;
+        this.state.phase = 'ready';
+        this.state.progress = {
+          downloaded: info.size ?? 0,
+          total: info.size ?? null,
+        };
+        return;
+      }
       this.state.phase = 'available';
     } catch (error) {
       if (!manual) {
@@ -94,26 +102,43 @@ export class UpdateController {
     const info = this.state.info;
     if (!info || (this.state.phase !== 'available' && this.state.phase !== 'error')) return;
 
+    const runId = ++this.runId;
     this.state.phase = 'downloading';
     this.state.error = null;
     this.state.failedAction = null;
     this.state.progress = { downloaded: 0, total: info.size ?? null };
     const onProgress = (progress: DownloadProgress) => {
-      this.state.progress = progress;
+      if (runId === this.runId) this.state.progress = progress;
     };
 
     try {
-      if (info.size && info.size > MAX_BUFFERED_BYTES && this.bridge.downloadAndInstall) {
-        await this.bridge.downloadAndInstall(info, onProgress);
-        this.state.phase = 'installing';
-        return;
-      }
       await this.bridge.download(info, onProgress);
       this.downloadedVersion = info.version;
       this.state.phase = 'ready';
     } catch (error) {
+      if (runId !== this.runId) return;
       this.setError(error, 'download');
     }
+  }
+
+  async cancel(): Promise<void> {
+    if (this.state.phase !== 'downloading') return;
+    // 先让在途请求失效，避免它的 reject 覆盖下面设置的状态。
+    this.runId += 1;
+    try {
+      await this.bridge.cancel?.();
+    } catch {
+      // 取消失败也要回到可重试态；错误态会把用户困在下载中。
+    }
+    this.state.phase = this.state.info ? 'available' : 'idle';
+    this.state.progress = { downloaded: 0, total: null };
+    this.state.error = null;
+    this.state.failedAction = null;
+  }
+
+  async defer(): Promise<void> {
+    if (this.state.phase !== 'ready') return;
+    await this.bridge.defer?.();
   }
 
   async install(): Promise<boolean> {

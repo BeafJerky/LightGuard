@@ -1,9 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  MAX_BUFFERED_BYTES,
-  UpdateController,
-  classifyUpdateError,
-} from './controller';
+import { UpdateController, classifyUpdateError } from './controller';
 import type { DownloadProgress, UpdateInfo, UpdaterBridge } from './types';
 
 const info: UpdateInfo = {
@@ -146,21 +142,62 @@ describe('update controller', () => {
     expect(controller.state.error?.message).toContain('重新打开 LightGuard');
   });
 
-  it('uses downloadAndInstall for an oversized package', async () => {
-    const download = vi.fn(async () => {});
-    const downloadAndInstall = vi.fn(async () => {});
-    const controller = new UpdateController(
-      bridge({
-        check: vi.fn(async () => ({ ...info, size: MAX_BUFFERED_BYTES + 1 })),
-        download,
-        downloadAndInstall,
+  it('restores a cached package into ready without downloading', async () => {
+    const bridge: UpdaterBridge = {
+      check: vi.fn(async () => ({
+        version: '0.15.0',
+        currentVersion: '0.14.1',
+        cached: true,
+        size: 1024,
+      })),
+      download: vi.fn(),
+      install: vi.fn(),
+    };
+    const controller = new UpdateController(bridge);
+    await controller.check({ manual: true });
+    expect(controller.state.phase).toBe('ready');
+    expect(controller.state.progress).toEqual({ downloaded: 1024, total: 1024 });
+    expect(bridge.download).not.toHaveBeenCalled();
+  });
+
+  it('cancels a download and returns to available', async () => {
+    let rejectDownload: (error: Error) => void = () => {};
+    const bridge: UpdaterBridge = {
+      check: vi.fn(async () => ({ version: '0.15.0', currentVersion: '0.14.1' })),
+      download: vi.fn(
+        () =>
+          new Promise<void>((_, reject) => {
+            rejectDownload = reject;
+          }),
+      ),
+      install: vi.fn(),
+      cancel: vi.fn(async () => {
+        rejectDownload(new Error('cancelled'));
       }),
-    );
+    };
+    const controller = new UpdateController(bridge);
+    await controller.check({ manual: true });
+    const downloading = controller.download();
+    await Promise.resolve();
+    await controller.cancel();
+    await downloading;
+    expect(controller.state.phase).toBe('available');
+    expect(controller.state.error).toBeNull();
+  });
+
+  it('keeps the ready state after defer', async () => {
+    const bridge: UpdaterBridge = {
+      check: vi.fn(async () => ({ version: '0.15.0', currentVersion: '0.14.1' })),
+      download: vi.fn(async (_info, onProgress) => onProgress({ downloaded: 10, total: 10 })),
+      install: vi.fn(),
+      defer: vi.fn(async () => {}),
+    };
+    const controller = new UpdateController(bridge);
     await controller.check({ manual: true });
     await controller.download();
-    expect(downloadAndInstall).toHaveBeenCalledOnce();
-    expect(download).not.toHaveBeenCalled();
-    expect(controller.state.phase).toBe('installing');
+    await controller.defer();
+    expect(controller.state.phase).toBe('ready');
+    expect(bridge.defer).toHaveBeenCalledTimes(1);
   });
 
   it('classifies signatures before network and manifest errors', () => {

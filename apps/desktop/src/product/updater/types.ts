@@ -19,6 +19,8 @@ export interface UpdateInfo {
   body?: string;
   size?: number;
   url?: string;
+  cached?: boolean;
+  deferred?: boolean;
 }
 
 export interface DownloadProgress {
@@ -32,11 +34,9 @@ export interface UpdaterBridge {
     info: UpdateInfo,
     onProgress: (progress: DownloadProgress) => void,
   ): Promise<void>;
-  downloadAndInstall?(
-    info: UpdateInfo,
-    onProgress: (progress: DownloadProgress) => void,
-  ): Promise<void>;
   install(info: UpdateInfo): Promise<void>;
+  cancel?(): Promise<void>;
+  defer?(): Promise<void>;
 }
 
 export interface UpdateError {

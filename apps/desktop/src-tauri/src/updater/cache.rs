@@ -1,4 +1,5 @@
-use std::fs;
+use std::fs::{self, File};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -31,6 +32,17 @@ pub fn cache_paths(dir: &Path, version: &str) -> (PathBuf, PathBuf) {
     )
 }
 
+/// 先写临时文件并 `sync_all`，再落位；断电时最多丢掉临时文件，不会留下被 `read_cache`
+/// 误认的半截文件。
+fn write_synced(path: &Path, bytes: &[u8], context: &str) -> Result<(), String> {
+    let mut file = File::create(path).map_err(|error| format!("{context}：{error}"))?;
+    file.write_all(bytes)
+        .map_err(|error| format!("{context}：{error}"))?;
+    file.sync_all()
+        .map_err(|error| format!("{context}：{error}"))?;
+    Ok(())
+}
+
 pub fn write_cache(
     dir: &Path,
     version: &str,
@@ -39,11 +51,19 @@ pub fn write_cache(
     bytes: &[u8],
     deferred: bool,
 ) -> Result<(), String> {
+    // 版本号会成为文件名，先做语义化校验，避免非法字符与 `..` 路径穿越。
+    semver::Version::parse(version).map_err(|_| "更新版本号无效".to_string())?;
+    if bytes.is_empty() {
+        return Err("更新包为空".to_string());
+    }
+    if bytes.len() as u64 > MAX_ASSET_BYTES {
+        return Err("更新包超过大小上限".to_string());
+    }
     fs::create_dir_all(dir).map_err(|error| format!("创建更新缓存目录失败：{error}"))?;
     let (exe, meta) = cache_paths(dir, version);
     let exe_tmp = exe.with_extension("exe.tmp");
     let meta_tmp = meta.with_extension("json.tmp");
-    fs::write(&exe_tmp, bytes).map_err(|error| format!("写入更新包失败：{error}"))?;
+    write_synced(&exe_tmp, bytes, "写入更新包失败")?;
     let _ = fs::remove_file(&exe);
     fs::rename(&exe_tmp, &exe).map_err(|error| format!("落位更新包失败：{error}"))?;
     let payload = CacheMeta {
@@ -58,7 +78,7 @@ pub fn write_cache(
     };
     let json =
         serde_json::to_vec(&payload).map_err(|error| format!("序列化缓存元数据失败：{error}"))?;
-    fs::write(&meta_tmp, json).map_err(|error| format!("写入缓存元数据失败：{error}"))?;
+    write_synced(&meta_tmp, &json, "写入缓存元数据失败")?;
     let _ = fs::remove_file(&meta);
     fs::rename(&meta_tmp, &meta).map_err(|error| format!("落位缓存元数据失败：{error}"))?;
     Ok(())
@@ -67,11 +87,16 @@ pub fn write_cache(
 pub fn read_cache(dir: &Path) -> Option<(CacheMeta, Vec<u8>)> {
     let raw_meta = fs::read(dir.join(META_FILE)).ok()?;
     let meta: CacheMeta = serde_json::from_slice(&raw_meta).ok()?;
-    let (exe, _) = cache_paths(dir, &meta.version);
-    let bytes = fs::read(exe).ok()?;
-    if bytes.is_empty() || bytes.len() as u64 > MAX_ASSET_BYTES {
+    // 清单与元数据版本不一致说明缓存与清单已经对不上，按无缓存处理。
+    if meta.raw_manifest.get("version").and_then(Value::as_str) != Some(meta.version.as_str()) {
         return None;
     }
+    let (exe, _) = cache_paths(dir, &meta.version);
+    let size = fs::metadata(&exe).ok()?.len();
+    if size == 0 || size > MAX_ASSET_BYTES {
+        return None;
+    }
+    let bytes = fs::read(&exe).ok()?;
     Some((meta, bytes))
 }
 
@@ -85,7 +110,7 @@ pub fn set_deferred(dir: &Path, deferred: bool) -> Result<(), String> {
         serde_json::to_vec(&meta).map_err(|error| format!("序列化缓存元数据失败：{error}"))?;
     let meta_path = dir.join(META_FILE);
     let tmp = meta_path.with_extension("json.tmp");
-    fs::write(&tmp, json).map_err(|error| format!("写入缓存元数据失败：{error}"))?;
+    write_synced(&tmp, &json, "写入缓存元数据失败")?;
     let _ = fs::remove_file(&meta_path);
     fs::rename(&tmp, &meta_path).map_err(|error| format!("落位缓存元数据失败：{error}"))
 }
@@ -103,6 +128,7 @@ pub fn clear_cache(dir: &Path) {
     }
 }
 
+/// 调用方必须先注册 `tauri_plugin_updater`，否则 `updater_builder()` 会 panic。
 pub fn restore_update(app: &AppHandle, raw: Value) -> Result<Update, String> {
     let updater = app
         .updater_builder()
@@ -111,7 +137,7 @@ pub fn restore_update(app: &AppHandle, raw: Value) -> Result<Update, String> {
     updater
         .restore_update(raw)
         .map_err(|error| format!("恢复更新清单失败：{error}"))?
-        .ok_or_else(|| "缓存清单与当前版本不匹配".to_string())
+        .ok_or_else(|| "缓存清单已不提供更新".to_string())
 }
 
 #[cfg(test)]
@@ -158,6 +184,78 @@ mod tests {
         let (exe, meta) = cache_paths(std::path::Path::new("x"), "0.15.0");
         assert!(exe.ends_with("LightGuard_0.15.0_x64-setup.exe"));
         assert!(meta.ends_with("cache.json"));
+    }
+
+    #[test]
+    fn rejects_invalid_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("updates");
+        let raw = json!({ "version": "0.15.0" });
+
+        let error = write_cache(
+            &cache,
+            "0.15.0/../evil",
+            &raw,
+            "https://example.com/a.exe",
+            b"abc",
+            false,
+        )
+        .unwrap_err();
+
+        assert!(error.contains("更新版本号无效"), "unexpected error: {error}");
+        // 既不能落盘更新包，也不能因版本号里的 `..` 写到缓存目录之外。
+        assert!(!dir.path().join("evil_x64-setup.exe").exists());
+        let leftover = fs::read_dir(&cache)
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .any(|entry| entry.file_name().to_string_lossy().starts_with("LightGuard_"))
+            })
+            .unwrap_or(false);
+        assert!(!leftover);
+    }
+
+    #[test]
+    fn rejects_oversized_payload() {
+        let dir = tempfile::tempdir().unwrap();
+        let raw = json!({ "version": "0.15.0" });
+        let bytes = vec![0_u8; MAX_ASSET_BYTES as usize + 1];
+
+        let error = write_cache(
+            dir.path(),
+            "0.15.0",
+            &raw,
+            "https://example.com/a.exe",
+            &bytes,
+            false,
+        )
+        .unwrap_err();
+
+        assert!(error.contains("更新包"), "unexpected error: {error}");
+        let (exe, meta) = cache_paths(dir.path(), "0.15.0");
+        assert!(!exe.exists());
+        assert!(!meta.exists());
+    }
+
+    #[test]
+    fn ignores_cache_with_mismatched_manifest_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let meta = json!({
+            "version": "0.15.0",
+            "rawManifest": { "version": "0.16.0" },
+            "downloadedAt": 1,
+            "sourceUrl": "https://example.com/a.exe",
+            "deferred": false,
+        });
+        std::fs::write(
+            dir.path().join("cache.json"),
+            serde_json::to_vec(&meta).unwrap(),
+        )
+        .unwrap();
+        let (exe, _) = cache_paths(dir.path(), "0.15.0");
+        std::fs::write(&exe, b"abc").unwrap();
+
+        assert!(read_cache(dir.path()).is_none());
     }
 
     #[test]

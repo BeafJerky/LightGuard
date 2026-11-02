@@ -197,6 +197,28 @@ describe('window close behavior', () => {
     expect(parsed.settings.closeBehavior).toBe('quit');
   });
 
+  it('normalizes the update source on write and load', async () => {
+    let store = await loadStore();
+    store.updateSettings({ updateSource: 'http://mirror.example.com/latest.json' });
+    expect(store.state.settings.updateSource).toBe('auto');
+
+    store.updateSettings({ updateSource: 'https://mirror.example.com/latest.json' });
+    expect(store.state.settings.updateSource).toBe('https://mirror.example.com/latest.json');
+    store.cancelPendingPersist();
+
+    window.localStorage.setItem(
+      STORE_KEY,
+      JSON.stringify({
+        version: 2,
+        settings: { updateSource: 'http://mirror.example.com/latest.json' },
+        servers: [],
+        logs: [],
+      }),
+    );
+    store = await loadStore();
+    expect(store.state.settings.updateSource).toBe('auto');
+  });
+
   it('flushes the remembered behavior before quitting', async () => {
     const store = await loadStore();
     store.updateSettings({ closeBehavior: 'tray' });

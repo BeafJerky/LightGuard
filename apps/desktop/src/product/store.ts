@@ -425,7 +425,11 @@ export function setTheme(scope: keyof ThemeChoices, theme: ThemeId) {
 }
 
 export function updateSettings(patch: Partial<AppSettings>) {
-  Object.assign(state.settings, patch);
+  const next =
+    patch.updateSource === undefined
+      ? patch
+      : { ...patch, updateSource: normalizeUpdateSource(patch.updateSource) };
+  Object.assign(state.settings, next);
   if (isPersistenceActive()) writePersistence({ op: 'settingsSet', settings: { ...state.settings } });
   else schedulePersist();
 }

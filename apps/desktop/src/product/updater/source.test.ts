@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeUpdateSource } from './source';
+import { normalizeUpdateSource, UPDATE_SOURCE_PRESETS } from './source';
 
 describe('normalizeUpdateSource', () => {
   it('defaults to auto for non-strings', () => {
@@ -17,5 +17,11 @@ describe('normalizeUpdateSource', () => {
     expect(normalizeUpdateSource('http://mirror.example.com/latest.json')).toBe('auto');
     expect(normalizeUpdateSource('https://user:pass@mirror.example.com/latest.json')).toBe('auto');
     expect(normalizeUpdateSource('not a url')).toBe('auto');
+  });
+
+  it('keeps preset urls stable through normalization', () => {
+    for (const preset of UPDATE_SOURCE_PRESETS) {
+      expect(normalizeUpdateSource(preset.id)).toBe(preset.id);
+    }
   });
 });

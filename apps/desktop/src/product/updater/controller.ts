@@ -2,6 +2,7 @@ import { reactive } from 'vue';
 import type {
   DownloadProgress,
   UpdateErrorKind,
+  UpdateFailedAction,
   UpdateInfo,
   UpdateState,
   UpdaterBridge,
@@ -17,6 +18,7 @@ function initialState(): UpdateState {
     error: null,
     lastCheckedAt: null,
     lastManualCheck: false,
+    failedAction: null,
   };
 }
 
@@ -64,6 +66,7 @@ export class UpdateController {
     this.state.lastManualCheck = manual;
     this.state.phase = 'checking';
     this.state.error = null;
+    this.state.failedAction = null;
     try {
       const info = await this.bridge.check();
       this.state.lastCheckedAt = Date.now();
@@ -79,9 +82,11 @@ export class UpdateController {
       if (!manual) {
         this.state.phase = 'idle';
         this.state.error = null;
+        this.state.info = null;
+        this.downloadedVersion = '';
         return;
       }
-      this.setError(error);
+      this.setError(error, 'check');
     }
   }
 
@@ -91,6 +96,7 @@ export class UpdateController {
 
     this.state.phase = 'downloading';
     this.state.error = null;
+    this.state.failedAction = null;
     this.state.progress = { downloaded: 0, total: info.size ?? null };
     const onProgress = (progress: DownloadProgress) => {
       this.state.progress = progress;
@@ -106,28 +112,41 @@ export class UpdateController {
       this.downloadedVersion = info.version;
       this.state.phase = 'ready';
     } catch (error) {
-      this.setError(error);
+      this.setError(error, 'download');
     }
   }
 
   async install(): Promise<boolean> {
     const info = this.state.info;
-    if (!info || this.downloadedVersion !== info.version) return false;
+    if (this.state.phase === 'installing' || !info || this.downloadedVersion !== info.version) {
+      return false;
+    }
 
     this.state.phase = 'installing';
     this.state.error = null;
+    this.state.failedAction = null;
     try {
       await this.bridge.install(info);
       return true;
     } catch (error) {
-      this.setError(error);
+      this.setError(error, 'install');
       return false;
     }
   }
 
-  private setError(error: unknown) {
+  reportRelaunchFailure(): void {
+    this.state.phase = 'error';
+    this.state.failedAction = 'relaunch';
+    this.state.error = {
+      kind: 'unknown',
+      message: '更新已安装，但自动重启失败，请手动关闭并重新打开 LightGuard。',
+    };
+  }
+
+  private setError(error: unknown, action: UpdateFailedAction) {
     const kind = classifyUpdateError(error);
     this.state.error = { kind, message: updateErrorMessage(kind) };
+    this.state.failedAction = action;
     this.state.phase = 'error';
   }
 }

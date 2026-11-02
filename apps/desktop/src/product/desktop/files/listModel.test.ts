@@ -67,4 +67,19 @@ describe('file list model', () => {
     expect(moveSelection(rows, rows[4].path, 'left', 6, 3)).toBe(rows[3].path);
     expect(moveSelection(rows, rows[6].path, 'right', 6, 3)).toBe(rows[6].path);
   });
+
+  it('sorts 20k entries without a pathological slowdown', () => {
+    const many = Array.from({ length: 20_000 }, (_, index) =>
+      entry(`file${index}.txt`, { size: index, mtime: index }),
+    );
+    const started = performance.now();
+    const sorted = visibleEntries(many, {
+      sortKey: 'name',
+      sortDir: 'asc',
+      query: '',
+      showHidden: false,
+    });
+    expect(sorted).toHaveLength(20_000);
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
 });

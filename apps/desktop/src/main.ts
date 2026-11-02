@@ -15,7 +15,9 @@ async function start() {
   }
   createApp(App).mount('#app');
   // 只在应用挂载后注册一次：通知点击要能跳转，需要路由与告警 store 已就绪。
-  void startNotificationActions();
+  void startNotificationActions().catch((error: unknown) => {
+    console.error('[lightguard] notification actions failed to start', error);
+  });
 }
 
 void start();

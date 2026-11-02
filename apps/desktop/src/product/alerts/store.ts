@@ -85,6 +85,8 @@ export async function loadMore(): Promise<void> {
 }
 
 let focusRuns = 0;
+// 高亮定时器的代号：重复定位同一条告警时，旧定时器不能提前清掉新的高亮。
+let focusHighlightSeq = 0;
 
 // 供 AlertsPage 判断：定位请求进行中时不要再发起自己的首屏加载，
 // 否则后到的「未处理」列表会把目标行挤掉。
@@ -108,9 +110,10 @@ export async function focusAlert(id: number): Promise<void> {
     // 告警可能已被清理或不在当前账号可见范围内，找不到就不高亮。
     if (!alertsState.items.some((item) => item.id === id)) return;
     alertsState.focusAlertId = id;
+    const run = ++focusHighlightSeq;
     window.setTimeout(() => {
-      // 期间又定位到别的行时，旧的定时器不能把新的高亮清掉。
-      if (alertsState.focusAlertId === id) alertsState.focusAlertId = null;
+      // 期间又定位过（哪怕还是同一条）时，旧定时器不能把新的高亮清掉。
+      if (focusHighlightSeq === run) alertsState.focusAlertId = null;
     }, 2000);
   } finally {
     focusRuns -= 1;

@@ -222,6 +222,14 @@ fn notification_id(alert_id: i64) -> i32 {
     alert_id.clamp(0, i32::MAX as i64) as i32
 }
 
+/// 通知载荷里的告警 id 字段名：前端 `notifications.ts` 按同名 key 读取，改名要两边一起改。
+const ALERT_ID_EXTRA: &str = "alertId";
+
+/// 载荷契约的单一来源：builder 里的 `.extra(key, value)` 与测试都走这里。
+fn alert_id_extra(alert_id: i64) -> (&'static str, i64) {
+    (ALERT_ID_EXTRA, alert_id)
+}
+
 pub fn notify_alert(
     app: &AppHandle,
     alert_id: i64,
@@ -235,11 +243,12 @@ pub fn notify_alert(
         return false;
     }
     let title = format!("{} · {} · {}", severity_label(severity), server_name, headline);
+    let (extra_key, extra_value) = alert_id_extra(alert_id);
     match app
         .notification()
         .builder()
         .id(notification_id(alert_id))
-        .extra("alertId", alert_id)
+        .extra(extra_key, extra_value)
         .title(title)
         .body("打开 LightGuard 查看告警中心")
         .show()
@@ -310,6 +319,14 @@ mod tests {
         assert_eq!(notification_id(0), 0);
         assert_eq!(notification_id(42), 42);
         assert_eq!(notification_id(i64::MAX), i32::MAX);
+    }
+
+    // 只钉住载荷契约的取值；builder 是否真的调用了它不在这里断言。
+    #[test]
+    fn alert_id_extra_pins_the_payload_key() {
+        assert_eq!(alert_id_extra(42), ("alertId", 42));
+        assert_eq!(alert_id_extra(42), (ALERT_ID_EXTRA, 42));
+        assert_eq!(notification_id(42), 42);
     }
 
     #[test]

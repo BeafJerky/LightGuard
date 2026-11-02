@@ -18,11 +18,16 @@ export async function startNotificationActions(): Promise<void> {
     // 只有点击通知本体（tap 或未上报 actionId）才跳转，按钮类操作不抢窗口。
     if (event.actionId && event.actionId !== 'tap') return;
     const alertId = alertIdOf(event.notification?.extra);
-    const appWindow = getCurrentWindow();
-    // 顺序固定：先显示（托盘/隐藏态），再取消最小化，最后抢焦点。
-    await appWindow.show();
-    await appWindow.unminimize();
-    await appWindow.setFocus();
+    // 恢复窗口是尽力而为：缺能力或平台不支持时不能拦住后面的跳转与定位。
+    try {
+      const appWindow = getCurrentWindow();
+      // 顺序固定：先显示（托盘/隐藏态），再取消最小化，最后抢焦点。
+      await appWindow.show();
+      await appWindow.unminimize();
+      await appWindow.setFocus();
+    } catch (error) {
+      console.error('[lightguard] notification tap could not restore the window', error);
+    }
     navigateTo('alerts');
     // 0/NaN 只来自测试通知或旧版载荷，跳转到列表即可，不要定位到不存在的行。
     if (Number.isFinite(alertId) && alertId > 0) {

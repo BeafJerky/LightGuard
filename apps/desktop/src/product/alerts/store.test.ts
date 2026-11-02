@@ -237,6 +237,33 @@ describe('alerts store', () => {
     }
   });
 
+  it('keeps the newer highlight when the same alert is focused twice', async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.alertsList.mockResolvedValue({
+        items: [item(250)],
+        activeCount: 1,
+        loginMonitor: [],
+      });
+
+      await focusAlert(250);
+      vi.advanceTimersByTime(1500);
+      // 同一行再点一次：新的高亮与旧的定时器只差 500ms。
+      await focusAlert(250);
+      expect(alertsState.focusAlertId).toBe(250);
+
+      // 旧定时器到点，不能把新的高亮清掉。
+      vi.advanceTimersByTime(500);
+      expect(alertsState.focusAlertId).toBe(250);
+
+      // 新一轮自己的 2 秒到点后才清空。
+      vi.advanceTimersByTime(1500);
+      expect(alertsState.focusAlertId).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('applies change events from a single shared subscription', () => {
     const stop = vi.fn();
     mocks.onAlertsChanged.mockImplementationOnce((_handler) => stop);

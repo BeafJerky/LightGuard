@@ -65,6 +65,14 @@ describe('notification actions', () => {
     );
   });
 
+  it('still navigates and focuses when the window cannot be shown', async () => {
+    mocks.show.mockRejectedValueOnce(new Error('window.show not allowed'));
+    await startNotificationActions();
+    await handler()({ actionId: 'tap', notification: { id: 11, extra: { alertId: 5 } } });
+    expect(navigateTo).toHaveBeenCalledWith('alerts');
+    expect(focusAlert).toHaveBeenCalledWith(5);
+  });
+
   it('ignores actions other than tap', async () => {
     await startNotificationActions();
     await handler()({ actionId: 'dismiss', notification: { id: 9, extra: { alertId: 42 } } });

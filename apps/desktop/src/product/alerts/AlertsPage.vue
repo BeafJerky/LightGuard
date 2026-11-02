@@ -45,7 +45,10 @@ onMounted(() => {
   // 通知跳转会在同一轮同步代码里先 navigate 再 focusAlert；等挂载时已在定位中。
   if (tab.value === 'alerts' && !isFocusPending()) void loadAlerts();
   stopAlerts = subscribeAlerts(() => {
-    if (route.value.name === 'alerts' && tab.value === 'alerts') void loadAlerts();
+    // 定位进行中时不要插一次首屏刷新，否则后到的列表会把目标行挤掉。
+    if (route.value.name === 'alerts' && tab.value === 'alerts' && !isFocusPending()) {
+      void loadAlerts();
+    }
   });
   ticker = window.setInterval(() => (nowMs.value = Date.now()), 30_000);
 });

@@ -20,6 +20,7 @@ import WindowFrame from './WindowFrame.vue';
 import ThemeSwitchOverlay from './ThemeSwitchOverlay.vue';
 import { backendAvailable, findServer, restartLiveUpdates, state, stopLiveUpdates } from './product/store';
 import { navigateTo, route, startRouter } from './product/router';
+import { startUpdateWatcher, updateController } from './product/updater';
 import { renderSettings } from './render/settings';
 
 startRouter();
@@ -64,13 +65,18 @@ watchEffect(() => {
   document.title = `${titles[page.value] ?? '服务器总览'} · LightGuard`;
 });
 
+let stopUpdateWatcher: (() => void) | undefined;
+
 onMounted(() => {
   restartLiveUpdates();
-  if (backendAvailable) void syncAutostart();
+  if (!backendAvailable) return;
+  void syncAutostart();
+  stopUpdateWatcher = startUpdateWatcher(updateController);
 });
 
 onBeforeUnmount(() => {
   stopLiveUpdates();
+  stopUpdateWatcher?.();
 });
 
 watch(

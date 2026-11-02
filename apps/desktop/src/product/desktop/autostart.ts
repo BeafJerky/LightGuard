@@ -24,6 +24,11 @@ export async function syncAutostart(bridge?: AutostartBridge): Promise<boolean> 
     if (active !== state.settings.autostart) updateSettings({ autostart: active });
     return active;
   } catch {
+    toast({
+      title: '无法读取开机自启状态',
+      message: '系统未允许读取启动项，开关显示的状态可能与实际不一致。',
+      tone: 'warning',
+    });
     return state.settings.autostart;
   }
 }

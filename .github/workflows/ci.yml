@@ -32,6 +32,7 @@ jobs:
           name: desktop-dist
           path: apps/desktop/dist
           retention-days: 3
+          if-no-files-found: error
 
   rust:
     runs-on: windows-latest
@@ -47,7 +48,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop/src-tauri -> target
-      - run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib
+      - run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib --locked
         env:
           CARGO_TERM_COLOR: always
 

@@ -87,6 +87,9 @@ pub fn write_cache(
 pub fn read_cache(dir: &Path) -> Option<(CacheMeta, Vec<u8>)> {
     let raw_meta = fs::read(dir.join(META_FILE)).ok()?;
     let meta: CacheMeta = serde_json::from_slice(&raw_meta).ok()?;
+    // 版本号会拼进缓存文件名：先做语义化校验，挡住被手改的 `..\..\evil` 之类路径穿越，
+    // 而不能等到 `cache_paths` 里才发现。
+    semver::Version::parse(&meta.version).ok()?;
     // 清单与元数据版本不一致说明缓存与清单已经对不上，按无缓存处理。
     if meta.raw_manifest.get("version").and_then(Value::as_str) != Some(meta.version.as_str()) {
         return None;
@@ -243,6 +246,29 @@ mod tests {
         let meta = json!({
             "version": "0.15.0",
             "rawManifest": { "version": "0.16.0" },
+            "downloadedAt": 1,
+            "sourceUrl": "https://example.com/a.exe",
+            "deferred": false,
+        });
+        std::fs::write(
+            dir.path().join("cache.json"),
+            serde_json::to_vec(&meta).unwrap(),
+        )
+        .unwrap();
+        let (exe, _) = cache_paths(dir.path(), "0.15.0");
+        std::fs::write(&exe, b"abc").unwrap();
+
+        assert!(read_cache(dir.path()).is_none());
+    }
+
+    #[test]
+    fn rejects_cache_with_traversing_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let version = "..\\..\\evil";
+        let meta = json!({
+            "version": version,
+            // 清单版本故意写成一致，确保拦截来自 semver 校验而不是版本不一致分支。
+            "rawManifest": { "version": version },
             "downloadedAt": 1,
             "sourceUrl": "https://example.com/a.exe",
             "deferred": false,

@@ -13,6 +13,8 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::db::DbState;
 
 const MAX_ASSET_BYTES: u64 = cache::MAX_ASSET_BYTES;
+/// 清单是纯 JSON 元数据，正常只有几 KB；2 MiB 足够覆盖注释与多平台条目。
+const MAX_MANIFEST_BYTES: usize = 2 * 1024 * 1024;
 const MAX_REDIRECTS: usize = 5;
 /// 进度事件的最小间隔：7 MiB 的包在快网下能产生上百个分块，逐个转发会把 IPC 打满。
 const PROGRESS_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
@@ -143,15 +145,16 @@ impl std::fmt::Display for RedirectRejected {
 
 impl std::error::Error for RedirectRejected {}
 
-/// 只跟随仍是 HTTPS 的跳转：镜像或代理可能把请求 302 到明文地址。
+/// 只跟随仍是 HTTPS 且指向公网主机的跳转：镜像或代理可能把请求 302 到明文地址，
+/// 也可能借一次跳转把客户端引到内网。
 fn redirect_target_allowed(url: &reqwest::Url) -> bool {
-    url.scheme() == "https"
+    url.scheme() == "https" && source::ensure_public_host(url).is_ok()
 }
 
 fn redirect_policy() -> reqwest::redirect::Policy {
     reqwest::redirect::Policy::custom(|attempt| {
         if !redirect_target_allowed(attempt.url()) {
-            return attempt.error(RedirectRejected("拒绝跟随非 HTTPS 跳转"));
+            return attempt.error(RedirectRejected("拒绝跟随非 HTTPS 或内网跳转"));
         }
         // 手工限链：不能用 `Policy::limited`，否则会覆盖上面的 HTTPS 判断。
         if attempt.previous().len() >= MAX_REDIRECTS {
@@ -159,6 +162,29 @@ fn redirect_policy() -> reqwest::redirect::Policy {
         }
         attempt.follow()
     })
+}
+
+/// 按 2 MiB 上限流式读取清单：`response.json()` 没有大小上限，一个超大或无限响应
+/// 就能把内存吃光。先看 `Content-Length` 做快速拒绝，再逐块累加兜底。
+async fn read_manifest(mut response: reqwest::Response) -> Result<Value, String> {
+    if response
+        .content_length()
+        .is_some_and(|size| size > MAX_MANIFEST_BYTES as u64)
+    {
+        return Err("更新清单超过大小上限".to_string());
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| format!("读取更新清单失败：{error}"))?
+    {
+        if bytes.len() + chunk.len() > MAX_MANIFEST_BYTES {
+            return Err("更新清单超过大小上限".to_string());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    serde_json::from_slice(&bytes).map_err(|error| format!("更新清单格式无效：{error}"))
 }
 
 impl UpdateService {
@@ -278,7 +304,7 @@ pub async fn update_check(
             last_error = format!("请求 {url} 失败：HTTP {}", response.status());
             continue;
         }
-        let raw: Value = match response.json().await {
+        let raw: Value = match read_manifest(response).await {
             Ok(raw) => raw,
             Err(error) => {
                 last_error = format!("解析 {url} 失败：{error}");
@@ -471,8 +497,46 @@ mod tests {
     fn redirects_must_stay_https() {
         let https = reqwest::Url::parse("https://github.com/x").unwrap();
         let plain = reqwest::Url::parse("http://github.com/x").unwrap();
+        // 公网 HTTPS 之外的跳转一律拒绝：明文会把包暴露给中间人，内网地址会被当成跳板。
+        let loopback = reqwest::Url::parse("https://127.0.0.1/x").unwrap();
+        let private = reqwest::Url::parse("https://10.0.0.1/x").unwrap();
         assert!(redirect_target_allowed(&https));
         assert!(!redirect_target_allowed(&plain));
+        assert!(!redirect_target_allowed(&loopback));
+        assert!(!redirect_target_allowed(&private));
+    }
+
+    #[tokio::test]
+    async fn rejects_oversized_manifests_before_reading_the_body() {
+        use std::io::{Read, Write};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            // 只发头不发送响应体：只要 `Content-Length` 超限就应该在读取前失败。
+            for stream in listener.incoming().take(2) {
+                let mut stream = stream.unwrap();
+                let mut buffer = [0_u8; 1024];
+                let _ = stream.read(&mut buffer);
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    MAX_MANIFEST_BYTES + 1
+                );
+                let _ = stream.write_all(header.as_bytes());
+                let _ = stream.flush();
+            }
+        });
+
+        // 本地明文服务：这里只验证读取上限，不涉及 TLS。
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let response = client
+            .get(format!("http://{addr}/latest.json"))
+            .send()
+            .await
+            .unwrap();
+
+        let error = read_manifest(response).await.unwrap_err();
+        assert_eq!(error, "更新清单超过大小上限");
     }
 
     #[test]

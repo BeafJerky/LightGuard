@@ -52,6 +52,8 @@ pub fn parse_release(raw: &Value) -> Result<ParsedRelease, String> {
     if !asset_url.username().is_empty() || asset_url.password().is_some() {
         return Err("更新资产地址不能包含凭据".to_string());
     }
+    // 清单可能来自镜像，URL 完全由远端控制：拒绝内网地址，避免更新变成内网下载器。
+    crate::updater::source::ensure_public_host(&asset_url)?;
     Ok(ParsedRelease {
         version: release.version,
         notes: release.notes,
@@ -87,10 +89,20 @@ fn push_unique(list: &mut Vec<Url>, url: Url) {
     }
 }
 
+/// 只有上游是 GitHub 时才生成 gh-proxy 候选：企业内网的私有更新源不能被拼进公共代理，
+/// 否则等于把内网地址抄送给第三方。
+fn is_github_host(host: &str) -> bool {
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    host == "github.com" || host.ends_with(".githubusercontent.com")
+}
+
 pub fn asset_candidates(direct: &Url) -> Vec<Url> {
     let upstream = upstream_asset(direct);
     let mut candidates = vec![direct.clone()];
     push_unique(&mut candidates, upstream.clone());
+    if !upstream.host_str().is_some_and(is_github_host) {
+        return candidates;
+    }
     for mirror in MIRRORS {
         if let Ok(url) = Url::parse(&format!("{mirror}{upstream}")) {
             push_unique(&mut candidates, url);
@@ -143,6 +155,21 @@ mod tests {
     }
 
     #[test]
+    fn rejects_asset_urls_on_private_hosts() {
+        // 清单由远端控制：资产地址指向内网时必须整体拒绝，而不是留给下载阶段。
+        for url in [
+            "https://127.0.0.1/a.exe",
+            "https://10.0.0.1/a.exe",
+            "https://192.168.1.1/a.exe",
+            "https://[::1]/a.exe",
+            "https://localhost/a.exe",
+        ] {
+            let error = parse_release(&manifest("0.15.0", url)).unwrap_err();
+            assert_eq!(error, "更新地址不能指向本机或内网", "unexpected error for {url}");
+        }
+    }
+
+    #[test]
     fn compares_versions() {
         assert!(is_newer("0.14.1", "0.15.0"));
         assert!(!is_newer("0.15.0", "0.15.0"));
@@ -156,6 +183,14 @@ mod tests {
         assert_eq!(candidates[0], direct);
         assert_eq!(candidates.len(), 5);
         assert!(candidates.iter().all(|url| url.scheme() == "https"));
+    }
+
+    #[test]
+    fn non_github_assets_get_no_mirrors() {
+        // 非 GitHub 上游（例如企业私有更新源）不能被拼进公共 gh-proxy。
+        let direct = reqwest::Url::parse("https://updates.corp.example/a.exe").unwrap();
+        let candidates = asset_candidates(&direct);
+        assert_eq!(candidates, vec![direct]);
     }
 
     #[test]

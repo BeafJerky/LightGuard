@@ -113,8 +113,14 @@ export class UpdateController {
 
     try {
       await this.bridge.download(info, onProgress);
+      // 取消可能刚好与下载完成竞争；此时 Rust 已缓存安装包，不能把状态改成 ready。
+      if (runId !== this.runId) return;
       this.downloadedVersion = info.version;
       this.state.phase = 'ready';
+      this.state.progress = {
+        downloaded: info.size ?? this.state.progress.downloaded,
+        total: info.size ?? null,
+      };
     } catch (error) {
       if (runId !== this.runId) return;
       this.setError(error, 'download');
@@ -125,15 +131,17 @@ export class UpdateController {
     if (this.state.phase !== 'downloading') return;
     // 先让在途请求失效，避免它的 reject 覆盖下面设置的状态。
     this.runId += 1;
+    // 状态在 await 之前复位，避免 IPC 卡住或失败时把界面困在 downloading。
+    const info = this.state.info;
+    this.state.phase = info ? 'available' : 'idle';
+    this.state.progress = { downloaded: 0, total: info?.size ?? null };
+    this.state.error = null;
+    this.state.failedAction = null;
     try {
       await this.bridge.cancel?.();
     } catch {
       // 取消失败也要回到可重试态；错误态会把用户困在下载中。
     }
-    this.state.phase = this.state.info ? 'available' : 'idle';
-    this.state.progress = { downloaded: 0, total: null };
-    this.state.error = null;
-    this.state.failedAction = null;
   }
 
   async defer(): Promise<void> {

@@ -67,7 +67,7 @@ where
         return Err(DownloadError::Failed("更新包超过大小上限".to_string()));
     }
 
-    let mut bytes = Vec::with_capacity(total.unwrap_or(0) as usize);
+    let mut bytes = Vec::with_capacity(total.unwrap_or(0).min(64 * 1024) as usize);
     loop {
         // 在 await 之前检查：进度回调刚把标志置位时无需再等下一块数据。
         if cancel.load(Ordering::Relaxed) {
@@ -135,6 +135,22 @@ mod tests {
         addr
     }
 
+    fn serve_without_length(body: &'static [u8]) -> std::net::SocketAddr {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().take(2) {
+                let mut stream = stream.unwrap();
+                let mut buffer = [0_u8; 1024];
+                let _ = stream.read(&mut buffer);
+                let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n");
+                let _ = stream.write_all(body);
+                let _ = stream.flush();
+            }
+        });
+        addr
+    }
+
     #[tokio::test]
     async fn downloads_and_reports_progress() {
         let addr = serve(b"0123456789", 2);
@@ -193,6 +209,21 @@ mod tests {
     #[tokio::test]
     async fn rejects_oversized_assets() {
         let addr = serve(b"0123456789", 1);
+        let url = reqwest::Url::parse(&format!("http://{addr}/asset")).unwrap();
+        let result = download_asset(
+            &test_client(),
+            std::slice::from_ref(&url),
+            4,
+            Arc::new(AtomicBool::new(false)),
+            |_| {},
+        )
+        .await;
+        assert!(matches!(result, Err(DownloadError::Failed(_))));
+    }
+
+    #[tokio::test]
+    async fn rejects_oversized_streams_without_content_length() {
+        let addr = serve_without_length(b"0123456789");
         let url = reqwest::Url::parse(&format!("http://{addr}/asset")).unwrap();
         let result = download_asset(
             &test_client(),

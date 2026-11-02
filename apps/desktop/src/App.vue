@@ -19,7 +19,7 @@ import { syncAutostart } from './product/desktop/autostart';
 import WindowFrame from './WindowFrame.vue';
 import ThemeSwitchOverlay from './ThemeSwitchOverlay.vue';
 import { backendAvailable, findServer, restartLiveUpdates, state, stopLiveUpdates } from './product/store';
-import { navigateTo, route, startRouter } from './product/router';
+import { navigateTo, route, routeTitle, startRouter } from './product/router';
 import { startUpdateWatcher, updateController } from './product/updater';
 import { renderSettings } from './render/settings';
 
@@ -56,13 +56,7 @@ watchEffect(() => {
     document.title = `${desktopServer.value.name} · LightGuard`;
     return;
   }
-  const titles: Record<string, string> = {
-    overview: '服务器总览',
-    alerts: '告警中心',
-    connections: '连接记录',
-    settings: '设置',
-  };
-  document.title = `${titles[page.value] ?? '服务器总览'} · LightGuard`;
+  document.title = `${routeTitle(page.value)} · LightGuard`;
 });
 
 let stopUpdateWatcher: (() => void) | undefined;

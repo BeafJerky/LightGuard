@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { LgButton, LgProgress, LgTag } from '@lightguard/lightui';
-import { openUrl } from '@tauri-apps/plugin-opener';
 import { APP_VERSION } from '../data';
 import { confirm } from '../ui';
 import { gateMessage, updateGate } from './gate';
@@ -87,6 +86,8 @@ const proxyLinks = computed(() => {
 });
 
 async function openExternal(url: string) {
+  // 动态导入：Web 预览也会加载本面板，静态导入会把 opener 插件一起拉进来。
+  const { openUrl } = await import('@tauri-apps/plugin-opener');
   await openUrl(url).catch(() => undefined);
 }
 </script>

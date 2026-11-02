@@ -44,7 +44,7 @@ tools/                 截图、CDP 驱动、主题 / 对比度 / 无障碍校�
 ## 环境要求
 
 - Windows 10 / 11 x64（当前唯一验证平台）与 WebView2 运行时
-- Node.js ≥ 20 与 pnpm 11
+- Node.js ≥ 20.11 与 pnpm 11
 - Rust ≥ 1.77.2 与 MSVC 工具链
 - 构建安装包由 Tauri 自动准备 NSIS
 

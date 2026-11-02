@@ -38,6 +38,18 @@ describe('release configuration', () => {
       expect(endpoint).toMatch(/^https:\/\//);
     }
     expect(updater.dangerousInsecureTransportProtocol ?? false).toBe(false);
+
+    // 顺序即回退顺序：先直连原始清单，再依次经三个镜像取国内清单。
+    const endpoints = updater.endpoints as string[];
+    expect(endpoints[0]).toContain('raw.githubusercontent.com/BeafJerky/LightGuard/');
+    expect(endpoints[0]).toContain('/update/latest.json');
+    expect(endpoints[0]).not.toContain('latest.cn.json');
+    const proxies = ['gh-proxy.com', 'ghproxy.net', 'cdn.jsdelivr.net'];
+    expect(endpoints.slice(1)).toHaveLength(proxies.length);
+    proxies.forEach((proxy, index) => {
+      expect(endpoints[index + 1]).toContain(proxy);
+      expect(endpoints[index + 1]).toContain('latest.cn.json');
+    });
   });
 
   it('keeps all five version references on the same version', () => {

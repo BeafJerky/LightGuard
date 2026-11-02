@@ -11,6 +11,7 @@ import {
   terminalRequests,
   type ContainerTerminalRequest,
 } from '../terminal/bus';
+import { setTerminalTabCount } from '../terminal/activity';
 import type { Server } from '../types';
 
 const props = defineProps<{
@@ -429,6 +430,13 @@ watch(
   },
 );
 
+// 更新门禁需要知道当前有多少个终端标签；卸载时归零。
+watch(
+  () => tabs.value.length,
+  (count) => setTerminalTabCount(count),
+  { immediate: true },
+);
+
 onMounted(() => {
   window.addEventListener('keydown', onKey, true);
   window.addEventListener('click', closeMenu);
@@ -442,6 +450,7 @@ watch(terminalRequests, () => {
 });
 
 onBeforeUnmount(() => {
+  setTerminalTabCount(0);
   window.removeEventListener('keydown', onKey, true);
   window.removeEventListener('click', closeMenu);
   if (!ssh.available) return;

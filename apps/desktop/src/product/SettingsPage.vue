@@ -11,6 +11,7 @@ import {
 } from '@lightguard/lightui';
 import type { ThemeId, ThemeTokens } from '@lightguard/lightui';
 import BackupPanel from './BackupPanel.vue';
+import UpdatePanel from './updater/UpdatePanel.vue';
 import RenderSettingsPanel from '../render/RenderSettingsPanel.vue';
 import AlertRulesEditor from './alerts/AlertRulesEditor.vue';
 import { PERMIT_OPTIONS } from './alerts/settings';
@@ -849,6 +850,8 @@ async function onReset() {
           <div><dt>数据</dt><dd>桌面端经 SSH 只读采集 · 数据仅保存在本机</dd></div>
           <div><dt>技术栈</dt><dd>Vue 3 · Tauri 2 · Rust · russh</dd></div>
         </dl>
+
+        <UpdatePanel v-if="backendAvailable" />
 
         <div class="setting-row">
           <div class="setting-text">

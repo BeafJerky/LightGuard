@@ -190,6 +190,26 @@ async function openExternal(url: string) {
   justify-content: space-between;
 }
 
+/* SettingsPage.vue 的 .setting-text 只在它自己的 scoped 块里生效，不会穿透到本组件；
+   这里按同样的值复刻一份，保证状态行与其它设置行一致。 */
+.setting-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.setting-text strong {
+  font-size: var(--lg-fs-body);
+  font-weight: 600;
+}
+
+.setting-text span {
+  color: var(--lg-text-muted);
+  font-size: var(--lg-fs-sm);
+  line-height: 1.5;
+}
+
 .update-panel__body,
 .update-panel__error {
   display: flex;

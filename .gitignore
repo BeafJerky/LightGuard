@@ -12,3 +12,9 @@ apps/desktop/src-tauri/gen/
 !.env.example
 .DS_Store
 Thumbs.db
+
+# 更新签名私钥与发布产物（私钥应放在仓库外，这里只做兜底）
+*.key
+*.key.pub
+update/*.zip
+update/*.sig

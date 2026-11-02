@@ -31,8 +31,20 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFGMUFFOTc1RjVFMTY3RDAKUldUUVorSDFkZWthcjIyRnlvSHBRQjF0Y3BEeHBlQW5DOUZodW4zcG9lWThVQno2OHpKMjFJMisK",
+      "endpoints": [
+        "https://raw.githubusercontent.com/BeafJerky/LightGuard/main/update/latest.json",
+        "https://gh-proxy.com/https://raw.githubusercontent.com/BeafJerky/LightGuard/main/update/latest.cn.json",
+        "https://ghproxy.net/https://raw.githubusercontent.com/BeafJerky/LightGuard/main/update/latest.cn.json",
+        "https://cdn.jsdelivr.net/gh/BeafJerky/LightGuard@main/update/latest.cn.json"
+      ]
+    }
+  },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": ["nsis"],
     "category": "DeveloperTool",
     "icon": [

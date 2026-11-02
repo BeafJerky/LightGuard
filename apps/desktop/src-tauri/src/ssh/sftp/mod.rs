@@ -83,22 +83,30 @@ mod tests {
         assert_eq!(listing.canonical_path, home);
         assert!(PathBuf::from(&listing.path).has_root());
 
-        let stat = list::stat(&state, "sftp-it", "/etc/hostname")
+        // /etc/hostname 在部分 NAS 镜像上是 0 字节文件；/etc/passwd 始终存在、
+        // 可读且非空，才能验证"预览与下载都有内容"。
+        let text_file = "/etc/passwd";
+        let stat = list::stat(&state, "sftp-it", text_file)
             .await
             .expect("stat");
         assert_eq!(stat.kind, FileKind::File);
+        assert!(stat.size > 0, "{text_file} must not be empty");
 
-        let text = preview::text(&state, "sftp-it", "/etc/hostname")
+        let text = preview::text(&state, "sftp-it", text_file)
             .await
             .expect("preview");
-        assert!(!text.content.trim().is_empty());
+        assert!(
+            !text.content.trim().is_empty(),
+            "empty text preview for {text_file} ({} bytes)",
+            text.bytes
+        );
 
         let client = client::acquire(&state, "sftp-it").await.expect("client");
         let cancel = AtomicBool::new(false);
-        let file = dir.path().join("hostname.txt");
+        let file = dir.path().join("passwd.txt");
         let outcome = transfer::download_file(
             &client,
-            "/etc/hostname",
+            text_file,
             &file,
             "it-file",
             &cancel,
@@ -109,11 +117,8 @@ mod tests {
         assert!(matches!(outcome, transfer::TransferOutcome::Saved { .. }));
         assert!(!std::fs::read(&file).unwrap().is_empty());
 
-        // `LG_SSH_DIR` points at a directory the login user can read in full;
-        // /etc holds root-only files on a normal host, and the spec turns a
-        // non-zero tar exit into TRANSFER_FAILED (asserted below when
-        // `LG_SSH_DENIED_DIR` names such a directory).
-        let source = std::env::var("LG_SSH_DIR").unwrap_or_else(|_| "/etc/apt".to_string());
+        // 默认用登录用户的家目录：按定义可读，且不像 /etc/apt 那样依赖具体发行版。
+        let source = std::env::var("LG_SSH_DIR").unwrap_or_else(|_| home.clone());
         let archive = dir.path().join("dir.tar.gz");
         let handle = client::session_handle(&state, "sftp-it")
             .await
@@ -164,7 +169,9 @@ mod tests {
     }
 
     /// Runs one remote shell command over `handle` and returns its exit status
-    /// plus the merged stdout/stderr bytes as lossy text.
+    /// plus the merged stdout/stderr bytes as lossy text. Some servers send
+    /// EOF/close before the exit-status; a late status gets the same short
+    /// grace window as the tar path in `transfer`.
     async fn exec(
         handle: &russh::client::Handle<session::ClientHandler>,
         command: &str,
@@ -180,8 +187,47 @@ mod tests {
                 Some(ChannelMsg::Data { data }) => output.extend_from_slice(&data),
                 Some(ChannelMsg::ExtendedData { data, .. }) => output.extend_from_slice(&data),
                 Some(ChannelMsg::ExitStatus { exit_status }) => code = Some(exit_status),
+                Some(ChannelMsg::ExitSignal {
+                    signal_name,
+                    error_message,
+                    ..
+                }) => output.extend_from_slice(
+                    format!("\n[exit-signal] {signal_name:?} {error_message}").as_bytes(),
+                ),
                 Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => break,
                 _ => {}
+            }
+        }
+        if code.is_none() {
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+            loop {
+                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                if remaining.is_zero() {
+                    break;
+                }
+                match tokio::time::timeout(remaining, channel.wait()).await {
+                    Err(_) => break,
+                    Ok(Some(ChannelMsg::Data { data })) => output.extend_from_slice(&data),
+                    Ok(Some(ChannelMsg::ExtendedData { data, .. })) => {
+                        output.extend_from_slice(&data)
+                    }
+                    Ok(Some(ChannelMsg::ExitStatus { exit_status })) => {
+                        code = Some(exit_status);
+                        break;
+                    }
+                    Ok(Some(ChannelMsg::ExitSignal {
+                        signal_name,
+                        error_message,
+                        ..
+                    })) => {
+                        output.extend_from_slice(
+                            format!("\n[exit-signal] {signal_name:?} {error_message}").as_bytes(),
+                        );
+                        break;
+                    }
+                    Ok(Some(ChannelMsg::Close)) | Ok(Some(ChannelMsg::Eof)) | Ok(None) => break,
+                    Ok(Some(_)) => {}
+                }
             }
         }
         (
@@ -324,10 +370,7 @@ mod tests {
             eprintln!("skipping: LG_SSH_* not set");
             return;
         };
-        let Some(root) = std::env::var("LG_TEST_REMOTE_DIR")
-            .ok()
-            .filter(|value| !value.is_empty())
-        else {
+        let Some(root) = crate::test_support::remote_fixture_dir() else {
             eprintln!("skipping: LG_TEST_REMOTE_DIR not set");
             return;
         };
@@ -367,8 +410,13 @@ mod tests {
             .as_nanos();
         let fixture = format!("{}/lg-edge-{stamp}", root.trim_end_matches('/'));
         let quoted = shell_quote(&fixture);
+        // 只依赖 POSIX sh 与 coreutils/BusyBox 都提供的命令：不假设 `dd
+        // status=none`、`seq` 或 `xargs` 存在。stage 标记让失败时能看出停在哪一步。
         let setup = format!(
-            "set -e; mkdir -p {quoted}/many; printf '\\326\\320\\316\\304\\262\\342\\312\\324\\n' > {quoted}/gb18030.txt; dd if=/dev/zero of={quoted}/big.png bs=1M count=10 status=none; cd {quoted}/many && seq 1 20000 | xargs touch"
+            "set -e; mkdir -p {quoted}/many; echo 'stage=mkdir'; \
+             printf '\\326\\320\\316\\304\\262\\342\\312\\324\\n' > {quoted}/gb18030.txt; echo 'stage=gb18030'; \
+             dd if=/dev/zero of={quoted}/big.png bs=1024 count=10240; echo 'stage=big'; \
+             i=0; while [ $i -lt 20000 ]; do : > {quoted}/many/file$i; i=$((i+1)); done; echo 'stage=many'"
         );
         let (status, output) = exec(&handle, &setup).await;
         if status != 0 {

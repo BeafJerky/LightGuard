@@ -767,11 +767,8 @@ mod tests {
         assert_eq!(guard.require_permit("guard-it").expect("permit"), 5);
         let _write = guard.begin_write("guard-it").expect("write lock");
 
-        let base = std::env::var("LG_TEST_REMOTE_DIR")
-            .ok()
-            .filter(|value| !value.trim().is_empty())
+        let base = crate::test_support::remote_fixture_dir()
             .unwrap_or_else(|| "/vol1/1000/lg-filetest".to_string());
-        let base = base.trim_end_matches('/').to_string();
         let name = format!("lg-guard-{}", crate::alerts::now_ms());
         let target = format!("{base}/{name}");
 

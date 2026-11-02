@@ -180,6 +180,21 @@ describe('UpdatePanel', () => {
     expect(wrapper.text()).toContain('重启并安装');
   });
 
+  it('restores a cached, deferred package without showing the release notes', () => {
+    updateController.state.phase = 'ready';
+    updateController.state.info = {
+      version: '0.15.0',
+      currentVersion: '0.14.1',
+      cached: true,
+      deferred: true,
+      body: '修复与打磨',
+      size: 1024,
+    };
+    const wrapper = mount(UpdatePanel);
+    expect(wrapper.text()).toContain('更新包已就绪');
+    expect(wrapper.find('.update-panel__notes').exists()).toBe(false);
+  });
+
   it('explains the mirror fallback on a network error', () => {
     updateController.state.phase = 'error';
     updateController.state.error = { kind: 'network', message: '无法访问更新服务器。' };

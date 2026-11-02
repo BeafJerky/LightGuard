@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { validatePayload } from './backup';
+import { buildBackupPayload, validatePayload } from './backup';
+import { DEFAULT_SETTINGS } from './store';
 
 function readSettings(settings: Record<string, unknown>) {
   return validatePayload({
@@ -22,5 +23,23 @@ describe('backup dock mode', () => {
 
   it('falls back to a full-width dock for an unknown mode', () => {
     expect(readSettings({ desktopDock: 'compact' }).desktopDock).toBe('full');
+  });
+});
+
+describe('backup autostart exclusion', () => {
+  it('does not export the local autostart preference', () => {
+    const payload = buildBackupPayload({
+      settings: { ...DEFAULT_SETTINGS, autostart: true },
+      themes: { console: 'dark', desktop: 'pixel' },
+      servers: [],
+      includeSettings: true,
+      includeConnections: false,
+    });
+    expect('autostart' in payload.settings).toBe(false);
+    expect(JSON.stringify(payload)).not.toContain('autostart');
+  });
+
+  it('does not invent autostart when an old backup omits it', () => {
+    expect('autostart' in readSettings({})).toBe(false);
   });
 });

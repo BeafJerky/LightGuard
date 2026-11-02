@@ -75,6 +75,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   closeBehavior: 'ask',
   desktopBar: 'floating',
   desktopDock: 'full',
+  autostart: false,
   permit: { defaultMinutes: 15 },
   alerts: DEFAULT_ALERT_SETTINGS,
 };
@@ -112,6 +113,7 @@ function readSettings(value: unknown): AppSettings {
     desktopDock: isDesktopDockMode(raw.desktopDock)
       ? raw.desktopDock
       : DEFAULT_SETTINGS.desktopDock,
+    autostart: typeof raw.autostart === 'boolean' ? raw.autostart : DEFAULT_SETTINGS.autostart,
     permit: normalizePermitSettings(raw.permit),
     alerts: normalizeAlertSettings(raw.alerts),
   };
@@ -928,10 +930,12 @@ export async function applyBackup(
       state.servers.splice(0, state.servers.length, ...next);
     }
     if (scope.settings) {
+      const localAutostart = state.settings.autostart;
+      const imported = readSettings(payload.settings);
       state.settings =
         strategy === 'replace'
-          ? readSettings(payload.settings)
-          : { ...state.settings, ...readSettings(payload.settings) };
+          ? { ...imported, autostart: localAutostart }
+          : { ...state.settings, ...imported, autostart: localAutostart };
       state.themes = readThemes(payload.themes);
     }
     persistNow();

@@ -196,11 +196,17 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let config_dir = app.path().app_config_dir()?;
+            let local_root = app.path().app_local_data_dir()?;
+            let db_location = data_dir::resolve_db_dir(&local_root, &config_dir);
+            if let Some(warning) = &db_location.warning {
+                eprintln!("[lightguard] {warning}");
+            }
+
             std::fs::create_dir_all(&config_dir)?;
 
             // 两个服务与命令层共用同一个实例：`Arc` 既交给 `manage`，也交给
             // `AppState` 保存，生命周期钩子与命令因此看到同一份状态。
-            let db_state = db::DbState::new(&config_dir);
+            let db_state = db::DbState::new(&db_location.dir);
             let database = db_state.handle();
             app.manage(db_state);
 

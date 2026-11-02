@@ -119,14 +119,14 @@ impl Database {
     /// 忽略期间引擎仍处 opened 态，只会发 `Touch`；没有这个入口就再也不会出现活跃行。
     /// 只看该 `(server_id, rule_id)` 最新的 `ignored` 行（`id` 最大者）：用户再次忽略后
     /// 旧的过期窗口已失效，新窗口未到期（或为 NULL）时不得重开。
-    /// 唯一部分索引要求此刻没有别的活跃行，所以存在活跃行时直接返回 false。
+    /// 唯一部分索引要求此刻没有别的活跃行，所以存在活跃行时直接返回 `Ok(None)`（未重开）。
     pub(crate) fn alert_reopen_ignored(
         &self,
         server_id: &str,
         rule_id: &str,
         title: &str,
         now: i64,
-    ) -> Result<bool, DbError> {
+    ) -> Result<Option<i64>, DbError> {
         self.write_tx(|tx| {
             let previous: Option<(String, Option<i64>)> = tx
                 .query_row(
@@ -139,12 +139,12 @@ impl Database {
                 .optional()
                 .map_err(DbError::write)?;
             let Some((server_name, ignored_until)) = previous else {
-                return Ok(false);
+                return Ok(None);
             };
             match ignored_until {
                 // 永久忽略（无截止时间）与未到期窗口一样保持关闭。
-                None => return Ok(false),
-                Some(until) if until > now => return Ok(false),
+                None => return Ok(None),
+                Some(until) if until > now => return Ok(None),
                 Some(_) => {}
             }
             let active: Option<i64> = tx
@@ -157,9 +157,9 @@ impl Database {
                 .optional()
                 .map_err(DbError::write)?;
             if active.is_some() {
-                return Ok(false);
+                return Ok(None);
             }
-            upsert_active_alert(
+            let alert_id = upsert_active_alert(
                 tx,
                 &NewAlert {
                     server_id: server_id.to_string(),
@@ -171,7 +171,7 @@ impl Database {
                     first_seen_at: now,
                 },
             )?;
-            Ok(true)
+            Ok(Some(alert_id))
         })
     }
 

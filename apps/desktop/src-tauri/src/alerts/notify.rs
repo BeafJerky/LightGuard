@@ -217,7 +217,18 @@ fn severity_label(severity: &str) -> &'static str {
     }
 }
 
-pub fn notify_alert(app: &AppHandle, severity: &str, server_name: &str, headline: &str) -> bool {
+/// 通知 id 是 `i32`，数据库自增 id 是 `i64`：先夹紧到合法区间再交给平台层。
+fn notification_id(alert_id: i64) -> i32 {
+    alert_id.clamp(0, i32::MAX as i64) as i32
+}
+
+pub fn notify_alert(
+    app: &AppHandle,
+    alert_id: i64,
+    severity: &str,
+    server_name: &str,
+    headline: &str,
+) -> bool {
     use tauri_plugin_notification::NotificationExt;
 
     if NOTIFICATION_DENIED.load(Ordering::Relaxed) {
@@ -227,6 +238,8 @@ pub fn notify_alert(app: &AppHandle, severity: &str, server_name: &str, headline
     match app
         .notification()
         .builder()
+        .id(notification_id(alert_id))
+        .extra("alertId", alert_id)
         .title(title)
         .body("打开 LightGuard 查看告警中心")
         .show()
@@ -244,7 +257,7 @@ pub fn notify_alert(app: &AppHandle, severity: &str, server_name: &str, headline
 
 #[tauri::command]
 pub fn notify_test(app: AppHandle) -> Result<bool, String> {
-    Ok(notify_alert(&app, "info", "LightGuard", "测试通知"))
+    Ok(notify_alert(&app, 0, "info", "LightGuard", "测试通知"))
 }
 
 #[cfg(test)]
@@ -290,6 +303,13 @@ mod tests {
 
     fn count_pixels(rgba: &[u8], color: [u8; 4]) -> usize {
         rgba.chunks_exact(4).filter(|pixel| *pixel == color).count()
+    }
+
+    #[test]
+    fn notification_id_is_clamped_for_i32() {
+        assert_eq!(notification_id(0), 0);
+        assert_eq!(notification_id(42), 42);
+        assert_eq!(notification_id(i64::MAX), i32::MAX);
     }
 
     #[test]

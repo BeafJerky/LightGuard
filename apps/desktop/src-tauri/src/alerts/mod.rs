@@ -268,9 +268,9 @@ impl AlertService {
             detail: detail.to_string(),
             first_seen_at: now_ms(),
         };
-        if db.alert_insert(&event).is_ok() {
+        if let Ok(alert_id) = db.alert_insert(&event) {
             if notify {
-                self.notify_host("critical", &server_name, &event.title);
+                self.notify_host(alert_id, "critical", &server_name, &event.title);
             }
             self.publish();
         }
@@ -317,14 +317,14 @@ impl AlertService {
     }
 
     #[cfg(not(test))]
-    fn notify_host(&self, severity: &str, server_name: &str, title: &str) {
+    fn notify_host(&self, alert_id: i64, severity: &str, server_name: &str, title: &str) {
         if let Some(app) = &self.app {
-            notify::notify_alert(app, severity, server_name, title);
+            notify::notify_alert(app, alert_id, severity, server_name, title);
         }
     }
 
     #[cfg(test)]
-    fn notify_host(&self, _severity: &str, _server_name: &str, _title: &str) {}
+    fn notify_host(&self, _alert_id: i64, _severity: &str, _server_name: &str, _title: &str) {}
 
     fn record_sample(&self, server_id: &str, server_name: &str, sample: &Sample) {
         let Some(db) = self.db.clone() else {
@@ -360,16 +360,19 @@ impl AlertService {
                         detail,
                         first_seen_at: now_ms(),
                     };
-                    if let Err(error) = db.alert_insert(&event) {
-                        eprintln!(
-                            "[lightguard] alert insert failed for {server_id}/{rule_id}: {error}"
-                        );
-                        lock_map(&self.engine).forget(server_id, &rule_id);
-                        continue;
-                    }
+                    let alert_id = match db.alert_insert(&event) {
+                        Ok(alert_id) => alert_id,
+                        Err(error) => {
+                            eprintln!(
+                                "[lightguard] alert insert failed for {server_id}/{rule_id}: {error}"
+                            );
+                            lock_map(&self.engine).forget(server_id, &rule_id);
+                            continue;
+                        }
+                    };
                     let notify = should_notify(&read_lock(&self.settings), &rule_id, &severity);
                     if notify {
-                        self.notify_host(&severity, server_name, &title);
+                        self.notify_host(alert_id, &severity, server_name, &title);
                     }
                     self.publish();
                 }
@@ -389,8 +392,8 @@ impl AlertService {
                                 continue;
                             }
                             match db.alert_reopen_ignored(server_id, &rule_id, &title, now_ms()) {
-                                Ok(false) => {}
-                                Ok(true) => {
+                                Ok(None) => {}
+                                Ok(Some(alert_id)) => {
                                     let severity = rules::severity(&rule_id).to_string();
                                     let notify = should_notify(
                                         &read_lock(&self.settings),
@@ -398,7 +401,12 @@ impl AlertService {
                                         &severity,
                                     );
                                     if notify {
-                                        self.notify_host(&severity, server_name, &title);
+                                        self.notify_host(
+                                            alert_id,
+                                            &severity,
+                                            server_name,
+                                            &title,
+                                        );
                                     }
                                     self.publish();
                                 }
@@ -469,9 +477,9 @@ impl AlertService {
             detail: String::new(),
             first_seen_at: now_ms(),
         };
-        if db.alert_insert(&event).is_ok() {
+        if let Ok(alert_id) = db.alert_insert(&event) {
             if notify {
-                self.notify_host("critical", &server_name, &event.title);
+                self.notify_host(alert_id, "critical", &server_name, &event.title);
             }
             self.publish();
         }
@@ -579,9 +587,9 @@ impl AlertService {
                     detail: String::new(),
                     first_seen_at: now_ms(),
                 };
-                if db.alert_insert(&event).is_ok() {
+                if let Ok(alert_id) = db.alert_insert(&event) {
                     if should_notify(&read_lock(&self.settings), RULE_LOGIN_SOURCE, "info") {
-                        self.notify_host("info", &server_name, &event.title);
+                        self.notify_host(alert_id, "info", &server_name, &event.title);
                     }
                     self.publish();
                 }
@@ -619,11 +627,11 @@ impl AlertService {
                 first_seen_at: now_ms(),
             };
             // 每轮都插入（就地更新）让标题里的次数保持新鲜，但只有上升沿才弹通知。
-            if db.alert_insert(&event).is_ok() {
+            if let Ok(alert_id) = db.alert_insert(&event) {
                 let announce =
                     rising_edge && should_notify(&read_lock(&self.settings), RULE_LOGIN, "warning");
                 if announce {
-                    self.notify_host("warning", &server_name, &event.title);
+                    self.notify_host(alert_id, "warning", &server_name, &event.title);
                 }
                 self.publish();
             }

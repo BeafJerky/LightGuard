@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { LgIcon } from '@lightguard/lightui';
 import type { AlertFilterName, AlertItem } from '../ssh';
 import { navigate, navigateTo, openServerDesktop, route } from '../router';
@@ -9,6 +9,7 @@ import AuditTable from './AuditTable.vue';
 import {
   alertsState,
   ignoreAlert,
+  isFocusPending,
   loadAlerts,
   loadMore,
   muteServer,
@@ -41,12 +42,26 @@ let stopAlerts: () => void = () => {};
 let ticker = 0;
 
 onMounted(() => {
-  if (tab.value === 'alerts') void loadAlerts();
+  // 通知跳转会在同一轮同步代码里先 navigate 再 focusAlert；等挂载时已在定位中。
+  if (tab.value === 'alerts' && !isFocusPending()) void loadAlerts();
   stopAlerts = subscribeAlerts(() => {
     if (route.value.name === 'alerts' && tab.value === 'alerts') void loadAlerts();
   });
   ticker = window.setInterval(() => (nowMs.value = Date.now()), 30_000);
 });
+
+watch(
+  () => alertsState.focusAlertId,
+  async (id) => {
+    if (!id) return;
+    await nextTick();
+    document
+      .querySelector(`[data-alert-id="${id}"]`)
+      ?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  },
+  // 通知路径可能在 AlertsPage 挂载前就写好 id，immediate 保证首帧也能滚动。
+  { immediate: true },
+);
 
 onBeforeUnmount(() => {
   stopAlerts();
@@ -144,6 +159,7 @@ async function onMute(payload: { serverId: string; ruleId: string | null; untilM
           :key="alert.id"
           :alert="alert"
           :now-ms="nowMs"
+          :class="{ 'is-focused': alertsState.focusAlertId === alert.id }"
           @view-server="onViewServer"
           @ignore="(payload) => onIgnore(alert, payload)"
           @mute="onMute"
@@ -304,5 +320,12 @@ async function onMute(payload: { serverId: string; ruleId: string | null; untilM
 .alerts-more:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+/* scoped 样式会落到子组件（AlertRow）的根节点上，通知定位的行高亮 2 秒。 */
+.alert-row.is-focused {
+  outline: 2px solid var(--lg-primary);
+  outline-offset: 2px;
+  border-radius: var(--lg-radius-md);
 }
 </style>

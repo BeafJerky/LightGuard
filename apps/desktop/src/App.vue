@@ -15,6 +15,7 @@ import OverviewPage from './product/OverviewPage.vue';
 import SettingsPage from './product/SettingsPage.vue';
 import UiHost from './product/UiHost.vue';
 import ServerDesktop from './product/desktop/ServerDesktop.vue';
+import { syncAutostart } from './product/desktop/autostart';
 import WindowFrame from './WindowFrame.vue';
 import ThemeSwitchOverlay from './ThemeSwitchOverlay.vue';
 import { backendAvailable, findServer, restartLiveUpdates, state, stopLiveUpdates } from './product/store';
@@ -65,6 +66,7 @@ watchEffect(() => {
 
 onMounted(() => {
   restartLiveUpdates();
+  if (backendAvailable) void syncAutostart();
 });
 
 onBeforeUnmount(() => {

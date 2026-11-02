@@ -16,6 +16,7 @@
   "dependencies": {
     "@lightguard/lightui": "workspace:*",
     "@tauri-apps/api": "^2.9.0",
+    "@tauri-apps/plugin-autostart": "^2.7.0",
     "@tauri-apps/plugin-notification": "^2.3.3",
     "@vueuse/core": "^15.0.0",
     "motion-v": "^2.8.0",

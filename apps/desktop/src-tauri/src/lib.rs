@@ -78,8 +78,13 @@ fn app_close_ready() {
 
 fn show_main_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     if let Some(window) = app.get_webview_window("main") {
-        clamp_main_window(&window);
+        // 必须先取消最小化再钳制：最小化窗口的 `outer_position()` 是图标矩形
+        // （约 -32000,-32000），钳制会误判为“不在任何显示器上”并调用 `center()`。
+        // `center()` → `set_outer_position` 会清掉 MAXIMIZED 标记且不改变 VISIBLE，
+        // 立刻触发 `ShowWindow(SW_RESTORE)`，导致“最大化 → 最小化 → 托盘显示”
+        // 回来时被还原成居中普通窗口。先 `unminimize()` 拿到真实矩形即可原位恢复。
         let _ = window.unminimize();
+        clamp_main_window(&window);
         let _ = window.show();
         let _ = window.set_focus();
     }

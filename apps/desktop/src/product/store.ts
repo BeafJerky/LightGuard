@@ -43,6 +43,7 @@ import {
   writePersistenceNow,
   type StoredState,
 } from './persistence';
+import { normalizeUpdateSource } from './updater/source';
 import type {
   AppSettings,
   BackupConnection,
@@ -78,6 +79,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autostart: false,
   permit: { defaultMinutes: 15 },
   alerts: DEFAULT_ALERT_SETTINGS,
+  updateSource: 'auto',
 };
 
 export const DEFAULT_THEMES: ThemeChoices = {
@@ -116,6 +118,7 @@ function readSettings(value: unknown): AppSettings {
     autostart: typeof raw.autostart === 'boolean' ? raw.autostart : DEFAULT_SETTINGS.autostart,
     permit: normalizePermitSettings(raw.permit),
     alerts: normalizeAlertSettings(raw.alerts),
+    updateSource: normalizeUpdateSource(raw.updateSource),
   };
 }
 

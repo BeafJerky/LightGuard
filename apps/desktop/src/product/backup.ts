@@ -1,5 +1,6 @@
 import { APP_VERSION, isCloseBehavior, isDesktopBarMode, isDesktopDockMode } from './data';
 import { normalizeAlertSettings, normalizePermitSettings } from './alerts/settings';
+import { normalizeUpdateSource } from './updater/source';
 import type {
   AppSettings,
   AuthKind,
@@ -151,6 +152,7 @@ function normalizeSettings(value: unknown): BackupSettings {
     desktopDock: isDesktopDockMode(value.desktopDock) ? value.desktopDock : 'full',
     permit: normalizePermitSettings(value.permit),
     alerts: normalizeAlertSettings(value.alerts),
+    updateSource: normalizeUpdateSource(value.updateSource),
   };
 }
 

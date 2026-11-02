@@ -7,6 +7,8 @@
     "dev": "pnpm --filter @lightguard/desktop dev",
     "build": "pnpm --filter @lightguard/desktop build",
     "typecheck": "pnpm --filter @lightguard/desktop typecheck",
-    "test": "pnpm --filter @lightguard/lightui test"
+    "test": "pnpm --filter @lightguard/lightui test",
+    "manifest": "node tools/release/make-manifest.mjs",
+    "test:release": "node --test tools/release/lib.test.mjs"
   }
 }

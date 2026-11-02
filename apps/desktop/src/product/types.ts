@@ -246,9 +246,12 @@ export interface AppSettings {
   closeBehavior: CloseBehavior;
   desktopBar: DesktopBarMode;
   desktopDock: DesktopDockMode;
+  autostart: boolean;
   permit: { defaultMinutes: PermitMinutes };
   alerts: AlertSettings;
 }
+
+export type BackupSettings = Omit<AppSettings, 'autostart'>;
 
 export interface ThemeChoices {
   console: ThemeId;
@@ -294,7 +297,7 @@ export interface BackupConnection {
 export interface BackupPayload {
   appVersion: string;
   scope: { settings: boolean; connections: boolean };
-  settings: AppSettings;
+  settings: BackupSettings;
   themes: ThemeChoices;
   connections: BackupConnection[];
 }

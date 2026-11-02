@@ -11,9 +11,11 @@ import {
 } from '@lightguard/lightui';
 import type { ThemeId, ThemeTokens } from '@lightguard/lightui';
 import BackupPanel from './BackupPanel.vue';
+import UpdatePanel from './updater/UpdatePanel.vue';
 import RenderSettingsPanel from '../render/RenderSettingsPanel.vue';
 import AlertRulesEditor from './alerts/AlertRulesEditor.vue';
 import { PERMIT_OPTIONS } from './alerts/settings';
+import { setAutostart } from './desktop/autostart';
 import { APP_BUILD, APP_VERSION } from './data';
 import {
   backendAvailable,
@@ -199,6 +201,18 @@ function setCloseBehavior(value: CloseBehavior) {
     tone: 'info',
     duration: 2400,
   });
+}
+
+const autostartBusy = ref(false);
+const autostartError = ref('');
+
+async function onAutostart(value: boolean) {
+  if (autostartBusy.value) return;
+  autostartBusy.value = true;
+  autostartError.value = '';
+  const ok = await setAutostart(value);
+  if (!ok) autostartError.value = '系统未能写入开机启动项，请检查安全软件或系统策略。';
+  autostartBusy.value = false;
 }
 
 function toggleSetting(key: 'hostKey' | 'clipboardClear' | 'notifyFailure' | 'notifyThreshold', value: boolean) {
@@ -602,6 +616,20 @@ async function onReset() {
             </button>
           </div>
         </div>
+
+        <div v-if="backendAvailable" class="setting-row">
+          <div class="setting-text">
+            <strong>开机自动启动</strong>
+            <span>登录 Windows 后驻留托盘，不自动打开主窗口。</span>
+            <span v-if="autostartError" class="setting-warn" role="alert">{{ autostartError }}</span>
+          </div>
+          <LgSwitch
+            :value="state.settings.autostart"
+            :disabled="autostartBusy"
+            aria-label="开机自动启动"
+            @update:value="onAutostart"
+          />
+        </div>
       </LgSurface>
 
       <RenderSettingsPanel :table-rows="2000" />
@@ -822,6 +850,8 @@ async function onReset() {
           <div><dt>数据</dt><dd>桌面端经 SSH 只读采集 · 数据仅保存在本机</dd></div>
           <div><dt>技术栈</dt><dd>Vue 3 · Tauri 2 · Rust · russh</dd></div>
         </dl>
+
+        <UpdatePanel v-if="backendAvailable" />
 
         <div class="setting-row">
           <div class="setting-text">

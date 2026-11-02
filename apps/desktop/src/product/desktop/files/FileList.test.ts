@@ -137,4 +137,11 @@ describe('FileList', () => {
     expect(wrapper.emitted('select')?.[0]?.[0]).toMatchObject({ name: 'b.txt' });
     expect(wrapper.emitted('open')?.[0]?.[0]).toMatchObject({ name: 'b.txt' });
   });
+
+  it('renders only the visible window for a 20k listing', () => {
+    const entries = Array.from({ length: 20_000 }, (_, index) => entry(`file${index}.txt`));
+    const wrapper = mount(FileList, { props: props({ entries }) });
+    expect(wrapper.findAll('[data-path]').length).toBeLessThan(50);
+    expect(wrapper.text()).toContain('file0.txt');
+  });
 });

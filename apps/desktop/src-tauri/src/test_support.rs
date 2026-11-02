@@ -18,6 +18,23 @@ pub fn headless_state(config_dir: PathBuf) -> Arc<AppState> {
     AppState::new(config_dir, alerts, guard)
 }
 
+/// 真实服务器测试的夹具根目录。Git Bash 会把路径型环境变量改写成 Windows
+/// 路径（`/tmp` → `C:/Users/.../Temp`），让测试在错误的相对目录上运行；这里
+/// 直接拒绝非 POSIX 绝对路径，并提示用户用 `MSYS2_ENV_CONV_EXCL` 排除。
+pub fn remote_fixture_dir() -> Option<String> {
+    let value = std::env::var("LG_TEST_REMOTE_DIR").ok()?;
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    assert!(
+        value.starts_with('/'),
+        "LG_TEST_REMOTE_DIR 必须是 POSIX 绝对路径，实际为 {value:?}；\
+         Git Bash 会改写路径型环境变量，请设置 MSYS2_ENV_CONV_EXCL=LG_TEST_REMOTE_DIR 后重跑"
+    );
+    Some(value.trim_end_matches('/').to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildBackupPayload } from './backup';
 import { fromPersisted } from './ssh/adapter';
 import type { PersistedServer } from './types';
 
@@ -309,4 +310,37 @@ describe('persistence', () => {
     expect(parsed.servers[0].metrics).toBeUndefined();
     expect(parsed.servers[0].fingerprint).toBe('SHA256:abc');
   });
+});
+
+it('normalizes autostart to false unless it is a real boolean', async () => {
+  window.localStorage.setItem(
+    STORE_KEY,
+    JSON.stringify({
+      version: 2,
+      themes: { console: 'dark', desktop: 'pixel' },
+      settings: { autostart: 'yes' },
+      servers: [],
+      logs: [],
+    }),
+  );
+
+  const store = await loadStore();
+  expect(store.state.settings.autostart).toBe(false);
+});
+
+it('keeps the local autostart preference when importing a backup', async () => {
+  const store = await loadStore();
+  store.updateSettings({ autostart: true });
+  const payload = buildBackupPayload({
+    settings: { ...store.DEFAULT_SETTINGS, autostart: false, interval: 9 },
+    themes: store.state.themes,
+    servers: [],
+    includeSettings: true,
+    includeConnections: false,
+  });
+
+  await store.applyBackup(payload, 'replace', { settings: true, connections: false });
+
+  expect(store.state.settings.interval).toBe(9);
+  expect(store.state.settings.autostart).toBe(true);
 });

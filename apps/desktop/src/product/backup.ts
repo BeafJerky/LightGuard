@@ -6,6 +6,7 @@ import type {
   BackupConnection,
   BackupEnvelope,
   BackupPayload,
+  BackupSettings,
   Server,
   ThemeChoices,
 } from './types';
@@ -133,7 +134,7 @@ function readBool(source: Record<string, unknown>, key: string, fallback: boolea
   return typeof value === 'boolean' ? value : fallback;
 }
 
-function normalizeSettings(value: unknown): AppSettings {
+function normalizeSettings(value: unknown): BackupSettings {
   if (!isRecord(value)) throw new BackupError('INVALID_FIELD', '备份中的设置格式无效');
   const interval = Number(value.interval);
   const idleLock = Number(value.idleLock);
@@ -249,10 +250,13 @@ export function buildBackupPayload(input: {
         note: server.note,
       }))
     : [];
+  const settings: BackupSettings = { ...input.settings };
+  delete (settings as Partial<AppSettings>).autostart;
+
   return {
     appVersion: APP_VERSION,
     scope: { settings: input.includeSettings, connections: input.includeConnections },
-    settings: { ...input.settings },
+    settings,
     themes: { ...input.themes },
     connections,
   };

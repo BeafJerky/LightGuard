@@ -2,7 +2,7 @@
 import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { LgIcon, LG_SCOPE_KEY } from '@lightguard/lightui';
 import { findServer, flushSettings, state, updateSettings } from './product/store';
-import { route } from './product/router';
+import { route, routeTitle } from './product/router';
 import { promptClose } from './product/ui';
 import { isTauriRuntime } from './product/ssh/tauri';
 import { isFullscreen, registerFullscreenToggler } from './windowState';
@@ -27,16 +27,12 @@ let unlistenClose: (() => void) | null = null;
 let closing = false;
 
 const pageLabel = computed(() => {
-  if (route.value.name === 'desktop') {
+  const name = route.value.name;
+  if (name === 'desktop') {
     const server = route.value.id ? findServer(route.value.id) : null;
     return server ? `${server.name} · 服务器桌面` : '服务器桌面';
   }
-  const titles: Record<string, string> = {
-    overview: '服务器总览',
-    connections: '连接记录',
-    settings: '设置',
-  };
-  return titles[route.value.name] ?? 'LightGuard';
+  return routeTitle(name);
 });
 
 if (framed && typeof document !== 'undefined') {

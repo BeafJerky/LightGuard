@@ -1,5 +1,17 @@
 import { ref } from 'vue';
-import type { Route } from './types';
+import type { Route, RouteName } from './types';
+
+// 控制台页面的中文标题唯一来源；`desktop` 由服务器名单独拼装，不在此表中。
+export const ROUTE_TITLES: Record<Exclude<RouteName, 'desktop'>, string> = {
+  overview: '服务器总览',
+  alerts: '告警中心',
+  connections: '连接记录',
+  settings: '设置',
+};
+
+export function routeTitle(name: Exclude<RouteName, 'desktop'>): string {
+  return ROUTE_TITLES[name];
+}
 
 function parseHash(hash: string): Route {
   const clean = hash.replace(/^#\/?/, '').replace(/\/+$/, '');

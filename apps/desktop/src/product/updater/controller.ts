@@ -1,0 +1,133 @@
+import { reactive } from 'vue';
+import type {
+  DownloadProgress,
+  UpdateErrorKind,
+  UpdateInfo,
+  UpdateState,
+  UpdaterBridge,
+} from './types';
+
+export const MAX_BUFFERED_BYTES = 100 * 1024 * 1024;
+
+function initialState(): UpdateState {
+  return {
+    phase: 'idle',
+    info: null,
+    progress: { downloaded: 0, total: null },
+    error: null,
+    lastCheckedAt: null,
+    lastManualCheck: false,
+  };
+}
+
+export function classifyUpdateError(error: unknown): UpdateErrorKind {
+  const message = (error instanceof Error ? error.message : String(error ?? '')).toLowerCase();
+  if (/signature|minisign|verify/.test(message)) return 'signature';
+  if (/json|manifest|deserialize|platform|release/.test(message)) return 'manifest';
+  if (/disk|space|write file|rename/.test(message)) return 'disk';
+  if (/network|request|connect|timeout|dns|http|status/.test(message)) return 'network';
+  return 'unknown';
+}
+
+export function updateErrorMessage(kind: UpdateErrorKind): string {
+  switch (kind) {
+    case 'signature':
+      return '更新包签名校验失败，已拒绝安装。';
+    case 'manifest':
+      return '更新清单无效或未包含当前平台。';
+    case 'disk':
+      return '更新包无法写入磁盘，请检查剩余空间。';
+    case 'network':
+      return '无法访问更新服务器，请检查网络或代理。';
+    default:
+      return '更新失败，请稍后重试。';
+  }
+}
+
+export class UpdateController {
+  readonly state = reactive<UpdateState>(initialState());
+  private downloadedVersion = '';
+
+  constructor(private readonly bridge: UpdaterBridge) {}
+
+  async check(options: { manual?: boolean } = {}): Promise<void> {
+    if (
+      this.state.phase === 'checking' ||
+      this.state.phase === 'downloading' ||
+      this.state.phase === 'ready' ||
+      this.state.phase === 'installing'
+    ) {
+      return;
+    }
+
+    const manual = options.manual === true;
+    this.state.lastManualCheck = manual;
+    this.state.phase = 'checking';
+    this.state.error = null;
+    try {
+      const info = await this.bridge.check();
+      this.state.lastCheckedAt = Date.now();
+      if (!info) {
+        this.state.info = null;
+        this.state.phase = 'up-to-date';
+        return;
+      }
+      if (info.version !== this.state.info?.version) this.downloadedVersion = '';
+      this.state.info = info;
+      this.state.phase = 'available';
+    } catch (error) {
+      if (!manual) {
+        this.state.phase = 'idle';
+        this.state.error = null;
+        return;
+      }
+      this.setError(error);
+    }
+  }
+
+  async download(): Promise<void> {
+    const info = this.state.info;
+    if (!info || (this.state.phase !== 'available' && this.state.phase !== 'error')) return;
+
+    this.state.phase = 'downloading';
+    this.state.error = null;
+    this.state.progress = { downloaded: 0, total: info.size ?? null };
+    const onProgress = (progress: DownloadProgress) => {
+      this.state.progress = progress;
+    };
+
+    try {
+      if (info.size && info.size > MAX_BUFFERED_BYTES && this.bridge.downloadAndInstall) {
+        await this.bridge.downloadAndInstall(info, onProgress);
+        this.state.phase = 'installing';
+        return;
+      }
+      await this.bridge.download(info, onProgress);
+      this.downloadedVersion = info.version;
+      this.state.phase = 'ready';
+    } catch (error) {
+      this.setError(error);
+    }
+  }
+
+  async install(): Promise<boolean> {
+    const info = this.state.info;
+    if (!info || this.downloadedVersion !== info.version) return false;
+
+    this.state.phase = 'installing';
+    this.state.error = null;
+    try {
+      await this.bridge.install(info);
+      return true;
+    } catch (error) {
+      this.setError(error);
+      return false;
+    }
+  }
+
+  private setError(error: unknown) {
+    const kind = classifyUpdateError(error);
+    this.state.error = { kind, message: updateErrorMessage(kind) };
+    this.state.phase = 'error';
+  }
+}

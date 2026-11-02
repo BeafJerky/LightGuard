@@ -75,10 +75,10 @@ fn cancel_download(inner: &mut Inner) {
     }
 }
 
-/// 结束一轮下载，返回“仍是当前轮次、可以提交缓存”。
+/// 释放某一轮登记的取消句柄，返回“仍是当前轮次”。
 /// 只有 `begin_download` 会登记句柄且它一定递增代号，所以代号相等即说明句柄属于本轮，
-/// 这里不会误清新一轮下载的句柄。
-fn finish_download(inner: &mut Inner, generation: u64) -> bool {
+/// 这里不会误清新一轮下载的句柄；已被顶替时由取消方或新一轮自己负责。
+fn release_download(inner: &mut Inner, generation: u64) -> bool {
     if inner.generation != generation {
         return false;
     }
@@ -86,19 +86,44 @@ fn finish_download(inner: &mut Inner, generation: u64) -> bool {
     true
 }
 
+/// 在持锁状态下提交缓存：先按代号判定本轮是否仍有效，再把包写进缓存目录。
+/// 判定与写盘必须在同一把锁里完成——否则一轮可能先通过判定，再被新一轮顶替，
+/// 两轮交替写盘把缓存写坏。`update_cancel` 因此会阻塞到提交结束，这是刻意的：
+/// 取消先递增代号，下一轮只会在提交之后才开始，`clear_cache` 的先后顺序仍然安全。
+fn commit_download(
+    inner: &mut Inner,
+    generation: u64,
+    version: &str,
+    pending: &Pending,
+    source_url: &str,
+    dir: &std::path::Path,
+    bytes: &[u8],
+) -> Result<(), String> {
+    if inner.generation != generation {
+        // 已被取消或顶替：碰都不能碰磁盘，否则会覆盖新一轮正在写的缓存。
+        return Err("已取消下载".to_string());
+    }
+    // 写新版本前先清空：旧版本的包不能留在缓存里被下次启动误认。
+    cache::clear_cache(dir);
+    let written = cache::write_cache(dir, version, &pending.raw, source_url, bytes, false);
+    // 落盘结束（成败都算）才放开这一轮：失败时不放开，用户就永远无法重试。
+    inner.cancel = None;
+    written?;
+    // 包已经落盘：待下载状态作废，再点“检查更新”应该走缓存的安装路径。
+    // 但下载期间的一次“检查更新”可能已经把待下载换成了更新的版本，那种情况要留着。
+    let same_version = inner.pending.as_ref().is_some_and(|current| {
+        manifest::parse_release(&current.raw).is_ok_and(|parsed| parsed.version == version)
+    });
+    if same_version {
+        inner.pending = None;
+    }
+    Ok(())
+}
+
 /// 进度节流：距上次发送不足 `PROGRESS_INTERVAL` 时跳过，但已知总量且已下满的最后一块
 /// 一定发送，避免前端停在上一个刻度上。
-fn progress_due(last: Option<std::time::Instant>, progress: download::DownloadProgress) -> bool {
-    if progress
-        .total
-        .is_some_and(|total| progress.downloaded >= total)
-    {
-        return true;
-    }
-    match last {
-        Some(last) => last.elapsed() >= PROGRESS_INTERVAL,
-        None => true,
-    }
+fn should_emit_progress(elapsed: std::time::Duration, is_final: bool) -> bool {
+    is_final || elapsed >= PROGRESS_INTERVAL
 }
 
 pub struct UpdateService {
@@ -302,14 +327,25 @@ pub async fn update_download(
     app: AppHandle,
     service: State<'_, UpdateService>,
 ) -> Result<(), String> {
-    let (pending, generation, cancel) = {
+    // 路径先解析好：这条分支在动任何轮次状态之前返回，失败时不会留下占位的取消句柄。
+    let local_root = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|error| error.to_string())?;
+    let dir = cache::cache_dir(&local_root);
+
+    let (pending, version, generation, cancel) = {
         let mut inner = service.lock_inner();
         let pending = inner
             .pending
             .clone()
             .ok_or_else(|| "没有待下载的更新".to_string())?;
+        // 清单已经解析过一次，这里重新解析拿纯 semver 版本号：`write_cache` 会用它做文件名，
+        // 并要求清单顶层 `version` 与之完全一致。起跑前就定下版本，提交时用它判断待下载
+        // 状态是否还是同一份。
+        let version = manifest::parse_release(&pending.raw)?.version;
         let (generation, cancel) = begin_download(&mut inner)?;
-        (pending, generation, cancel)
+        (pending, version, generation, cancel)
     };
 
     let candidates = manifest::asset_candidates(&pending.asset_url);
@@ -321,7 +357,12 @@ pub async fn update_download(
         MAX_ASSET_BYTES,
         cancel,
         move |progress| {
-            if progress_due(last_emit, progress) {
+            let is_final = progress
+                .total
+                .is_some_and(|total| progress.downloaded >= total);
+            // 没有上次发送记录时视为间隔早就过了，首块立刻转发。
+            let elapsed = last_emit.map_or(PROGRESS_INTERVAL, |last| last.elapsed());
+            if should_emit_progress(elapsed, is_final) {
                 last_emit = Some(std::time::Instant::now());
                 let _ = app_for_progress.emit("update://progress", progress);
             }
@@ -329,48 +370,43 @@ pub async fn update_download(
     )
     .await;
 
-    // 本轮是否仍被认账：取消或被新一轮顶替后，即使下载本身返回 Ok 也不能落盘，
-    // 否则会覆盖新一轮正在写的缓存。
-    let still_current = {
-        let mut inner = service.lock_inner();
-        finish_download(&mut inner, generation)
-    };
-    if !still_current {
-        return Err("已取消下载".to_string());
-    }
-
     let (bytes, source) = match result {
         Ok(value) => value,
-        Err(download::DownloadError::Cancelled) => return Err("已取消下载".to_string()),
-        Err(download::DownloadError::Failed(error)) => return Err(error),
+        // 失败也要释放本轮句柄，否则“已有下载在进行”会一直挡住用户重试。
+        Err(download::DownloadError::Cancelled) => {
+            release_download(&mut service.lock_inner(), generation);
+            return Err("已取消下载".to_string());
+        }
+        Err(download::DownloadError::Failed(error)) => {
+            release_download(&mut service.lock_inner(), generation);
+            return Err(error);
+        }
     };
 
-    let update = cache::restore_update(&app, pending.raw.clone())?;
-    update
-        .verify(&bytes)
-        .map_err(|error| format!("更新包验签失败：{error}"))?;
+    // 验签只算内存，放在锁外；失败同样要放开本轮句柄。
+    let verified = cache::restore_update(&app, pending.raw.clone()).and_then(|update| {
+        update
+            .verify(&bytes)
+            .map_err(|error| format!("更新包验签失败：{error}"))
+    });
+    if let Err(error) = verified {
+        release_download(&mut service.lock_inner(), generation);
+        return Err(error);
+    }
 
-    // 清单已经解析过一次，这里重新解析拿纯 semver 版本号：`write_cache` 会用它做文件名，
-    // 并要求清单顶层 `version` 与之完全一致。
-    let parsed = manifest::parse_release(&pending.raw)?;
-    let local_root = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|error| error.to_string())?;
-    let dir = cache::cache_dir(&local_root);
-    // 写新版本前先清空：旧版本的包不能留在缓存里被下次启动误认。
-    cache::clear_cache(&dir);
-    cache::write_cache(
-        &dir,
-        &parsed.version,
-        &pending.raw,
-        &source.to_string(),
-        &bytes,
-        false,
-    )?;
-    // 包已经落盘：待下载状态作废，再点“检查更新”应该走缓存的安装路径。
-    service.lock_inner().pending = None;
-    Ok(())
+    // 判定 + 清空 + 写盘在同一个临界区里完成，中间不跨任何 await（`MutexGuard` 不是 Send）。
+    {
+        let mut inner = service.lock_inner();
+        commit_download(
+            &mut inner,
+            generation,
+            &version,
+            &pending,
+            &source.to_string(),
+            &dir,
+            &bytes,
+        )
+    }
 }
 
 #[tauri::command]
@@ -451,44 +487,154 @@ mod tests {
         cancel_download(&mut inner);
         assert!(first_cancel.load(Ordering::Relaxed));
         // 旧轮次回来时已不是当前轮次：不能提交缓存。
-        assert!(!finish_download(&mut inner, first));
+        assert!(!release_download(&mut inner, first));
 
         // 取消后可以立刻重开：代号已经递增，不会被“已有下载在进行”挡住。
         let (second, second_cancel) = begin_download(&mut inner).unwrap();
         assert_ne!(second, first);
-        // 旧轮次迟到的 finish 不能清掉新轮次的句柄，也不能获得提交权。
-        assert!(!finish_download(&mut inner, first));
+        // 旧轮次迟到的释放不能清掉新轮次的句柄，也不能获得提交权。
+        assert!(!release_download(&mut inner, first));
         assert!(inner.cancel.is_some());
         assert!(!second_cancel.load(Ordering::Relaxed));
 
         // 新轮次正常收尾：拿到提交权并释放句柄。
-        assert!(finish_download(&mut inner, second));
+        assert!(release_download(&mut inner, second));
         assert!(inner.cancel.is_none());
         // 收尾后可以开下一轮。
         assert!(begin_download(&mut inner).is_ok());
     }
 
+    /// 构造与 `update_check` 一致的最小清单：`commit_download` 会用 `parse_release` 复核版本。
+    fn pending_of(version: &str) -> Pending {
+        let raw = serde_json::json!({
+            "version": version,
+            "platforms": {
+                "windows-x86_64": {
+                    "url": "https://example.com/a.exe",
+                    "signature": "sig",
+                },
+            },
+        });
+        let asset_url = manifest::parse_release(&raw).unwrap().asset_url;
+        Pending { raw, asset_url }
+    }
+
+    #[test]
+    fn commit_rejects_superseded_generation_without_touching_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = cache::cache_dir(dir.path());
+        let downloaded = pending_of("0.15.0");
+
+        let mut inner = Inner::new();
+        let (generation, _cancel) = begin_download(&mut inner).unwrap();
+        inner.pending = Some(downloaded.clone());
+        // 下载期间被取消：代号已变，迟到的下载即使成功了也不能落盘。
+        cancel_download(&mut inner);
+
+        let error = commit_download(
+            &mut inner,
+            generation,
+            "0.15.0",
+            &downloaded,
+            "https://example.com/a.exe",
+            &cache,
+            b"abc",
+        )
+        .unwrap_err();
+
+        assert_eq!(error, "已取消下载");
+        assert!(cache::read_cache(&cache).is_none());
+        // 待下载状态留给下一轮，不能被这次被拒的提交清掉。
+        assert!(inner.pending.is_some());
+    }
+
+    #[test]
+    fn commit_writes_cache_and_keeps_a_newer_pending() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = cache::cache_dir(dir.path());
+        let downloaded = pending_of("0.15.0");
+
+        let mut inner = Inner::new();
+        let (generation, _cancel) = begin_download(&mut inner).unwrap();
+        // 提交前一次并发的“检查更新”已经把待下载换成了更新的版本。
+        inner.pending = Some(pending_of("0.16.0"));
+
+        commit_download(
+            &mut inner,
+            generation,
+            "0.15.0",
+            &downloaded,
+            "https://example.com/a.exe",
+            &cache,
+            b"abc",
+        )
+        .unwrap();
+
+        let (meta, bytes) = cache::read_cache(&cache).unwrap();
+        assert_eq!(meta.version, "0.15.0");
+        assert_eq!(bytes, b"abc");
+        // 更新的待下载状态不能被这次提交清掉。
+        assert!(inner.pending.is_some());
+        // 本轮已收尾：句柄释放，下一轮可以立刻开始。
+        assert!(inner.cancel.is_none());
+        assert!(begin_download(&mut inner).is_ok());
+    }
+
+    #[test]
+    fn commit_clears_pending_once_the_same_version_is_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = cache::cache_dir(dir.path());
+        let downloaded = pending_of("0.15.0");
+
+        let mut inner = Inner::new();
+        let (generation, _cancel) = begin_download(&mut inner).unwrap();
+        inner.pending = Some(downloaded.clone());
+
+        commit_download(
+            &mut inner,
+            generation,
+            "0.15.0",
+            &downloaded,
+            "https://example.com/a.exe",
+            &cache,
+            b"abc",
+        )
+        .unwrap();
+
+        // 包已经落盘：再点“检查更新”应该走缓存的安装路径。
+        assert!(inner.pending.is_none());
+        assert!(inner.cancel.is_none());
+
+        // 写盘失败也要放开本轮，否则用户无法重试。
+        let mut inner = Inner::new();
+        let (generation, _cancel) = begin_download(&mut inner).unwrap();
+        inner.pending = Some(downloaded.clone());
+        let error = commit_download(
+            &mut inner,
+            generation,
+            "0.15.0",
+            &downloaded,
+            "https://example.com/a.exe",
+            &cache,
+            b"",
+        )
+        .unwrap_err();
+        assert!(error.contains("更新包为空"), "unexpected error: {error}");
+        assert!(inner.cancel.is_none());
+        assert!(inner.pending.is_some());
+    }
+
     #[test]
     fn progress_is_throttled_but_final_chunk_always_emits() {
-        let mid = download::DownloadProgress {
-            downloaded: 10,
-            total: Some(100),
-        };
-        // 没有上次发送记录时立刻发。
-        assert!(progress_due(None, mid));
-        // 刚发过就跳过，避免每个分块都过 IPC。
-        assert!(!progress_due(Some(std::time::Instant::now()), mid));
-        // 已下满时无论是否刚发过都补最后一帧。
-        let done = download::DownloadProgress {
-            downloaded: 100,
-            total: Some(100),
-        };
-        assert!(progress_due(Some(std::time::Instant::now()), done));
-        // 总量未知（无 Content-Length）时只能按时间节流。
-        let unknown = download::DownloadProgress {
-            downloaded: 100,
-            total: None,
-        };
-        assert!(!progress_due(Some(std::time::Instant::now()), unknown));
+        // 刚发过：跳过，避免每个分块都过 IPC。
+        assert!(!should_emit_progress(std::time::Duration::ZERO, false));
+        // 未到间隔：仍然跳过。
+        assert!(!should_emit_progress(PROGRESS_INTERVAL / 2, false));
+        // 到达或超过间隔：放行。
+        assert!(should_emit_progress(PROGRESS_INTERVAL, false));
+        assert!(should_emit_progress(PROGRESS_INTERVAL * 2, false));
+        // 最后一帧无论距上次多久都补发，避免前端停在上一个刻度上。
+        assert!(should_emit_progress(std::time::Duration::ZERO, true));
+        assert!(should_emit_progress(PROGRESS_INTERVAL / 3, true));
     }
 }

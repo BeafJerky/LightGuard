@@ -17,4 +17,5 @@ Thumbs.db
 *.key
 *.key.pub
 update/*.zip
+update/*.exe
 update/*.sig

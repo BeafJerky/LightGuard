@@ -6,7 +6,7 @@ export const MIRROR_ORIGIN = 'https://gh-proxy.com/';
 export const PLATFORM = 'windows-x86_64';
 
 export function assetName(version) {
-  return `LightGuard_${version}_x64-setup.nsis.zip`;
+  return `LightGuard_${version}_x64-setup.exe`;
 }
 
 export function releaseUrl(slug, version, asset = assetName(version)) {

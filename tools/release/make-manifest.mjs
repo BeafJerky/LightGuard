@@ -15,7 +15,7 @@ import {
 const root = resolve(import.meta.dirname, '..', '..');
 const args = parseArgs(process.argv.slice(2));
 
-for (const key of ['version', 'zip', 'sig']) {
+for (const key of ['version', 'installer', 'sig']) {
   if (!args[key]) throw new Error(`missing --${key}`);
 }
 if (!args.check && !args.notes) throw new Error('missing --notes');
@@ -23,9 +23,9 @@ if (!args.check && !args.notes) throw new Error('missing --notes');
 const version = args.version;
 const asset = args.asset ?? assetName(version);
 const slug = args.slug ?? DEFAULT_SLUG;
-const zip = resolve(args.zip);
+const installer = resolve(args.installer);
 const sig = readFileSync(resolve(args.sig), 'utf8').trim();
-const size = statSync(zip).size;
+const size = statSync(installer).size;
 const notes = args.notes ? readFileSync(resolve(args.notes), 'utf8').trim() : '';
 const pubDate = args.date ?? new Date().toISOString();
 
@@ -66,7 +66,7 @@ if (args.check) {
     console.error(problems.join('\n'));
     process.exit(1);
   }
-  console.log(`manifests match ${version} (${size} bytes, ${zip})`);
+  console.log(`manifests match ${version} (${size} bytes, ${installer})`);
 } else {
   const mirrored = mirrorManifest(direct);
   mkdirSync(out, { recursive: true });

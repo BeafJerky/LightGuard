@@ -13,7 +13,7 @@ const input = {
   notes: 'release notes',
   pubDate: '2026-11-02T00:00:00Z',
   slug: 'BeafJerky/LightGuard',
-  asset: 'LightGuard_0.14.0_x64-setup.nsis.zip',
+  asset: 'LightGuard_0.14.0_x64-setup.exe',
   signature: 'signature-content\n',
   size: 123,
 };
@@ -23,11 +23,19 @@ test('builds a direct manifest with the release asset URL', () => {
   const platform = manifest.platforms['windows-x86_64'];
   assert.equal(
     platform.url,
-    'https://github.com/BeafJerky/LightGuard/releases/download/v0.14.0/LightGuard_0.14.0_x64-setup.nsis.zip',
+    'https://github.com/BeafJerky/LightGuard/releases/download/v0.14.0/LightGuard_0.14.0_x64-setup.exe',
   );
   assert.equal(platform.signature, 'signature-content');
   assert.equal(platform.size, 123);
   assert.equal(manifest.version, '0.14.0');
+});
+
+test('defaults to the signed NSIS installer', () => {
+  const manifest = buildManifest({ ...input, asset: undefined });
+  assert.equal(
+    manifest.platforms['windows-x86_64'].url,
+    'https://github.com/BeafJerky/LightGuard/releases/download/v0.14.0/LightGuard_0.14.0_x64-setup.exe',
+  );
 });
 
 test('prefixes only the mirror manifest', () => {

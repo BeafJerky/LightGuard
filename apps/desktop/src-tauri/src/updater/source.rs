@@ -30,14 +30,49 @@ fn is_public_v4(ip: Ipv4Addr) -> bool {
     if a == 100 && (64..=127).contains(&b) {
         return false;
     }
-    // 224.0.0.0/4 组播、255.255.255.255 广播。
-    if (224..=239).contains(&a) {
+    // 198.18.0.0/15 基准测试保留地址（常被 VPN/沙箱劫持为内部服务）。
+    if a == 198 && (18..=19).contains(&b) {
+        return false;
+    }
+    // 224.0.0.0/4 组播、240.0.0.0/4 保留（含 255.255.255.255 广播）。
+    if a >= 224 {
         return false;
     }
     if ip == Ipv4Addr::BROADCAST {
         return false;
     }
     true
+}
+
+/// 取 IPv6 地址前 96 位以内嵌 IPv4 的写法（IPv4 兼容/映射、NAT64）里内嵌的 IPv4。
+fn embedded_v4(ip: Ipv6Addr) -> Option<Ipv4Addr> {
+    let segments = ip.segments();
+    // IPv4 兼容地址 ::a.b.c.d（::/96）。`::` 与 `::1` 已在上层按未指定/环回拒绝，
+    // `::ffff:a.b.c.d` 由 `to_ipv4_mapped` 优先处理，这里只兜住剩下的形式。
+    if segments[..6].iter().all(|segment| *segment == 0) {
+        let [a, b] = [segments[6], segments[7]];
+        let v4 = Ipv4Addr::new(
+            (a >> 8) as u8,
+            (a & 0xff) as u8,
+            (b >> 8) as u8,
+            (b & 0xff) as u8,
+        );
+        return Some(v4);
+    }
+    // NAT64 64:ff9b::/96。
+    if segments[0] == 0x0064
+        && segments[1] == 0xff9b
+        && segments[2..6].iter().all(|segment| *segment == 0)
+    {
+        let [a, b] = [segments[6], segments[7]];
+        return Some(Ipv4Addr::new(
+            (a >> 8) as u8,
+            (a & 0xff) as u8,
+            (b >> 8) as u8,
+            (b & 0xff) as u8,
+        ));
+    }
+    None
 }
 
 /// 判定一个 IPv6 字面量是否允许作为更新目标。
@@ -48,6 +83,10 @@ fn is_public_v6(ip: Ipv6Addr) -> bool {
     // IPv4 映射地址（::ffff:a.b.c.d）按内嵌的 IPv4 判定，避免绕过上面的过滤。
     if let Some(mapped) = ip.to_ipv4_mapped() {
         return is_public_v4(mapped);
+    }
+    // IPv4 兼容地址与 NAT64 同样按内嵌 IPv4 判定，否则 `[64:ff9b::7f00:1]` 之类可直达内网。
+    if let Some(embedded) = embedded_v4(ip) {
+        return is_public_v4(embedded);
     }
     let segments = ip.segments();
     // fc00::/7 唯一本地地址。
@@ -189,6 +228,9 @@ mod tests {
         for raw in [
             "https://172.16.0.1/x",
             "https://172.31.255.255/x",
+            "https://198.18.0.1/x",
+            "https://240.0.0.1/x",
+            "https://0.1.2.3/x",
             "https://224.0.0.1/x",
             "https://255.255.255.255/x",
             "https://[fc00::1]/x",
@@ -196,6 +238,10 @@ mod tests {
             "https://[ff02::1]/x",
             "https://[::ffff:127.0.0.1]/x",
             "https://[::ffff:10.0.0.1]/x",
+            "https://[64:ff9b::7f00:1]/x",
+            "https://[64:ff9b::a00:1]/x",
+            "https://[::127.0.0.1]/x",
+            "https://[::10.0.0.1]/x",
             "https://LOCALHOST/x",
             "https://mirror.localhost/x",
             "https://localhost./x",

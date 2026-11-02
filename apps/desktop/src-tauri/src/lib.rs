@@ -1,4 +1,5 @@
 pub mod alerts;
+mod data_dir;
 pub mod db;
 pub mod docker;
 pub mod guard;

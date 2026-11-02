@@ -7,7 +7,9 @@ import { gateMessage, updateGate } from './gate';
 import { updateController } from './index';
 
 const state = updateController.state;
-const deferred = ref(false);
+const localDeferred = ref(false);
+// 本次会话的「稍后」之外，还要承接 Rust 跨重启保留的标记。
+const deferred = computed(() => localDeferred.value || state.info?.deferred === true);
 
 const canCheck = computed(
   () => !['checking', 'downloading', 'ready', 'installing'].includes(state.phase),
@@ -39,8 +41,18 @@ function formatDate(value?: string) {
 }
 
 async function checkNow() {
-  deferred.value = false;
+  localDeferred.value = false;
   await updateController.check({ manual: true });
+}
+
+async function deferUpdate() {
+  try {
+    await updateController.defer();
+    localDeferred.value = true;
+    toast({ title: '已保留更新包', message: '下次启动仍可安装。', tone: 'info' });
+  } catch {
+    toast({ title: '无法记录稍后安装', message: '请直接重启安装。', tone: 'warning' });
+  }
 }
 
 async function confirmInstall() {
@@ -82,6 +94,11 @@ async function retryLastAction() {
   if (state.failedAction === 'download') return downloadNow();
   return checkNow();
 }
+
+// 网络失败时 Rust 已经试过官方与镜像，界面上要说清楚，避免用户以为重试就是换源。
+const retryHint = computed(() =>
+  state.error?.kind === 'network' ? '已尝试直连与镜像，可在下方手动下载。' : '',
+);
 
 const releaseUrl = 'https://github.com/BeafJerky/LightGuard/releases';
 
@@ -168,12 +185,15 @@ async function openExternal(url: string) {
           {{ formatBytes(state.progress.downloaded) }}
           <template v-if="state.progress.total"> / {{ formatBytes(state.progress.total) }}</template>
         </span>
+        <div class="update-panel__actions">
+          <LgButton size="small" @click="updateController.cancel()">取消</LgButton>
+        </div>
       </template>
       <div v-if="state.phase === 'available'" class="update-panel__actions">
         <LgButton size="small" type="primary" @click="downloadNow">下载并安装</LgButton>
       </div>
       <div v-else-if="state.phase === 'ready'" class="update-panel__actions">
-        <LgButton v-if="!deferred" size="small" @click="deferred = true">稍后</LgButton>
+        <LgButton v-if="!deferred" size="small" @click="deferUpdate">稍后</LgButton>
         <LgButton size="small" type="primary" @click="installNow">重启并安装</LgButton>
       </div>
       <div v-else-if="state.phase === 'installing'" class="update-panel__actions">
@@ -196,6 +216,7 @@ async function openExternal(url: string) {
           {{ link.label }} 备用下载
         </LgButton>
       </div>
+      <p v-if="retryHint" class="update-panel__hint">{{ retryHint }}</p>
       <p class="update-panel__hint">
         如果清单可访问但更新包被阻断，可手动下载安装包；手动安装包同样来自 GitHub Releases。
       </p>

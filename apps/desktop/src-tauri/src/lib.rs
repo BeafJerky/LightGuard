@@ -11,9 +11,60 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager};
+use tauri_plugin_window_state::{AppHandleExt, StateFlags, WindowExt};
 
 // 前端注册好关闭监听后才拦截系统关闭，避免启动早期请求被吞掉。
 static CLOSE_BRIDGE_READY: AtomicBool = AtomicBool::new(false);
+
+// 只持久化几何信息：可见性由启动路径决定，装饰与全屏由配置固定。
+fn window_state_flags() -> StateFlags {
+    StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED
+}
+
+// 开机自启由插件注入该参数，用于区分“用户双击”与“系统拉起”。
+fn launched_for_autostart<I, S>(args: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    args.into_iter().any(|arg| arg.as_ref() == "--autostart")
+}
+
+fn rect_intersects(a: (i32, i32, u32, u32), b: (i32, i32, u32, u32)) -> bool {
+    let ax2 = a.0 as i64 + a.2 as i64;
+    let ay2 = a.1 as i64 + a.3 as i64;
+    let bx2 = b.0 as i64 + b.2 as i64;
+    let by2 = b.1 as i64 + b.3 as i64;
+    // 必须加括号：`x as i64 < y` 会被解析成泛型参数起始而非比较。
+    (a.0 as i64) < bx2 && (b.0 as i64) < ax2 && (a.1 as i64) < by2 && (b.1 as i64) < ay2
+}
+
+fn window_rect<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) -> Option<(i32, i32, u32, u32)> {
+    let position = window.outer_position().ok()?;
+    let size = window.outer_size().ok()?;
+    Some((position.x, position.y, size.width, size.height))
+}
+
+// 保存的位置可能来自已拔掉的显示器；此时把窗口拉回主屏避免“看不见的窗口”。
+fn clamp_main_window<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) {
+    let Some(current) = window_rect(window) else {
+        return;
+    };
+    let monitors: Vec<_> = window
+        .available_monitors()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|monitor| {
+            let position = monitor.position();
+            let size = monitor.size();
+            (position.x, position.y, size.width, size.height)
+        })
+        .collect();
+    if monitors.is_empty() || monitors.iter().any(|monitor| rect_intersects(current, *monitor)) {
+        return;
+    }
+    let _ = window.center();
+}
 
 #[tauri::command]
 fn app_quit(app: tauri::AppHandle) {
@@ -27,6 +78,7 @@ fn app_close_ready() {
 
 fn show_main_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     if let Some(window) = app.get_webview_window("main") {
+        clamp_main_window(&window);
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
@@ -112,6 +164,23 @@ fn tune_window(window: &tauri::WebviewWindow) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // 单实例必须最先注册：否则第二个进程会先建好窗口和托盘再被拦下。
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            // 自启拉起的第二实例只做唤醒，不抢用户当前焦点。
+            if !launched_for_autostart(argv) {
+                show_main_window(app);
+            }
+        }))
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(window_state_flags())
+                .build(),
+        )
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .args(["--autostart"])
+                .build(),
+        )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
@@ -132,9 +201,20 @@ pub fn run() {
             // 上一轮遗留的活跃告警在这里结清，并向前端广播一次角标。
             alerts.startup();
 
-            #[cfg(windows)]
+            // 主窗口配置为默认隐藏，这里显式恢复上次位置再决定是否露面：
+            // 自启拉起时留在托盘，用户双击时钳制到可见显示器并聚焦。
             if let Some(window) = app.get_webview_window("main") {
+                let _ = window.restore_state(window_state_flags());
+                // 圆角与描边要在窗口露面之前设好；自启路径稍后从托盘打开也保留该外观。
+                #[cfg(windows)]
                 tune_window(&window);
+                if launched_for_autostart(std::env::args()) {
+                    let _ = window.hide();
+                } else {
+                    clamp_main_window(&window);
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
             }
             setup_tray(app.handle())?;
             Ok(())
@@ -143,6 +223,8 @@ pub fn run() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if CLOSE_BRIDGE_READY.load(Ordering::SeqCst) {
                     api.prevent_close();
+                    // 关闭到托盘后窗口不再触发事件，主动落盘以保住最后一次位置。
+                    let _ = window.app_handle().save_window_state(window_state_flags());
                     let _ = window.emit("lightguard://close-requested", ());
                 }
             }
@@ -204,4 +286,27 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running LightGuard");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_autostart_argument() {
+        assert!(launched_for_autostart(["LightGuard.exe", "--autostart"]));
+        assert!(!launched_for_autostart(["LightGuard.exe"]));
+        assert!(!launched_for_autostart(["--autostart=1"]));
+    }
+
+    #[test]
+    fn rect_intersection_requires_visible_overlap() {
+        let monitor = (0, 0, 1920, 1080);
+        assert!(rect_intersects((100, 100, 800, 600), monitor));
+        assert!(rect_intersects((-100, -100, 800, 600), monitor));
+        assert!(rect_intersects((1500, 900, 800, 600), monitor));
+        assert!(!rect_intersects((1920, 0, 800, 600), monitor));
+        assert!(!rect_intersects((0, 1081, 800, 600), monitor));
+        assert!(rect_intersects((1920, 0, 800, 600), (1920, 0, 1920, 1080)));
+    }
 }

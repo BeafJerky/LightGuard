@@ -33,6 +33,7 @@ const pageLabel = computed(() => {
   }
   const titles: Record<string, string> = {
     overview: '服务器总览',
+    alerts: '告警中心',
     connections: '连接记录',
     settings: '设置',
   };

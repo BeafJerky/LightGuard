@@ -14,6 +14,8 @@ use crate::db::DbState;
 
 const MAX_ASSET_BYTES: u64 = cache::MAX_ASSET_BYTES;
 const MAX_REDIRECTS: usize = 5;
+/// 进度事件的最小间隔：7 MiB 的包在快网下能产生上百个分块，逐个转发会把 IPC 打满。
+const PROGRESS_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -35,8 +37,68 @@ struct Pending {
 }
 
 struct Inner {
+    /// 下载轮次代号：`begin_download` / `cancel_download` 都会递增它，旧轮次据此放弃写缓存。
+    generation: u64,
     cancel: Option<Arc<AtomicBool>>,
     pending: Option<Pending>,
+}
+
+impl Inner {
+    fn new() -> Self {
+        Self {
+            generation: 0,
+            cancel: None,
+            pending: None,
+        }
+    }
+}
+
+/// 开始一轮下载：拒绝并发下载，递增代号并登记本轮取消句柄。
+/// 代号与句柄必须在同一把锁里落定，否则两轮下载会同时写缓存而互相覆盖。
+fn begin_download(inner: &mut Inner) -> Result<(u64, Arc<AtomicBool>), String> {
+    if inner.cancel.is_some() {
+        return Err("已有下载在进行".to_string());
+    }
+    inner.generation = inner.generation.wrapping_add(1);
+    let generation = inner.generation;
+    let cancel = Arc::new(AtomicBool::new(false));
+    inner.cancel = Some(cancel.clone());
+    Ok((generation, cancel))
+}
+
+/// 取消当前轮次：取走句柄并置位，同时递增代号让旧轮次失去写缓存的资格。
+/// 代号一递增，用户就能立刻重开下载，不必等旧轮次的 future 退出。
+fn cancel_download(inner: &mut Inner) {
+    inner.generation = inner.generation.wrapping_add(1);
+    if let Some(cancel) = inner.cancel.take() {
+        cancel.store(true, Ordering::Relaxed);
+    }
+}
+
+/// 结束一轮下载，返回“仍是当前轮次、可以提交缓存”。
+/// 只有 `begin_download` 会登记句柄且它一定递增代号，所以代号相等即说明句柄属于本轮，
+/// 这里不会误清新一轮下载的句柄。
+fn finish_download(inner: &mut Inner, generation: u64) -> bool {
+    if inner.generation != generation {
+        return false;
+    }
+    inner.cancel = None;
+    true
+}
+
+/// 进度节流：距上次发送不足 `PROGRESS_INTERVAL` 时跳过，但已知总量且已下满的最后一块
+/// 一定发送，避免前端停在上一个刻度上。
+fn progress_due(last: Option<std::time::Instant>, progress: download::DownloadProgress) -> bool {
+    if progress
+        .total
+        .is_some_and(|total| progress.downloaded >= total)
+    {
+        return true;
+    }
+    match last {
+        Some(last) => last.elapsed() >= PROGRESS_INTERVAL,
+        None => true,
+    }
 }
 
 pub struct UpdateService {
@@ -90,11 +152,16 @@ impl UpdateService {
             .expect("build update http client");
         Self {
             client,
-            inner: Mutex::new(Inner {
-                cancel: None,
-                pending: None,
-            }),
+            inner: Mutex::new(Inner::new()),
         }
+    }
+
+    /// 中毒的锁只代表某次 panic 时还在持锁，状态本身仍是自洽的：恢复内部值继续用，
+    /// 否则一次 panic 会让“检查更新”永久失效。
+    fn lock_inner(&self) -> std::sync::MutexGuard<'_, Inner> {
+        self.inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }
 
@@ -104,9 +171,9 @@ async fn cached_update(app: AppHandle) -> Result<Option<UpdateInfo>, String> {
         .app_local_data_dir()
         .map_err(|error| error.to_string())?;
     let dir = cache::cache_dir(&local_root);
-    // 读不出缓存（缺失、损坏或超限）时顺手清一次，避免坏包长期占用磁盘。
+    // 读不出缓存（从未下载或读盘失败）时不能顺手清目录：刚写好的包可能只是暂时读不到，
+    // 清掉会让用户白下一次。真正的坏包在下面各自的分支里清。
     let Some((meta, bytes)) = cache::read_cache(&dir) else {
-        cache::clear_cache(&dir);
         return Ok(None);
     };
     let current = app.package_info().version.to_string();
@@ -158,7 +225,12 @@ pub async fn update_check(
                 .map(str::to_owned)
         })
         .unwrap_or_else(|| source::AUTO.to_string());
-    let sources = source::resolve_sources(&selected)?;
+    // 存下来的更新源可能是旧版本写坏的（非 HTTPS、带凭据、手改乱码）。这时退回内置默认源，
+    // 不能因为一个坏设置让“检查更新”整体不可用。
+    let sources = match source::resolve_sources(&selected) {
+        Ok(sources) => sources,
+        Err(_) => source::resolve_sources(source::AUTO)?,
+    };
     let current = app.package_info().version.to_string();
 
     let mut last_error = String::from("没有可用的更新源");
@@ -210,28 +282,19 @@ pub async fn update_check(
             cached: false,
             deferred: false,
         };
-        service.inner.lock().unwrap().pending = Some(Pending {
+        service.lock_inner().pending = Some(Pending {
             raw,
             asset_url: parsed.asset_url,
         });
         return Ok(Some(info));
     }
     if up_to_date {
+        // 所有源都说没有更新：之前发现的待下载更新已经过时，留着只会让 `update_download`
+        // 去下载一个已不再发布的版本。全部源失败时（下面的 Err 分支）不清，保留可下载状态。
+        service.lock_inner().pending = None;
         return Ok(None);
     }
     Err(last_error)
-}
-
-// 只清自己那一轮的取消句柄：取消后立刻重开下载时，旧轮次不能把新轮的标志清掉。
-fn clear_cancel(service: &UpdateService, cancel: &Arc<AtomicBool>) {
-    let mut inner = service.inner.lock().unwrap();
-    if inner
-        .cancel
-        .as_ref()
-        .is_some_and(|current| Arc::ptr_eq(current, cancel))
-    {
-        inner.cancel = None;
-    }
 }
 
 #[tauri::command]
@@ -239,34 +302,42 @@ pub async fn update_download(
     app: AppHandle,
     service: State<'_, UpdateService>,
 ) -> Result<(), String> {
-    let (pending, cancel) = {
-        let mut inner = service.inner.lock().unwrap();
-        if inner.cancel.is_some() {
-            return Err("已有下载在进行".to_string());
-        }
+    let (pending, generation, cancel) = {
+        let mut inner = service.lock_inner();
         let pending = inner
             .pending
             .clone()
             .ok_or_else(|| "没有待下载的更新".to_string())?;
-        let cancel = Arc::new(AtomicBool::new(false));
-        inner.cancel = Some(cancel.clone());
-        (pending, cancel)
+        let (generation, cancel) = begin_download(&mut inner)?;
+        (pending, generation, cancel)
     };
 
     let candidates = manifest::asset_candidates(&pending.asset_url);
     let app_for_progress = app.clone();
+    let mut last_emit: Option<std::time::Instant> = None;
     let result = download::download_asset(
         &service.client,
         &candidates,
         MAX_ASSET_BYTES,
-        cancel.clone(),
+        cancel,
         move |progress| {
-            let _ = app_for_progress.emit("update://progress", progress);
+            if progress_due(last_emit, progress) {
+                last_emit = Some(std::time::Instant::now());
+                let _ = app_for_progress.emit("update://progress", progress);
+            }
         },
     )
     .await;
-    // 无论成功失败都释放本轮句柄；ptr_eq 保证不会误清新一轮下载。
-    clear_cancel(&service, &cancel);
+
+    // 本轮是否仍被认账：取消或被新一轮顶替后，即使下载本身返回 Ok 也不能落盘，
+    // 否则会覆盖新一轮正在写的缓存。
+    let still_current = {
+        let mut inner = service.lock_inner();
+        finish_download(&mut inner, generation)
+    };
+    if !still_current {
+        return Err("已取消下载".to_string());
+    }
 
     let (bytes, source) = match result {
         Ok(value) => value,
@@ -297,16 +368,15 @@ pub async fn update_download(
         &bytes,
         false,
     )?;
+    // 包已经落盘：待下载状态作废，再点“检查更新”应该走缓存的安装路径。
+    service.lock_inner().pending = None;
     Ok(())
 }
 
 #[tauri::command]
 pub fn update_cancel(service: State<'_, UpdateService>) -> Result<(), String> {
-    // 取走句柄而不是只置位：取消后用户可能立刻重开下载，不能因为旧轮次还没退出就被“已有下载在进行”挡住。
-    let cancel = service.inner.lock().unwrap().cancel.take();
-    if let Some(cancel) = cancel {
-        cancel.store(true, Ordering::Relaxed);
-    }
+    let mut inner = service.lock_inner();
+    cancel_download(&mut inner);
     Ok(())
 }
 
@@ -337,8 +407,11 @@ pub fn update_install(app: AppHandle, version: String) -> Result<(), String> {
     if meta.version != version {
         return Err("更新包版本不匹配".to_string());
     }
+    // 包已经在内存里，安装要么让进程退出要么失败：先把磁盘上的旧包清掉，
+    // 否则一个过期的大包会一直占着几十上百 MB。
+    cache::clear_cache(&dir);
     let update = cache::restore_update(&app, meta.raw_manifest)?;
-    // Windows 上 install 成功会直接退出进程；缓存在下次启动时按版本号清理。
+    // Windows 上 install 成功会直接退出进程；失败时缓存已经清空，用户需要重新下载。
     // `install` 内部会再验一次签名，所以这里不需要重复调用 `verify`。
     update
         .install(&bytes)
@@ -364,5 +437,58 @@ mod tests {
         let plain = reqwest::Url::parse("http://github.com/x").unwrap();
         assert!(redirect_target_allowed(&https));
         assert!(!redirect_target_allowed(&plain));
+    }
+
+    #[test]
+    fn update_cancel_supersedes_a_running_download() {
+        // 命令层要 AppHandle，但轮次记账是纯状态机，可以直接在 `Inner` 上验证。
+        let mut inner = Inner::new();
+        let (first, first_cancel) = begin_download(&mut inner).unwrap();
+        assert!(!first_cancel.load(Ordering::Relaxed));
+        // 两轮并发会让临时文件互相覆盖，第二轮必须被挡住。
+        assert!(begin_download(&mut inner).is_err());
+
+        cancel_download(&mut inner);
+        assert!(first_cancel.load(Ordering::Relaxed));
+        // 旧轮次回来时已不是当前轮次：不能提交缓存。
+        assert!(!finish_download(&mut inner, first));
+
+        // 取消后可以立刻重开：代号已经递增，不会被“已有下载在进行”挡住。
+        let (second, second_cancel) = begin_download(&mut inner).unwrap();
+        assert_ne!(second, first);
+        // 旧轮次迟到的 finish 不能清掉新轮次的句柄，也不能获得提交权。
+        assert!(!finish_download(&mut inner, first));
+        assert!(inner.cancel.is_some());
+        assert!(!second_cancel.load(Ordering::Relaxed));
+
+        // 新轮次正常收尾：拿到提交权并释放句柄。
+        assert!(finish_download(&mut inner, second));
+        assert!(inner.cancel.is_none());
+        // 收尾后可以开下一轮。
+        assert!(begin_download(&mut inner).is_ok());
+    }
+
+    #[test]
+    fn progress_is_throttled_but_final_chunk_always_emits() {
+        let mid = download::DownloadProgress {
+            downloaded: 10,
+            total: Some(100),
+        };
+        // 没有上次发送记录时立刻发。
+        assert!(progress_due(None, mid));
+        // 刚发过就跳过，避免每个分块都过 IPC。
+        assert!(!progress_due(Some(std::time::Instant::now()), mid));
+        // 已下满时无论是否刚发过都补最后一帧。
+        let done = download::DownloadProgress {
+            downloaded: 100,
+            total: Some(100),
+        };
+        assert!(progress_due(Some(std::time::Instant::now()), done));
+        // 总量未知（无 Content-Length）时只能按时间节流。
+        let unknown = download::DownloadProgress {
+            downloaded: 100,
+            total: None,
+        };
+        assert!(!progress_due(Some(std::time::Instant::now()), unknown));
     }
 }

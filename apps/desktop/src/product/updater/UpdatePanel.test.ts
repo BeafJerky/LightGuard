@@ -161,6 +161,25 @@ describe('UpdatePanel', () => {
     expect(toasts.at(-1)?.title).toBe('已保留更新包');
   });
 
+  it('warns when the defer command fails and stays ready', async () => {
+    updateController.state.phase = 'ready';
+    updateController.state.info = { version: '0.15.0', currentVersion: '0.14.1' };
+    vi.spyOn(updateController, 'defer').mockRejectedValue(new Error('defer failed'));
+    const wrapper = mount(UpdatePanel);
+    await clickButton(wrapper, '稍后');
+    expect(toasts.at(-1)?.title).toBe('无法记录稍后安装');
+    expect(toasts.at(-1)?.tone).toBe('warning');
+    expect(updateController.state.phase).toBe('ready');
+  });
+
+  it('hides the defer button when the package is already deferred across restarts', async () => {
+    updateController.state.phase = 'ready';
+    updateController.state.info = { ...readyInfo, cached: true, deferred: true };
+    const wrapper = mount(UpdatePanel);
+    expect(wrapper.text()).not.toContain('稍后');
+    expect(wrapper.text()).toContain('重启并安装');
+  });
+
   it('explains the mirror fallback on a network error', () => {
     updateController.state.phase = 'error';
     updateController.state.error = { kind: 'network', message: '无法访问更新服务器。' };

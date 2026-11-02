@@ -2,12 +2,14 @@
 import { computed, ref } from 'vue';
 import { LgButton, LgProgress, LgTag } from '@lightguard/lightui';
 import { APP_VERSION } from '../data';
+import { flushSettings } from '../store';
 import { confirm, toast } from '../ui';
 import { gateMessage, updateGate } from './gate';
 import { updateController } from './index';
 
 const state = updateController.state;
 const localDeferred = ref(false);
+const deferring = ref(false);
 // 本次会话的「稍后」之外，还要承接 Rust 跨重启保留的标记。
 const deferred = computed(() => localDeferred.value || state.info?.deferred === true);
 
@@ -42,16 +44,22 @@ function formatDate(value?: string) {
 
 async function checkNow() {
   localDeferred.value = false;
+  // Rust 的 update_check 直接读已落盘的设置，先把刚选好、还在防抖队列里的更新源刷进去。
+  await flushSettings();
   await updateController.check({ manual: true });
 }
 
 async function deferUpdate() {
+  if (deferring.value) return;
+  deferring.value = true;
   try {
     await updateController.defer();
     localDeferred.value = true;
     toast({ title: '已保留更新包', message: '下次启动仍可安装。', tone: 'info' });
   } catch {
     toast({ title: '无法记录稍后安装', message: '请直接重启安装。', tone: 'warning' });
+  } finally {
+    deferring.value = false;
   }
 }
 
@@ -193,7 +201,9 @@ async function openExternal(url: string) {
         <LgButton size="small" type="primary" @click="downloadNow">下载并安装</LgButton>
       </div>
       <div v-else-if="state.phase === 'ready'" class="update-panel__actions">
-        <LgButton v-if="!deferred" size="small" @click="deferUpdate">稍后</LgButton>
+        <LgButton v-if="!deferred" size="small" :disabled="deferring" @click="deferUpdate">
+          稍后
+        </LgButton>
         <LgButton size="small" type="primary" @click="installNow">重启并安装</LgButton>
       </div>
       <div v-else-if="state.phase === 'installing'" class="update-panel__actions">

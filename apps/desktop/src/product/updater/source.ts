@@ -16,6 +16,10 @@ export const UPDATE_SOURCE_PRESETS = [
   },
 ] as const;
 
+function isPresetSource(value: string): boolean {
+  return UPDATE_SOURCE_PRESETS.some((preset) => preset.id === value);
+}
+
 export function normalizeUpdateSource(value: unknown): string {
   if (typeof value !== 'string') return 'auto';
   const trimmed = value.trim();
@@ -29,4 +33,29 @@ export function normalizeUpdateSource(value: unknown): string {
   } catch {
     return 'auto';
   }
+}
+
+/**
+ * 把持久化的更新源映射回界面状态。
+ * 先归一化：非法值会退回 `auto`，因此会被当成预设而不是自定义地址，
+ * 不会把无效输入留在草稿里反复提交。
+ */
+export function initialSourceDraft(updateSource: string): {
+  customMode: boolean;
+  draft: string;
+} {
+  const normalized = normalizeUpdateSource(updateSource);
+  if (isPresetSource(normalized)) return { customMode: false, draft: '' };
+  return { customMode: true, draft: normalized };
+}
+
+/** 下拉框的选中项：自定义模式恒为 `custom`，否则就是命中的预设 id。 */
+export function sourceSelectionState(
+  updateSource: string,
+  customMode: boolean,
+): { selection: string; customMode: boolean; draft: string } {
+  if (customMode) return { selection: 'custom', customMode: true, draft: '' };
+  const fallback = initialSourceDraft(updateSource);
+  if (fallback.customMode) return { selection: 'custom', customMode: true, draft: fallback.draft };
+  return { selection: normalizeUpdateSource(updateSource), customMode: false, draft: '' };
 }

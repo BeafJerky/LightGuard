@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import {
   LgButton,
   LgIcon,
@@ -14,7 +14,12 @@ import {
 import type { ThemeId, ThemeTokens } from '@lightguard/lightui';
 import BackupPanel from './BackupPanel.vue';
 import UpdatePanel from './updater/UpdatePanel.vue';
-import { UPDATE_SOURCE_PRESETS, normalizeUpdateSource } from './updater/source';
+import {
+  UPDATE_SOURCE_PRESETS,
+  initialSourceDraft,
+  normalizeUpdateSource,
+  sourceSelectionState,
+} from './updater/source';
 import RenderSettingsPanel from '../render/RenderSettingsPanel.vue';
 import AlertRulesEditor from './alerts/AlertRulesEditor.vue';
 import { PERMIT_OPTIONS } from './alerts/settings';
@@ -245,15 +250,24 @@ const sourceOptions = [
   { label: '自定义 HTTPS 地址', value: 'custom' },
 ];
 
-const isPresetSource = computed(() =>
-  UPDATE_SOURCE_PRESETS.some((preset) => preset.id === state.settings.updateSource),
-);
+const initialSource = initialSourceDraft(state.settings.updateSource);
 
 // 选中「自定义」时持久化值仍是 auto 或某个 URL，下拉框的选中项只能靠本地状态维持。
-const customMode = ref(false);
-const customDraft = ref(isPresetSource.value ? '' : state.settings.updateSource);
-const sourceSelection = computed(() =>
-  customMode.value || !isPresetSource.value ? 'custom' : state.settings.updateSource,
+const customMode = ref(initialSource.customMode);
+const customDraft = ref(initialSource.draft);
+const sourceSelection = computed(
+  () => sourceSelectionState(state.settings.updateSource, customMode.value).selection,
+);
+
+// 备份恢复等外部改动会原地改写 state.settings；不同步会把残留草稿再次写回去。
+// 用户输入期间设置值不变（草稿在 blur 时才提交），所以这里不会打断输入。
+watch(
+  () => state.settings.updateSource,
+  (updateSource) => {
+    const next = initialSourceDraft(updateSource);
+    customMode.value = next.customMode;
+    customDraft.value = next.draft;
+  },
 );
 
 // Naive 的 update:value 联合类型包含 number/null（多选时还有数组），选项只有 string。

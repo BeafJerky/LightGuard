@@ -4,6 +4,7 @@ pub mod db;
 pub mod docker;
 pub mod guard;
 pub mod ssh;
+pub mod updater;
 
 #[cfg(test)]
 pub mod test_support;

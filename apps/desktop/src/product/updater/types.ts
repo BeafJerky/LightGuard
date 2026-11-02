@@ -10,6 +10,8 @@ export type UpdatePhase =
 
 export type UpdateErrorKind = 'network' | 'manifest' | 'signature' | 'disk' | 'unknown';
 
+export type UpdateFailedAction = 'check' | 'download' | 'install' | 'relaunch';
+
 export interface UpdateInfo {
   version: string;
   currentVersion: string;
@@ -49,4 +51,5 @@ export interface UpdateState {
   error: UpdateError | null;
   lastCheckedAt: number | null;
   lastManualCheck: boolean;
+  failedAction: UpdateFailedAction | null;
 }

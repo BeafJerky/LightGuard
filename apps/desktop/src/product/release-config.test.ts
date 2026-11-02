@@ -21,18 +21,31 @@ const findRoot = (start: string): string => {
 };
 
 const root = findRoot(process.cwd());
-const read = (path: string) => readFileSync(`${root}/${path}`, 'utf8');
+const read = (path: string) => readFileSync(resolve(root, path), 'utf8');
 const readJson = (path: string) => JSON.parse(read(path)) as Record<string, any>;
+
+const readUpdater = (): Record<string, any> => {
+  const conf = readJson('apps/desktop/src-tauri/tauri.conf.json');
+  const plugins = conf.plugins;
+  if (!plugins || typeof plugins !== 'object') {
+    throw new Error('tauri.conf.json is missing a plugins object');
+  }
+  const updater = plugins.updater;
+  if (!updater || typeof updater !== 'object') {
+    throw new Error('tauri.conf.json is missing plugins.updater');
+  }
+  return updater as Record<string, any>;
+};
 
 describe('release configuration', () => {
   it('enables updater artifacts and uses four HTTPS endpoints', () => {
     const conf = readJson('apps/desktop/src-tauri/tauri.conf.json');
     expect(conf.bundle.createUpdaterArtifacts).toBe(true);
 
-    const updater = conf.plugins.updater;
-    expect(typeof updater.pubkey).toBe('string');
-    expect(updater.pubkey.trim().length).toBeGreaterThan(40);
-    expect(updater.pubkey).not.toMatch(/\.(pub|key)$/);
+    const updater = readUpdater();
+    const pubkey = typeof updater.pubkey === 'string' ? updater.pubkey.trim() : '';
+    expect(pubkey.length).toBeGreaterThan(40);
+    expect(pubkey).not.toMatch(/\.(pub|key)$/);
     expect(updater.endpoints).toHaveLength(4);
     for (const endpoint of updater.endpoints) {
       expect(endpoint).toMatch(/^https:\/\//);
@@ -55,11 +68,15 @@ describe('release configuration', () => {
   it('keeps all five version references on the same version', () => {
     const version = readJson('apps/desktop/src-tauri/tauri.conf.json').version as string;
     expect(readJson('apps/desktop/package.json').version).toBe(version);
-    expect(read('apps/desktop/src-tauri/Cargo.toml')).toMatch(
-      new RegExp(`^version = "${version}"$`, 'm'),
-    );
+
+    const cargo = read('apps/desktop/src-tauri/Cargo.toml');
+    const packageSection = cargo.match(/^\[package\]([\s\S]*?)(?=^\[|(?![\s\S]))/m)?.[1];
+    if (!packageSection) throw new Error('Cargo.toml is missing a [package] section');
+    const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    expect(packageSection).toMatch(new RegExp(`^version = "${escaped}"$`, 'm'));
+
     expect(read('apps/desktop/src-tauri/Cargo.lock')).toMatch(
-      new RegExp(`name = "lightguard"\\r?\\nversion = "${version}"`),
+      new RegExp(`name = "lightguard"\\r?\\nversion = "${escaped}"`),
     );
     expect(read('apps/desktop/src/product/data.ts')).toContain(`APP_VERSION = '${version}'`);
   });

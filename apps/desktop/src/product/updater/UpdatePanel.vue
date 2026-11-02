@@ -2,12 +2,22 @@
 import { computed, ref } from 'vue';
 import { LgButton, LgProgress, LgTag } from '@lightguard/lightui';
 import { APP_VERSION } from '../data';
-import { confirm } from '../ui';
+import { confirm, toast } from '../ui';
 import { gateMessage, updateGate } from './gate';
 import { updateController } from './index';
 
 const state = updateController.state;
 const deferred = ref(false);
+
+const canCheck = computed(
+  () => !['checking', 'downloading', 'ready', 'installing'].includes(state.phase),
+);
+
+const checkLabel = computed(() => {
+  if (state.phase === 'checking') return '检查中…';
+  if (state.phase === 'ready') return '已就绪';
+  return '检查更新';
+});
 
 const percent = computed(() => {
   const { downloaded, total } = state.progress;
@@ -54,8 +64,23 @@ async function installNow() {
   if (!(await confirmInstall())) return;
   const installed = await updateController.install();
   if (!installed) return;
-  const { relaunch } = await import('@tauri-apps/plugin-process');
-  await relaunch();
+  await relaunchIntoUpdate();
+}
+
+async function relaunchIntoUpdate() {
+  try {
+    const { relaunch } = await import('@tauri-apps/plugin-process');
+    await relaunch();
+  } catch {
+    updateController.reportRelaunchFailure();
+  }
+}
+
+async function retryLastAction() {
+  if (state.failedAction === 'install') return installNow();
+  if (state.failedAction === 'relaunch') return relaunchIntoUpdate();
+  if (state.failedAction === 'download' || state.info) return downloadNow();
+  return checkNow();
 }
 
 const releaseUrl = 'https://github.com/BeafJerky/LightGuard/releases';
@@ -86,9 +111,17 @@ const proxyLinks = computed(() => {
 });
 
 async function openExternal(url: string) {
-  // 动态导入：Web 预览也会加载本面板，静态导入会把 opener 插件一起拉进来。
-  const { openUrl } = await import('@tauri-apps/plugin-opener');
-  await openUrl(url).catch(() => undefined);
+  try {
+    // 动态导入：Web 预览也会加载本面板，静态导入会把 opener 插件一起拉进来。
+    const { openUrl } = await import('@tauri-apps/plugin-opener');
+    await openUrl(url);
+  } catch {
+    toast({
+      title: '无法打开发布页',
+      message: '请手动在浏览器中打开 GitHub Releases，或使用下方的备用下载链接。',
+      tone: 'error',
+    });
+  }
 }
 </script>
 
@@ -109,10 +142,11 @@ async function openExternal(url: string) {
       <div class="update-panel__actions">
         <LgButton
           size="small"
-          :disabled="state.phase === 'checking' || state.phase === 'downloading' || state.phase === 'installing'"
+          :disabled="!canCheck"
+          :title="state.phase === 'ready' ? '更新包已就绪，重启后安装。' : undefined"
           @click="checkNow"
         >
-          {{ state.phase === 'checking' ? '检查中…' : '检查更新' }}
+          {{ checkLabel }}
         </LgButton>
       </div>
     </div>
@@ -150,7 +184,7 @@ async function openExternal(url: string) {
     <div v-if="state.phase === 'error'" class="update-panel__error" role="alert">
       <span>{{ state.error?.message }}</span>
       <div class="update-panel__actions">
-        <LgButton size="small" @click="state.info ? downloadNow() : checkNow()">重试</LgButton>
+        <LgButton size="small" @click="retryLastAction">重试</LgButton>
         <LgButton size="small" secondary @click="openExternal(releaseUrl)">打开发布页</LgButton>
         <LgButton
           v-for="link in proxyLinks"

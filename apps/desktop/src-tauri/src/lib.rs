@@ -216,6 +216,8 @@ pub fn run() {
             app.manage(alerts.clone());
             app.manage(guard.clone());
             app.manage(ssh::state::AppState::new(config_dir, alerts.clone(), guard));
+            // 更新命令层：在 db 与插件之后 manage，`new()` 里顺带安装 rustls ring provider。
+            app.manage(updater::UpdateService::new());
             // 上一轮遗留的活跃告警在这里结清，并向前端广播一次角标。
             alerts.startup();
 
@@ -298,6 +300,11 @@ pub fn run() {
             docker::commands::docker_system_preview,
             docker::commands::docker_system_execute,
             docker::commands::docker_container_terminal_open,
+            updater::update_check,
+            updater::update_download,
+            updater::update_cancel,
+            updater::update_defer,
+            updater::update_install,
             app_quit,
             app_close_ready,
             set_window_border_color,

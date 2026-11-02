@@ -92,6 +92,11 @@ describe('release configuration', () => {
     expect(csp).not.toContain('*');
     expect(csp).toContain("default-src 'self'");
     expect(csp).toContain("script-src 'self'");
+    const scriptSrc = csp
+      .split(';')
+      .map((directive: string) => directive.trim())
+      .find((directive: string) => directive.startsWith('script-src'));
+    expect(scriptSrc).toBe("script-src 'self'");
     expect(csp).toContain("object-src 'none'");
     expect(csp).toContain("connect-src 'self' ipc: http://ipc.localhost");
     expect(csp).toContain("img-src 'self' data:");

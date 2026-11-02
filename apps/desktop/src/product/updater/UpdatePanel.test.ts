@@ -101,6 +101,19 @@ describe('UpdatePanel', () => {
     expect(install).not.toHaveBeenCalled();
   });
 
+  it('retries the check step after a failed manual check, even with stale info', async () => {
+    updateController.state.phase = 'error';
+    updateController.state.info = readyInfo;
+    updateController.state.error = { kind: 'network', message: '无法访问更新服务器。' };
+    updateController.state.failedAction = 'check';
+    const check = vi.spyOn(updateController, 'check').mockResolvedValue();
+    const download = vi.spyOn(updateController, 'download').mockResolvedValue();
+    const wrapper = mount(UpdatePanel);
+    await clickButton(wrapper, '重试');
+    expect(check).toHaveBeenCalledWith({ manual: true });
+    expect(download).not.toHaveBeenCalled();
+  });
+
   it('does not relaunch when the installer fails', async () => {
     updateController.state.phase = 'ready';
     updateController.state.info = readyInfo;

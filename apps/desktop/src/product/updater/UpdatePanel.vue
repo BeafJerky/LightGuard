@@ -79,7 +79,7 @@ async function relaunchIntoUpdate() {
 async function retryLastAction() {
   if (state.failedAction === 'install') return installNow();
   if (state.failedAction === 'relaunch') return relaunchIntoUpdate();
-  if (state.failedAction === 'download' || state.info) return downloadNow();
+  if (state.failedAction === 'download') return downloadNow();
   return checkNow();
 }
 

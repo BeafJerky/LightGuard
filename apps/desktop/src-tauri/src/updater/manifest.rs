@@ -138,6 +138,11 @@ mod tests {
     }
 
     #[test]
+    fn rejects_asset_urls_with_credentials() {
+        assert!(parse_release(&manifest("0.15.0", "https://user:pass@example.com/a.exe")).is_err());
+    }
+
+    #[test]
     fn compares_versions() {
         assert!(is_newer("0.14.1", "0.15.0"));
         assert!(!is_newer("0.15.0", "0.15.0"));
@@ -149,7 +154,7 @@ mod tests {
         let direct = reqwest::Url::parse("https://github.com/a/b.exe").unwrap();
         let candidates = asset_candidates(&direct);
         assert_eq!(candidates[0], direct);
-        assert!(candidates.len() >= 3);
+        assert_eq!(candidates.len(), 5);
         assert!(candidates.iter().all(|url| url.scheme() == "https"));
     }
 

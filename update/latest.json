@@ -1,12 +1,12 @@
 {
-  "version": "0.14.1",
-  "notes": "# LightGuard v0.14.1\n\n自 v0.14.0 起的修复版本。\n\n## 修复\n\n- 更新面板按上次失败的动作重试：检查失败重新检查、下载失败重新下载、安装失败重新安装、重启失败只重试重启，避免误触发重新下载。\n- 「更新包已就绪」状态下禁用「检查更新」并显示为「已就绪」，不再出现点击无反馈。\n- 安装进行中重复点击不会再触发第二次安装或重启。\n- 自动检查失败时清除上一次的更新信息；自动检查仍保持静默。\n- 打开 Release 页或自动重启失败时给出明确提示，不再留下未处理的 Promise 拒绝。\n- 发布配置守卫加固：版本正则限定在 Cargo `[package]`、公钥先去除空白、缺少 updater 配置时给出明确错误。\n\n## 说明\n\n- 本版本为 PATCH 修复，无功能或架构变化。\n- 0.14.0 客户端可通过生产更新通道直接升级；0.13.0 及更早版本仍需手动安装一次 0.14.0 或更新版本。\n\n安装包 SHA256: 336dfe277952221eceda22301d469fd028d657a53c501322f50e9d7521744c67",
-  "pub_date": "2026-11-02T08:45:25.150Z",
+  "version": "0.15.0",
+  "notes": "# LightGuard v0.15.0\n\n自 v0.14.1 起累计（含未单独发布的中间版本）。\n\n## 新增\n\n- 更新链路改为应用内 Rust 服务：HTTPS 清单解析、候选源回退、流式下载与进度、取消、稍后安装、跨重启恢复已下载的更新包。\n- 更新资产直连 GitHub 被阻断时自动回退镜像；设置页新增更新源（预设与自定义，仅接受 HTTPS 公网主机）。\n- 告警通知携带告警标识；点击仍在屏幕上的通知可恢复窗口、跳转告警中心并定位高亮该条告警。\n- 生产环境启用严格内容安全策略（CSP），开发环境使用独立策略。\n\n## 变更\n\n- 数据库移动到 `%LOCALAPPDATA%\\com.lightguard.desktop\\data\\lightguard.db`；首次启动自动迁移旧库，成功后移除旧文件。迁移失败时继续使用旧目录。\n- 凭据、`known_hosts.json` 与窗口状态仍在 `%APPDATA%\\com.lightguard.desktop`。\n- 更新包在内存中完成 minisign 验签后才写入缓存；清单上限 2 MiB、安装包上限 100 MiB；拒绝私网地址与非 HTTPS 更新源。\n\n## 工程\n\n- 新增 PR CI（typecheck、前端 / Rust 测试、发布工具测试）与每周依赖审计。\n\n## 重要说明\n\n- **不支持降级**：0.15.0 之后回到 0.14.x 会读取旧 `%APPDATA%` 路径并新建空库，不提供反向迁移。\n- Windows x64 NSIS 安装包；当前未做 Authenticode 代码签名，SmartScreen 可能提示未知发布者。\n- 0.13.0 及更早版本不含 updater，需先手动安装一次 0.14.0 或更新版本。\n- 系统通知仅在提示仍显示时可点击定位；进入 Windows 操作中心后点击不会回到应用。应用完全退出期间不采样、不告警。\n\n安装包 SHA256: cf3abffc56a8d3994b1aa4e3f3d6ae438e11c5ee2dd53ccf1bccd5fbe9eee264",
+  "pub_date": "2026-11-03T00:56:38.764Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUVorSDFkZWthci82UHFjK0UwRDJxa0Qzc2ZxYUxFcjJnMVBOd1BJVExjWUMzVUd2aUdzcHNxbmFFZzRxVzh2QWVtK1JEWjd4YjJjN0xEamVkZi9weDVReXlVOTVTT3djPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNjA5MTI0CWZpbGU6TGlnaHRHdWFyZF8wLjE0LjFfeDY0LXNldHVwLmV4ZQl2ZXJzaW9uOjAuMTQuMQphZjlNb1VtUGRnaSs5VjJySHVHNnZQcHhwVXgvam5zM0xqVlU3c250MUFLdEJraHJmeFU3T0d4dDgyN3hOMWQxUk9rY1JvVFdRZkxpU094dlhGRHNEQT09Cg==",
-      "url": "https://github.com/BeafJerky/LightGuard/releases/download/v0.14.1/LightGuard_0.14.1_x64-setup.exe",
-      "size": 6817019
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUVorSDFkZWthcjVaZk9YeDQ4MjZzOXhFdlEvZjAwMVQ4NlFaSjhNM2trYnpnR2pJeUdVdkRpN1Q3ZndZTGluNzRSMXlsOER6L25FUTc0dHBTa0ZVblBjcjJ3cmNGWFFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzNjY3Mzk4CWZpbGU6TGlnaHRHdWFyZF8wLjE1LjBfeDY0LXNldHVwLmV4ZQl2ZXJzaW9uOjAuMTUuMApyeXdnUzI1UEdGdENEMC9IclFhNm5MNjhaQ3Q5b0xOZEVKZEtKa3VHeXQ0Y0grRFhsS3dhSjR4TStjL1dUVGpVdkdQV00wN3JiS0pXRVBhdnVya3FCZz09Cg==",
+      "url": "https://github.com/BeafJerky/LightGuard/releases/download/v0.15.0/LightGuard_0.15.0_x64-setup.exe",
+      "size": 6880357
     }
   }
 }

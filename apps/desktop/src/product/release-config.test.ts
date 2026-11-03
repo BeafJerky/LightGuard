@@ -80,4 +80,29 @@ describe('release configuration', () => {
     );
     expect(read('apps/desktop/src/product/data.ts')).toContain(`APP_VERSION = '${version}'`);
   });
+
+  it('ships a strict content security policy', () => {
+    // 复用文件顶部的 readJson：路径相对仓库根，不要传绝对路径。
+    const conf = readJson('apps/desktop/src-tauri/tauri.conf.json');
+    const security = conf.app?.security;
+    if (!security) throw new Error('tauri.conf.json is missing app.security');
+
+    const csp = typeof security.csp === 'string' ? security.csp : '';
+    expect(csp.length).toBeGreaterThan(0);
+    expect(csp).not.toContain('*');
+    expect(csp).toContain("default-src 'self'");
+    expect(csp).toContain("script-src 'self'");
+    const scriptSrc = csp
+      .split(';')
+      .map((directive: string) => directive.trim())
+      .find((directive: string) => directive.startsWith('script-src'));
+    expect(scriptSrc).toBe("script-src 'self'");
+    expect(csp).toContain("object-src 'none'");
+    expect(csp).toContain("connect-src 'self' ipc: http://ipc.localhost");
+    expect(csp).toContain("img-src 'self' data:");
+
+    const devCsp = typeof security.devCsp === 'string' ? security.devCsp : '';
+    expect(devCsp).toContain('http://127.0.0.1:5178');
+    expect(devCsp).toContain('ws://127.0.0.1:5178');
+  });
 });

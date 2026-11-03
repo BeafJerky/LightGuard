@@ -14,10 +14,12 @@
     "core:window:allow-is-fullscreen",
     "core:window:allow-set-background-color",
     "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-set-focus",
+    "core:window:allow-unminimize",
     "core:event:allow-listen",
     "notification:default",
     "autostart:default",
-    "updater:default",
     "process:allow-restart",
     "opener:default"
   ]

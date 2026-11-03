@@ -6,7 +6,7 @@ import type {
   ServerStatus,
 } from './types';
 
-export const APP_VERSION = '0.14.1';
+export const APP_VERSION = '0.15.0';
 export const APP_BUILD = '2026-11-02';
 export const HISTORY_POINTS = 120;
 export const MAX_LOGS = 80;

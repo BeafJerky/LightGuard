@@ -249,6 +249,7 @@ export interface AppSettings {
   autostart: boolean;
   permit: { defaultMinutes: PermitMinutes };
   alerts: AlertSettings;
+  updateSource: string;
 }
 
 export type BackupSettings = Omit<AppSettings, 'autostart'>;

@@ -2782,15 +2782,18 @@ dependencies = [
 
 [[package]]
 name = "lightguard"
-version = "0.14.1"
+version = "0.15.0"
 dependencies = [
  "aes-gcm 0.10.3",
  "base64 0.22.1",
  "encoding_rs",
  "keyring",
+ "reqwest",
  "rusqlite",
  "russh",
  "russh-sftp",
+ "rustls",
+ "semver",
  "serde",
  "serde_json",
  "tauri",

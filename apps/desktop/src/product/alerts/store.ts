@@ -18,6 +18,8 @@ export const alertsState = reactive({
   exhausted: false,
   loading: false,
   error: '',
+  // 通知点击定位的行：写好后由 AlertsPage 滚动并高亮 2 秒。
+  focusAlertId: null as number | null,
 });
 
 export function filterStatuses(filter: AlertFilterName): string[] {
@@ -44,11 +46,17 @@ function mergeItems(existing: AlertItem[], incoming: AlertItem[]): AlertItem[] {
   return merged;
 }
 
+// 通知跳转与 AlertsPage 挂载会同时发起请求：只让最新一轮写状态，
+// 否则旧响应会把 filter 从 all 退回，定位时缺少目标行。
+let fetchSeq = 0;
+
 async function fetchPage(filter: AlertFilterName, offset: number): Promise<void> {
+  const seq = ++fetchSeq;
   alertsState.loading = true;
   alertsState.error = '';
   try {
     const page = await ssh.alertsList(filter, PAGE_SIZE, offset);
+    if (seq !== fetchSeq) return;
     alertsState.filter = filter;
     // 翻页期间事件可能被重新排序，后端会重发已经取过的行：按 id 去重且保留先出现的那条。
     alertsState.items =
@@ -59,9 +67,11 @@ async function fetchPage(filter: AlertFilterName, offset: number): Promise<void>
     if (page.loginMonitor.length) alertsState.loginMonitor = page.loginMonitor;
     alertsState.exhausted = page.items.length < PAGE_SIZE;
   } catch (error) {
+    if (seq !== fetchSeq) return;
     alertsState.error = toSshError(error).message;
   } finally {
-    alertsState.loading = false;
+    // 只有最新一轮能清除 loading，旧请求结束不能把新一轮的加载态抹掉。
+    if (seq === fetchSeq) alertsState.loading = false;
   }
 }
 
@@ -72,6 +82,42 @@ export async function loadAlerts(filter: AlertFilterName = alertsState.filter): 
 export async function loadMore(): Promise<void> {
   if (alertsState.exhausted || alertsState.loading) return;
   await fetchPage(alertsState.filter, alertsState.offset);
+}
+
+let focusRuns = 0;
+// 高亮定时器的代号：重复定位同一条告警时，旧定时器不能提前清掉新的高亮。
+let focusHighlightSeq = 0;
+
+// 供 AlertsPage 判断：定位请求进行中时不要再发起自己的首屏加载，
+// 否则后到的「未处理」列表会把目标行挤掉。
+export function isFocusPending(): boolean {
+  return focusRuns > 0;
+}
+
+export async function focusAlert(id: number): Promise<void> {
+  focusRuns += 1;
+  alertsState.focusAlertId = null;
+  // 先切到「全部」再加载：并发挂载的 AlertsPage 读到同一个过滤条件。
+  alertsState.filter = 'all';
+  try {
+    await loadAlerts('all');
+    while (!alertsState.items.some((item) => item.id === id) && !alertsState.exhausted) {
+      const before = alertsState.items.length;
+      await loadMore();
+      // 有更新的请求在跑时 loadMore 会直接返回；没有进展就停止，避免空转。
+      if (alertsState.items.length === before) break;
+    }
+    // 告警可能已被清理或不在当前账号可见范围内，找不到就不高亮。
+    if (!alertsState.items.some((item) => item.id === id)) return;
+    alertsState.focusAlertId = id;
+    const run = ++focusHighlightSeq;
+    window.setTimeout(() => {
+      // 期间又定位过（哪怕还是同一条）时，旧定时器不能把新的高亮清掉。
+      if (focusHighlightSeq === run) alertsState.focusAlertId = null;
+    }, 2000);
+  } finally {
+    focusRuns -= 1;
+  }
 }
 
 export async function ignoreAlert(alertId: number, reason: string, untilMs: number): Promise<boolean> {
@@ -115,6 +161,7 @@ export function resetAlerts(): void {
   alertsState.exhausted = false;
   alertsState.loading = false;
   alertsState.error = '';
+  alertsState.focusAlertId = null;
 }
 
 // 与 guard store 同形：多个订阅共享一条后端监听，重复订阅不会重复应用，

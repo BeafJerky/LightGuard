@@ -18,6 +18,7 @@ import {
   PAGE_SIZE,
   alertsState,
   filterStatuses,
+  focusAlert,
   ignoreAlert,
   loadAlerts,
   loadMore,
@@ -190,6 +191,77 @@ describe('alerts store', () => {
     );
     expect(await muteServer('srv_1', 'cpu', 1)).toBe(false);
     expect(alertsState.error).toBe('忽略/静音时长需在 1 分钟到 7 天之间');
+  });
+
+  it('ignores a stale page response', async () => {
+    let resolveSlow: (value: unknown) => void = () => {};
+    mocks.alertsList
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSlow = resolve;
+          }),
+      )
+      .mockResolvedValueOnce({ items: [item(250)], activeCount: 0, loginMonitor: [] });
+
+    const slow = loadAlerts('open');
+    await loadAlerts('all');
+    resolveSlow({ items: [item(1)], activeCount: 0, loginMonitor: [] });
+    await slow;
+
+    expect(alertsState.filter).toBe('all');
+    expect(alertsState.items.map((row) => row.id)).toEqual([250]);
+    expect(alertsState.loading).toBe(false);
+  });
+
+  it('loads later pages until the target alert is found', async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.alertsList
+        .mockResolvedValueOnce({
+          items: Array.from({ length: PAGE_SIZE }, (_, index) => item(index + 1)),
+          activeCount: 1,
+          loginMonitor: [],
+        })
+        .mockResolvedValueOnce({ items: [item(250)], activeCount: 1, loginMonitor: [] });
+
+      await focusAlert(250);
+
+      expect(alertsState.filter).toBe('all');
+      expect(alertsState.focusAlertId).toBe(250);
+      expect(mocks.alertsList).toHaveBeenCalledTimes(2);
+      vi.advanceTimersByTime(2000);
+      expect(alertsState.focusAlertId).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the newer highlight when the same alert is focused twice', async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.alertsList.mockResolvedValue({
+        items: [item(250)],
+        activeCount: 1,
+        loginMonitor: [],
+      });
+
+      await focusAlert(250);
+      vi.advanceTimersByTime(1500);
+      // 同一行再点一次：新的高亮与旧的定时器只差 500ms。
+      await focusAlert(250);
+      expect(alertsState.focusAlertId).toBe(250);
+
+      // 旧定时器到点，不能把新的高亮清掉。
+      vi.advanceTimersByTime(500);
+      expect(alertsState.focusAlertId).toBe(250);
+
+      // 新一轮自己的 2 秒到点后才清空。
+      vi.advanceTimersByTime(1500);
+      expect(alertsState.focusAlertId).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('applies change events from a single shared subscription', () => {

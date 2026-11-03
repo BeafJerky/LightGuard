@@ -248,6 +248,16 @@ mod tests {
     }
 
     #[test]
+    fn ignores_unknown_root_settings_fields() {
+        let raw = json!({
+            "updateSource": "https://mirror.example.com/latest.json",
+            "alerts": { "rules": { "cpu": { "threshold": 80, "sustainSeconds": 180 } } }
+        });
+        let view = parse_settings(Some(&raw));
+        assert_eq!(view.alerts.rules.cpu.threshold, 80);
+    }
+
+    #[test]
     fn garbage_settings_fall_back_to_defaults() {
         let raw = json!({ "alerts": "nope", "permit": 42, "notifyThreshold": "yes" });
         let view = parse_settings(Some(&raw));

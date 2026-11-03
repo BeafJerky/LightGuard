@@ -139,6 +139,69 @@ describe('UpdatePanel', () => {
     expect(install).toHaveBeenCalledOnce();
   });
 
+  it('cancels a running download', async () => {
+    const cancel = vi.fn(async () => {});
+    updateController.state.phase = 'downloading';
+    updateController.state.info = { version: '0.15.0', currentVersion: '0.14.1' };
+    updateController.state.progress = { downloaded: 10, total: 100 };
+    vi.spyOn(updateController, 'cancel').mockImplementation(cancel);
+    const wrapper = mount(UpdatePanel);
+    await clickButton(wrapper, '取消');
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('defers a ready package', async () => {
+    const defer = vi.fn(async () => {});
+    updateController.state.phase = 'ready';
+    updateController.state.info = { version: '0.15.0', currentVersion: '0.14.1' };
+    vi.spyOn(updateController, 'defer').mockImplementation(defer);
+    const wrapper = mount(UpdatePanel);
+    await clickButton(wrapper, '稍后');
+    expect(defer).toHaveBeenCalledTimes(1);
+    expect(toasts.at(-1)?.title).toBe('已保留更新包');
+  });
+
+  it('warns when the defer command fails and stays ready', async () => {
+    updateController.state.phase = 'ready';
+    updateController.state.info = { version: '0.15.0', currentVersion: '0.14.1' };
+    vi.spyOn(updateController, 'defer').mockRejectedValue(new Error('defer failed'));
+    const wrapper = mount(UpdatePanel);
+    await clickButton(wrapper, '稍后');
+    expect(toasts.at(-1)?.title).toBe('无法记录稍后安装');
+    expect(toasts.at(-1)?.tone).toBe('warning');
+    expect(updateController.state.phase).toBe('ready');
+  });
+
+  it('hides the defer button when the package is already deferred across restarts', async () => {
+    updateController.state.phase = 'ready';
+    updateController.state.info = { ...readyInfo, cached: true, deferred: true };
+    const wrapper = mount(UpdatePanel);
+    expect(wrapper.text()).not.toContain('稍后');
+    expect(wrapper.text()).toContain('重启并安装');
+  });
+
+  it('restores a cached, deferred package without showing the release notes', () => {
+    updateController.state.phase = 'ready';
+    updateController.state.info = {
+      version: '0.15.0',
+      currentVersion: '0.14.1',
+      cached: true,
+      deferred: true,
+      body: '修复与打磨',
+      size: 1024,
+    };
+    const wrapper = mount(UpdatePanel);
+    expect(wrapper.text()).toContain('更新包已就绪');
+    expect(wrapper.find('.update-panel__notes').exists()).toBe(false);
+  });
+
+  it('explains the mirror fallback on a network error', () => {
+    updateController.state.phase = 'error';
+    updateController.state.error = { kind: 'network', message: '无法访问更新服务器。' };
+    const wrapper = mount(UpdatePanel);
+    expect(wrapper.text()).toContain('已尝试直连与镜像，可在下方手动下载。');
+  });
+
   it('reports a failed external link instead of an unhandled rejection', async () => {
     updateController.state.phase = 'error';
     updateController.state.error = { kind: 'network', message: '无法访问更新服务器。' };

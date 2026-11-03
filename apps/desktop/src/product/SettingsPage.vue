@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import {
   LgButton,
   LgIcon,
+  LgInput,
+  LgSelect,
   LgSurface,
   LgSwitch,
   LgTag,
@@ -12,6 +14,12 @@ import {
 import type { ThemeId, ThemeTokens } from '@lightguard/lightui';
 import BackupPanel from './BackupPanel.vue';
 import UpdatePanel from './updater/UpdatePanel.vue';
+import {
+  UPDATE_SOURCE_PRESETS,
+  initialSourceDraft,
+  normalizeUpdateSource,
+  sourceSelectionState,
+} from './updater/source';
 import RenderSettingsPanel from '../render/RenderSettingsPanel.vue';
 import AlertRulesEditor from './alerts/AlertRulesEditor.vue';
 import { PERMIT_OPTIONS } from './alerts/settings';
@@ -235,6 +243,64 @@ function setPermitMinutes(value: number) {
     tone: 'info',
     duration: 2200,
   });
+}
+
+const sourceOptions = [
+  ...UPDATE_SOURCE_PRESETS.map((preset) => ({ label: preset.label, value: preset.id })),
+  { label: '自定义 HTTPS 地址', value: 'custom' },
+];
+
+const initialSource = initialSourceDraft(state.settings.updateSource);
+
+// 选中「自定义」时持久化值仍是 auto 或某个 URL，下拉框的选中项只能靠本地状态维持。
+const customMode = ref(initialSource.customMode);
+const customDraft = ref(initialSource.draft);
+const sourceSelection = computed(
+  () => sourceSelectionState(state.settings.updateSource, customMode.value).selection,
+);
+
+// 备份恢复等外部改动会原地改写 state.settings；不同步会把残留草稿再次写回去。
+// 用户输入期间设置值不变（草稿在 blur 时才提交），所以这里不会打断输入。
+watch(
+  () => state.settings.updateSource,
+  (updateSource) => {
+    const next = initialSourceDraft(updateSource);
+    customMode.value = next.customMode;
+    customDraft.value = next.draft;
+  },
+);
+
+// Naive 的 update:value 联合类型包含 number/null（多选时还有数组），选项只有 string。
+function onSourceChange(value: unknown) {
+  const next = typeof value === 'string' ? value : '';
+  if (!next) return;
+  if (next === 'custom') {
+    customMode.value = true;
+    customDraft.value = '';
+    return;
+  }
+  customMode.value = false;
+  customDraft.value = '';
+  updateSettings({ updateSource: normalizeUpdateSource(next) });
+}
+
+// 非法地址不写回设置：留着草稿让用户改，而不是静默退回自动模式。
+function commitCustomSource() {
+  const draft = customDraft.value.trim();
+  const next = normalizeUpdateSource(draft);
+  if (next === 'auto' && draft && draft !== 'auto') {
+    toast({
+      title: '更新源未保存',
+      message: '只支持不含账号信息的 https:// 地址',
+      tone: 'warning',
+    });
+    return;
+  }
+  updateSettings({ updateSource: next });
+  if (next === 'auto') {
+    customMode.value = false;
+    customDraft.value = '';
+  }
 }
 
 const alertServers = computed(() =>
@@ -832,6 +898,49 @@ async function onReset() {
           <LgTag size="small" :bordered="false" type="info">.lgbackup</LgTag>
         </header>
         <BackupPanel />
+      </LgSurface>
+
+      <LgSurface
+        v-if="backendAvailable"
+        tone="solid"
+        padding="lg"
+        class="settings-card settings-card--wide"
+      >
+        <header class="settings-card__head">
+          <span class="settings-card__icon"><LgIcon name="refresh" :size="17" /></span>
+          <div class="settings-card__title">
+            <h2>更新源</h2>
+            <p>只允许 HTTPS；签名校验始终使用内置公钥，切换源不会降低安全性</p>
+          </div>
+        </header>
+
+        <div class="setting-row">
+          <div class="setting-text">
+            <strong>更新源</strong>
+            <span>自动模式依次尝试官方与镜像。</span>
+          </div>
+          <LgSelect
+            :value="sourceSelection"
+            :options="sourceOptions"
+            style="width: 240px"
+            aria-label="更新源"
+            @update:value="onSourceChange"
+          />
+        </div>
+
+        <div v-if="sourceSelection === 'custom'" class="setting-row">
+          <div class="setting-text">
+            <strong>自定义地址</strong>
+            <span>必须为 https://，且不能包含用户名或密码。</span>
+          </div>
+          <LgInput
+            v-model:value="customDraft"
+            placeholder="https://example.com/latest.json"
+            style="width: 320px"
+            aria-label="自定义更新源地址"
+            @blur="commitCustomSource"
+          />
+        </div>
       </LgSurface>
 
       <LgSurface tone="solid" padding="lg" class="settings-card settings-card--wide">

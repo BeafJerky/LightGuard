@@ -1,0 +1,41 @@
+name: dependency-audit
+
+on:
+  schedule:
+    - cron: "0 2 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pnpm-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Record audit report
+        run: pnpm audit --json > pnpm-audit.json || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pnpm-audit
+          path: pnpm-audit.json
+
+  cargo-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: Record audit report
+        run: cargo audit --file apps/desktop/src-tauri/Cargo.lock --json > cargo-audit.json || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cargo-audit
+          path: cargo-audit.json

@@ -1,0 +1,62 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @lightguard/desktop typecheck
+      - run: pnpm --filter @lightguard/desktop test
+      - run: pnpm --filter @lightguard/lightui test
+      - run: pnpm --filter @lightguard/desktop build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-dist
+          path: apps/desktop/dist
+          retention-days: 3
+          if-no-files-found: error
+
+  rust:
+    runs-on: windows-latest
+    needs: frontend
+    steps:
+      - uses: actions/checkout@v4
+      # 只需要 frontend 作业产出的 dist 供 generate_context! 编译期校验，不重跑前端工具链。
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-dist
+          path: apps/desktop/dist
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+      - run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --lib --locked
+        env:
+          CARGO_TERM_COLOR: always
+
+  release-tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node --test tools/release/lib.test.mjs

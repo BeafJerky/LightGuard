@@ -21,10 +21,12 @@ import {
   type DesktopAppKey,
 } from './apps';
 import { useDesktopWindows } from './useDesktopWindows';
+import { useAutoHideChrome } from './useAutoHideChrome';
 import { dockerApi } from '../docker/api';
 import PermitControl from '../guard/PermitControl.vue';
 import {
   closePermitPanel,
+  guardState,
   lockPermit,
   openPermitPanel,
   permitOf,
@@ -96,6 +98,69 @@ const selectedIcon = ref(-1);
 const startOpen = ref(false);
 const trayOpen = ref(false);
 const startQuery = ref('');
+
+const barEl = ref<HTMLElement | null>(null);
+const dockEl = ref<HTMLElement | null>(null);
+
+const hasMaximizedWindow = computed(() =>
+  windows.value.some((win) => win.maximized && !win.minimized),
+);
+// 自动隐藏只服务于悬浮样式：通栏本来就占布局，隐藏它会让窗口跟着跳动。
+const barAutoHideActive = computed(
+  () => !fullBar.value && state.settings.desktopBarAutoHide && hasMaximizedWindow.value,
+);
+const dockAutoHideActive = computed(
+  () => dockFloating.value && state.settings.desktopDockAutoHide && hasMaximizedWindow.value,
+);
+// 开始菜单与托盘挂在 Dock 上、许可面板挂在状态条上，浮层打开期间不能把它们抽走。
+const chromeSuppressed = computed(
+  () => startOpen.value || trayOpen.value || guardState.permitPanelOpen,
+);
+
+const barChrome = useAutoHideChrome({
+  active: () => barAutoHideActive.value,
+  isPointerInside: () => Boolean(barEl.value?.matches(':hover')),
+  isSuppressed: () => chromeSuppressed.value,
+});
+const dockChrome = useAutoHideChrome({
+  active: () => dockAutoHideActive.value,
+  isPointerInside: () => Boolean(dockEl.value?.matches(':hover')),
+  isSuppressed: () => chromeSuppressed.value,
+});
+const barHidden = barChrome.hidden;
+const dockHidden = dockChrome.hidden;
+
+watch(chromeSuppressed, (suppressed) => {
+  if (suppressed) return;
+  barChrome.onLeave();
+  dockChrome.onLeave();
+});
+
+// 呼出区靠指针位置判断，不叠热区 DOM：热区会挡住最大化窗口标题栏的拖动与点击。
+const REVEAL_EDGE = 10;
+
+function isInside(element: HTMLElement | null, x: number, y: number) {
+  if (!element) return false;
+  const rect = element.getBoundingClientRect();
+  return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+}
+
+function onShellPointerMove(event: PointerEvent) {
+  if (!barAutoHideActive.value && !dockAutoHideActive.value) return;
+  const rect = shell.value?.getBoundingClientRect();
+  if (!rect) return;
+  const { clientX, clientY } = event;
+  if (barAutoHideActive.value) {
+    const revealed = clientY - rect.top <= REVEAL_EDGE || isInside(barEl.value, clientX, clientY);
+    if (revealed) barChrome.onEnter();
+    else barChrome.onLeave();
+  }
+  if (dockAutoHideActive.value) {
+    const revealed = rect.bottom - clientY <= REVEAL_EDGE || isInside(dockEl.value, clientX, clientY);
+    if (revealed) dockChrome.onEnter();
+    else dockChrome.onLeave();
+  }
+}
 
 const visibleApps = computed(() =>
   DESKTOP_APPS.filter((app) => {
@@ -440,13 +505,17 @@ async function onRetry() {
     :class="{
       'is-bar-full': fullBar,
       'is-dock-floating': dockFloating,
+      'is-bar-bleed': barAutoHideActive,
+      'is-dock-bleed': dockAutoHideActive,
+      'is-bar-hidden': barHidden,
+      'is-dock-hidden': dockHidden,
       'is-permit-unlocked': !permit.locked,
     }"
-    :style="{ '--desk-bar-inset': `${barInset}px`, '--desk-dock-bottom': `${dockInset}px` }"
+    @pointermove="onShellPointerMove"
   >
     <div class="desk-wallpaper" aria-hidden="true" @click="onWallpaperClick" />
 
-    <header class="conn-bar" aria-label="SSH 会话状态">
+    <header ref="barEl" class="conn-bar" aria-label="SSH 会话状态">
       <div class="conn-bar__identity">
         <button type="button" class="conn-bar__back" aria-label="返回控制台" @click="goConsole">
           <LgIcon name="chevron-left" :size="13" />
@@ -481,6 +550,16 @@ async function onRetry() {
         @unlock="onUnlockPermit"
         @lock="onLockPermit"
       />
+      <button
+        v-if="isFullscreen"
+        type="button"
+        class="conn-bar__fullscreen"
+        title="退出全屏 (F11)"
+        @click="toggleFullscreen"
+      >
+        <LgIcon name="monitor" :size="12" />
+        <span class="conn-bar__fullscreen-text">退出全屏</span>
+      </button>
       <button type="button" class="conn-bar__power" @click="onDisconnect">断开</button>
     </header>
 
@@ -620,7 +699,7 @@ async function onRetry() {
       </div>
     </section>
 
-    <footer class="desk-taskbar">
+    <footer ref="dockEl" class="desk-taskbar">
       <div class="desk-taskbar__left">
         <button
           type="button"
@@ -658,16 +737,6 @@ async function onRetry() {
       </div>
 
       <div class="desk-taskbar__right">
-        <button
-          v-if="isFullscreen"
-          type="button"
-          class="desk-taskbar__icon"
-          aria-label="退出全屏"
-          title="退出全屏 (F11)"
-          @click="toggleFullscreen"
-        >
-          <LgIcon name="monitor" :size="14" />
-        </button>
         <button type="button" class="desk-taskbar__icon" aria-label="显示桌面" title="显示桌面" @click="onShowDesktop">
           <LgIcon name="monitor" :size="14" />
         </button>
@@ -756,6 +825,11 @@ async function onRetry() {
 <style scoped>
 .serverdesk {
   --desk-bar-space: 46px;
+  --desk-dock-footprint: 54px;
+  /* 最大化窗口的让位量默认等于状态条 / Dock 的实际占位，悬浮胶囊因此不会压住窗口内容；
+     开启自动隐藏后（is-*-bleed）归零，让最大化窗口铺满桌面，胶囊呼出时临时浮在窗口之上。 */
+  --desk-max-top: var(--desk-bar-space);
+  --desk-max-bottom: var(--desk-dock-footprint);
   position: relative;
   display: flex;
   flex-direction: column;
@@ -797,6 +871,27 @@ async function onRetry() {
   font-size: var(--lg-fs-label);
   /* 状态条保持单行；内部浮层（如许可面板）必须自行重置 white-space: normal。 */
   white-space: nowrap;
+  transition:
+    transform 180ms var(--lg-ease),
+    opacity 180ms var(--lg-ease),
+    visibility 0s;
+}
+
+.serverdesk.is-bar-bleed {
+  --desk-max-top: 0px;
+}
+
+/* 隐藏后仍然占据布局位置会挡住窗口，所以用 visibility 而不是 display，
+   并把 visibility 的切换延后到位移结束，避免动画中途消失。 */
+.serverdesk.is-bar-hidden .conn-bar {
+  transform: translate(-50%, calc(-100% - 18px));
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    transform 180ms var(--lg-ease),
+    opacity 180ms var(--lg-ease),
+    visibility 0s linear 180ms;
 }
 
 .conn-bar__identity,
@@ -906,6 +1001,25 @@ async function onRetry() {
   color: var(--lg-danger);
 }
 
+.conn-bar__fullscreen {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  border: var(--lg-border-width) solid var(--lg-border);
+  border-radius: var(--lg-radius-full);
+  background: var(--lg-surface);
+  color: var(--lg-text-muted);
+  font-size: var(--lg-fs-label);
+  cursor: pointer;
+}
+
+.conn-bar__fullscreen:hover {
+  border-color: var(--lg-border-strong);
+  color: var(--lg-text);
+}
+
 .serverdesk.is-bar-full .conn-bar {
   top: 0;
   right: 0;
@@ -963,7 +1077,8 @@ async function onRetry() {
   font-size: var(--lg-fs-label);
 }
 
-.serverdesk.is-bar-full .conn-bar__power {
+.serverdesk.is-bar-full .conn-bar__power,
+.serverdesk.is-bar-full .conn-bar__fullscreen {
   height: 28px;
   padding: 0 12px;
   font-size: var(--lg-fs-label);
@@ -1030,6 +1145,13 @@ async function onRetry() {
 @media (prefers-reduced-motion: reduce) {
   .desk-hint {
     animation: none;
+  }
+
+  .conn-bar,
+  .desk-taskbar,
+  .serverdesk.is-bar-hidden .conn-bar,
+  .serverdesk.is-dock-hidden .desk-taskbar {
+    transition: none;
   }
 }
 
@@ -1411,6 +1533,25 @@ async function onRetry() {
   border-radius: var(--lg-radius-full);
   background: color-mix(in srgb, var(--lg-surface) 86%, transparent);
   box-shadow: 0 12px 30px rgb(0 0 0 / 22%), var(--lg-shadow-sm);
+  transition:
+    transform 180ms var(--lg-ease),
+    opacity 180ms var(--lg-ease),
+    visibility 0s;
+}
+
+.serverdesk.is-dock-bleed {
+  --desk-max-bottom: 6px;
+}
+
+.serverdesk.is-dock-hidden .desk-taskbar {
+  transform: translate(-50%, calc(100% + 14px));
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    transform 180ms var(--lg-ease),
+    opacity 180ms var(--lg-ease),
+    visibility 0s linear 180ms;
 }
 
 .desk-taskbar__center {
@@ -1800,6 +1941,11 @@ async function onRetry() {
     --desk-bar-space: 46px;
   }
 
+  /* 窄屏通栏 Dock 只有 50px，让位量要跟着缩，否则最大化窗口底部多留一条空。 */
+  .serverdesk:not(.is-dock-floating) {
+    --desk-dock-footprint: 50px;
+  }
+
   .conn-bar {
     top: 8px;
     height: 32px;
@@ -1819,6 +1965,14 @@ async function onRetry() {
 
   .conn-bar__name {
     max-width: 110px;
+  }
+
+  .conn-bar__fullscreen {
+    padding: 0 7px;
+  }
+
+  .conn-bar__fullscreen-text {
+    display: none;
   }
 
   .desk-icons {
@@ -1856,8 +2010,8 @@ async function onRetry() {
     height: 24px;
   }
 
-  /* 窄屏只留一个显示器图标（全屏时是“退出全屏”，否则是“显示桌面”）：
-     这条规则依赖它们排在__right 的第一位，许可入口必须放在它之后。 */
+  /* 窄屏隐藏任务栏首个显示器图标（“显示桌面”）；退出全屏入口已移到顶部状态条。
+     许可入口必须排在该图标之后，否则会被 :first-child 规则顶掉。 */
   .desk-taskbar__right .desk-taskbar__icon:first-child {
     display: none;
   }

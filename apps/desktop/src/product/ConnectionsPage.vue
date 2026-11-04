@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { LgButton, LgEmpty, LgIcon, LgInput } from '@lightguard/lightui';
-import { clearLogs, state } from './store';
+import { clearLogs, markLogsSeen, state } from './store';
 import { confirm, toast } from './ui';
 import type { LogEntry, LogStatus } from './types';
 
@@ -10,6 +10,13 @@ type FilterStatus = 'all' | LogStatus;
 const query = ref('');
 const filter = ref<FilterStatus>('all');
 const expanded = ref<string[]>([]);
+
+// 打开连接记录即视为已查看当前异常，侧栏未读徽标随之清零；停留在页面上时新产生的异常也直接算已读
+onMounted(markLogsSeen);
+watch(
+  () => state.logs.length,
+  () => markLogsSeen(),
+);
 
 const filters: Array<{ key: FilterStatus; label: string }> = [
   { key: 'all', label: '全部' },

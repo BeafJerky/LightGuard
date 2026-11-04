@@ -234,7 +234,7 @@ function onThemeSelect(key: string) {
           <span
             v-else-if="item.name === 'connections' && unreadEvents > 0"
             class="console-nav__badge"
-            :aria-label="`${unreadEvents} 条异常记录`"
+            :aria-label="`${unreadEvents} 条未读异常记录`"
           >
             {{ unreadEvents > 99 ? '99+' : unreadEvents }}
           </span>

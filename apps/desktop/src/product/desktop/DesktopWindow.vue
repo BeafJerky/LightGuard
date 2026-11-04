@@ -4,6 +4,7 @@ import { LgIcon } from '@lightguard/lightui';
 import DesktopAppHost from './DesktopAppHost.vue';
 import { appMeta, type DesktopAppKey } from './apps';
 import type { DesktopWindowState } from './useDesktopWindows';
+import { dragRestoreOrigin } from './useDesktopWindows';
 import type { Server } from '../types';
 
 const props = defineProps<{
@@ -42,6 +43,7 @@ const windowStyle = computed(() =>
 );
 
 let drag: { pointerId: number; startX: number; startY: number; originX: number; originY: number } | null = null;
+let lastDragRestoreAt = 0;
 let resizeDrag: {
   pointerId: number;
   startX: number;
@@ -55,6 +57,17 @@ let resizeDrag: {
 
 const MIN_W = 360;
 const MIN_H = 240;
+const DRAG_RESTORE_THRESHOLD = 4;
+
+let pendingRestore: {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  ratioX: number;
+  grabY: number;
+  topInset: number;
+  bottomInset: number;
+} | null = null;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), Math.max(min, max));
@@ -138,24 +151,81 @@ function startResize(event: PointerEvent, direction: string) {
   window.addEventListener('pointercancel', stopResize);
 }
 
-function onTitlePointerDown(event: PointerEvent) {
-  if (event.button !== 0 || props.win.maximized) return;
-  if ((event.target as HTMLElement).closest('.lgdesk-win__controls')) return;
-  emit('focus');
+function beginDrag(event: PointerEvent, originX: number, originY: number) {
   drag = {
     pointerId: event.pointerId,
     startX: event.clientX,
     startY: event.clientY,
-    originX: props.win.x,
-    originY: props.win.y,
+    originX,
+    originY,
   };
   window.addEventListener('pointermove', onPointerMove);
   window.addEventListener('pointerup', stopDrag);
   window.addEventListener('pointercancel', stopDrag);
 }
 
+function stopPendingRestore() {
+  pendingRestore = null;
+  window.removeEventListener('pointermove', onPendingRestoreMove);
+  window.removeEventListener('pointerup', stopPendingRestore);
+  window.removeEventListener('pointercancel', stopPendingRestore);
+}
+
+function onPendingRestoreMove(event: PointerEvent) {
+  if (!pendingRestore) return;
+  const dx = event.clientX - pendingRestore.startX;
+  const dy = event.clientY - pendingRestore.startY;
+  if (Math.hypot(dx, dy) < DRAG_RESTORE_THRESHOLD) return;
+  const { ratioX, grabY, topInset, bottomInset } = pendingRestore;
+  stopPendingRestore();
+  const bounds = root.value?.parentElement?.getBoundingClientRect();
+  emit('maximize');
+  lastDragRestoreAt = performance.now();
+  const origin = dragRestoreOrigin({
+    pointerX: event.clientX,
+    pointerY: event.clientY,
+    ratioX,
+    grabY,
+    w: props.win.w,
+    h: props.win.h,
+    width: bounds?.width ?? window.innerWidth,
+    height: bounds?.height ?? window.innerHeight,
+    topInset,
+    bottomInset,
+  });
+  emit('move', origin.x, origin.y);
+  beginDrag(event, origin.x, origin.y);
+}
+
+function onTitlePointerDown(event: PointerEvent) {
+  if (event.button !== 0) return;
+  if ((event.target as HTMLElement).closest('.lgdesk-win__controls')) return;
+  emit('focus');
+  if (props.win.maximized) {
+    const rect = root.value?.getBoundingClientRect();
+    const bounds = root.value?.parentElement?.getBoundingClientRect();
+    if (!rect || !bounds) return;
+    pendingRestore = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      ratioX: clamp((event.clientX - rect.left) / rect.width, 0, 1),
+      grabY: clamp(event.clientY - rect.top, 0, rect.height),
+      topInset: props.topInset ?? 0,
+      bottomInset: props.bottomInset ?? 54,
+    };
+    window.addEventListener('pointermove', onPendingRestoreMove);
+    window.addEventListener('pointerup', stopPendingRestore);
+    window.addEventListener('pointercancel', stopPendingRestore);
+    return;
+  }
+  beginDrag(event, props.win.x, props.win.y);
+}
+
 function onTitleDoubleClick(event: MouseEvent) {
   if ((event.target as HTMLElement).closest('.lgdesk-win__controls')) return;
+  // 还原后紧接着的单击会与拖动自身的 click 组成双击，不能随即把窗口重新最大化
+  if (performance.now() - lastDragRestoreAt < 600) return;
   emit('maximize');
 }
 
@@ -167,6 +237,7 @@ function onWindowKeydown(event: KeyboardEvent) {
 onBeforeUnmount(() => {
   stopDrag();
   stopResize();
+  stopPendingRestore();
 });
 </script>
 
@@ -269,7 +340,7 @@ onBeforeUnmount(() => {
 }
 
 .lgdesk-win.is-maximized {
-  inset: calc(var(--desk-bar-inset, 0px) + 6px) 6px calc(var(--desk-dock-bottom, 54px) + 6px) 6px;
+  inset: calc(var(--desk-max-top, 0px) + 6px) 6px calc(var(--desk-max-bottom, 54px) + 6px) 6px;
   width: auto;
   height: auto;
   border-radius: var(--lg-radius-sm);
@@ -479,7 +550,7 @@ onBeforeUnmount(() => {
 @media (max-width: 719px) {
   .lgdesk-win,
   .lgdesk-win.is-maximized {
-    inset: calc(var(--desk-bar-inset, 0px) + 6px) 6px calc(var(--desk-dock-bottom, 54px) + 6px) 6px;
+    inset: calc(var(--desk-max-top, 0px) + 6px) 6px calc(var(--desk-max-bottom, 54px) + 6px) 6px;
     width: auto !important;
     height: auto !important;
     border-radius: var(--lg-radius-sm);

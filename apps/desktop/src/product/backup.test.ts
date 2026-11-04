@@ -26,6 +26,24 @@ describe('backup dock mode', () => {
   });
 });
 
+describe('backup chrome auto hide', () => {
+  it('falls back to visible chrome when an older backup has no flags', () => {
+    const settings = readSettings({});
+    expect(settings.desktopBarAutoHide).toBe(false);
+    expect(settings.desktopDockAutoHide).toBe(false);
+  });
+
+  it('keeps valid flags and rejects non-boolean values', () => {
+    const valid = readSettings({ desktopBarAutoHide: true, desktopDockAutoHide: true });
+    expect(valid.desktopBarAutoHide).toBe(true);
+    expect(valid.desktopDockAutoHide).toBe(true);
+
+    const invalid = readSettings({ desktopBarAutoHide: 'yes', desktopDockAutoHide: 1 });
+    expect(invalid.desktopBarAutoHide).toBe(false);
+    expect(invalid.desktopDockAutoHide).toBe(false);
+  });
+});
+
 describe('backup autostart exclusion', () => {
   it('does not export the local autostart preference', () => {
     const payload = buildBackupPayload({

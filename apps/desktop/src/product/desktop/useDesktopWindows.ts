@@ -44,6 +44,26 @@ function fitRect(
   rect.y = clamp(rect.y, topInset, Math.max(topInset, usableH - rect.h));
 }
 
+export function dragRestoreOrigin(options: {
+  pointerX: number;
+  pointerY: number;
+  ratioX: number;
+  grabY: number;
+  w: number;
+  h: number;
+  width: number;
+  height: number;
+  topInset: number;
+  bottomInset: number;
+}): { x: number; y: number } {
+  const maxX = Math.max(0, options.width - options.w);
+  const maxY = Math.max(options.topInset, options.height - options.bottomInset - options.h);
+  return {
+    x: clamp(Math.round(options.pointerX - options.ratioX * options.w), 0, maxX),
+    y: clamp(Math.round(options.pointerY - options.grabY), options.topInset, maxY),
+  };
+}
+
 export function useDesktopWindows(
   getBounds: () => { width: number; height: number },
   getTopInset: () => number = () => 0,

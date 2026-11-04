@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { useDesktopWindows } from './useDesktopWindows';
+import { dragRestoreOrigin, useDesktopWindows } from './useDesktopWindows';
 
 function setup(width = 1440, height = 900, inset = 0, dockInset = 54) {
   const bounds = { width, height };
@@ -124,5 +124,56 @@ describe('desktop window bounds fitting', () => {
     fitToBounds();
 
     expect({ x: win.x, y: win.y, w: win.w, h: win.h }).toEqual(before);
+  });
+});
+
+describe('drag restore origin', () => {
+  it('keeps the pointer ratio and title-bar grab offset after restoring', () => {
+    const origin = dragRestoreOrigin({
+      pointerX: 700,
+      pointerY: 80,
+      ratioX: 0.5,
+      grabY: 20,
+      w: 800,
+      h: 500,
+      width: 1440,
+      height: 900,
+      topInset: 0,
+      bottomInset: 54,
+    });
+    expect(origin).toEqual({ x: 300, y: 60 });
+  });
+
+  it('clamps the restored window inside the desktop', () => {
+    const origin = dragRestoreOrigin({
+      pointerX: 1400,
+      pointerY: 880,
+      ratioX: 0.9,
+      grabY: 10,
+      w: 800,
+      h: 500,
+      width: 1440,
+      height: 900,
+      topInset: 46,
+      bottomInset: 54,
+    });
+    expect(origin.x).toBe(1440 - 800);
+    expect(origin.y).toBe(900 - 54 - 500);
+  });
+
+  it('never places the restored window above the top inset', () => {
+    const origin = dragRestoreOrigin({
+      pointerX: 200,
+      pointerY: 50,
+      ratioX: 0.1,
+      grabY: 30,
+      w: 800,
+      h: 500,
+      width: 1440,
+      height: 900,
+      topInset: 46,
+      bottomInset: 54,
+    });
+    expect(origin.y).toBe(46);
   });
 });

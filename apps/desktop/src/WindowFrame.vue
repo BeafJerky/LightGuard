@@ -347,7 +347,19 @@ html.lg-tauri-framed,
 html.lg-tauri-framed body,
 html.lg-tauri-framed #app,
 html.lg-tauri-framed .product-scope {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
   background: transparent;
+}
+
+/* 窗口内只允许内容区自身滚动：文档层不滚动，避免触控板在边界处拖动整页、露出窗口底色。
+   窗口框按视口定位而不是 100dvh：WebView2 在缩放窗口后 dvh 可能滞后，100% 又会落到
+   中间层 auto 高度的容器上，两种做法都可能让窗口框比可视区高出一截。 */
+html.lg-tauri-framed .window-frame {
+  position: fixed;
+  inset: 0;
+  height: auto;
 }
 
 html.lg-tauri-framed .window-frame .window-body > .serverdesk,
@@ -359,7 +371,9 @@ html.lg-tauri-framed .window-frame .window-body > .console-app {
 
 html.lg-tauri-framed .window-frame .console-main {
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 @media (min-width: 981px) {
@@ -371,7 +385,8 @@ html.lg-tauri-framed .window-frame .console-main {
 @media (max-width: 980px) {
   html.lg-tauri-framed .window-frame .console-side {
     top: 40px;
-    height: calc(100dvh - 40px);
+    bottom: 0;
+    height: auto;
   }
 }
 </style>

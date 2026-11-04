@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildBackupPayload } from './backup';
 import { fromPersisted } from './ssh/adapter';
-import type { PersistedServer } from './types';
+import type { LogEntry, PersistedServer } from './types';
 
 const STORE_KEY = 'lightguard.app.v1';
 
@@ -293,6 +293,51 @@ describe('desktop dock mode', () => {
   });
 });
 
+describe('desktop chrome auto hide', () => {
+  it('defaults to keeping the bar and dock visible', async () => {
+    const store = await loadStore();
+    expect(store.state.settings.desktopBarAutoHide).toBe(false);
+    expect(store.state.settings.desktopDockAutoHide).toBe(false);
+  });
+
+  it('restores saved flags and rejects non-boolean values', async () => {
+    window.localStorage.setItem(
+      STORE_KEY,
+      JSON.stringify({
+        version: 2,
+        settings: { desktopBarAutoHide: true, desktopDockAutoHide: true },
+        servers: [],
+        logs: [],
+      }),
+    );
+    let store = await loadStore();
+    expect(store.state.settings.desktopBarAutoHide).toBe(true);
+    expect(store.state.settings.desktopDockAutoHide).toBe(true);
+
+    window.localStorage.setItem(
+      STORE_KEY,
+      JSON.stringify({
+        version: 2,
+        settings: { desktopBarAutoHide: 'yes', desktopDockAutoHide: 1 },
+        servers: [],
+        logs: [],
+      }),
+    );
+    store = await loadStore();
+    expect(store.state.settings.desktopBarAutoHide).toBe(false);
+    expect(store.state.settings.desktopDockAutoHide).toBe(false);
+  });
+
+  it('persists a switched flag for the next launch', async () => {
+    const store = await loadStore();
+    store.updateSettings({ desktopDockAutoHide: true });
+    store.persistNow();
+
+    const parsed = JSON.parse(window.localStorage.getItem(STORE_KEY) as string);
+    expect(parsed.settings.desktopDockAutoHide).toBe(true);
+  });
+});
+
 describe('permit and alert settings', () => {
   it('normalizes nested values from persisted state', async () => {
     window.localStorage.setItem(
@@ -365,4 +410,90 @@ it('keeps the local autostart preference when importing a backup', async () => {
 
   expect(store.state.settings.interval).toBe(9);
   expect(store.state.settings.autostart).toBe(true);
+});
+
+function logEntry(overrides: Partial<LogEntry> = {}): LogEntry {
+  return {
+    id: 'log_1',
+    ts: 1_000,
+    serverId: 'srv_1',
+    serverName: '生产 Web',
+    ip: '192.168.5.4',
+    port: 22,
+    action: '连接',
+    status: 'failed',
+    duration: '1.2s',
+    source: '桌面客户端',
+    code: 'AUTH_FAILED',
+    auth: '密码',
+    client: 'LightGuard Desktop',
+    session: '—',
+    fingerprint: 'SHA256:abc',
+    hint: '',
+    ...overrides,
+  };
+}
+
+describe('connection log unread badge', () => {
+  it('counts only exceptions newer than the seen watermark', async () => {
+    const store = await loadStore();
+    store.state.logs.splice(
+      0,
+      0,
+      logEntry({ id: 'log_failed', ts: 1_000, status: 'failed' }),
+      logEntry({ id: 'log_warning', ts: 2_000, status: 'warning' }),
+      logEntry({ id: 'log_success', ts: 3_000, status: 'success' }),
+    );
+
+    expect(store.unreadEvents.value).toBe(2);
+    store.updateSettings({ logsSeenAt: 1_500 });
+    expect(store.unreadEvents.value).toBe(1);
+    store.updateSettings({ logsSeenAt: 3_000 });
+    expect(store.unreadEvents.value).toBe(0);
+  });
+
+  it('clears the badge on view and counts failures that arrive afterwards', async () => {
+    const store = await loadStore();
+    store.state.logs.splice(
+      0,
+      0,
+      logEntry({ id: 'log_failed', ts: 1_000 }),
+      logEntry({ id: 'log_warning', ts: 2_000, status: 'warning' }),
+    );
+
+    store.markLogsSeen(2_500);
+    expect(store.unreadEvents.value).toBe(0);
+    expect(store.state.settings.logsSeenAt).toBe(2_500);
+
+    store.state.logs.unshift(logEntry({ id: 'log_new', ts: 3_000 }));
+    expect(store.unreadEvents.value).toBe(1);
+  });
+
+  it('uses the newest exception timestamp when the clock is behind', async () => {
+    const store = await loadStore();
+    store.state.logs.splice(0, 0, logEntry({ id: 'log_failed', ts: 2_000 }));
+
+    store.markLogsSeen(500);
+    expect(store.state.settings.logsSeenAt).toBe(2_000);
+    expect(store.unreadEvents.value).toBe(0);
+  });
+
+  it('keeps the local watermark when importing a backup', async () => {
+    const store = await loadStore();
+    store.updateSettings({ logsSeenAt: 2_000 });
+    const payload = buildBackupPayload({
+      settings: { ...store.DEFAULT_SETTINGS, interval: 9 },
+      themes: store.state.themes,
+      servers: [],
+      includeSettings: true,
+      includeConnections: false,
+    });
+
+    expect((payload.settings as Record<string, unknown>).logsSeenAt).toBeUndefined();
+
+    await store.applyBackup(payload, 'replace', { settings: true, connections: false });
+
+    expect(store.state.settings.interval).toBe(9);
+    expect(store.state.settings.logsSeenAt).toBe(2_000);
+  });
 });

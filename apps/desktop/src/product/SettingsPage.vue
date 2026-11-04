@@ -183,6 +183,18 @@ function setDesktopBar(value: DesktopBarMode) {
   });
 }
 
+function setDesktopBarAutoHide(value: boolean) {
+  updateSettings({ desktopBarAutoHide: value });
+  toast({
+    title: value ? '状态条自动隐藏已开启' : '状态条自动隐藏已关闭',
+    message: value
+      ? '悬浮状态下，有窗口最大化时 1.5 秒后隐藏，鼠标移到桌面顶部边缘呼出'
+      : '悬浮状态下，最大化窗口会让出状态条所占区域',
+    tone: 'info',
+    duration: 2400,
+  });
+}
+
 const dockOptions: Array<{ value: DesktopDockMode; label: string }> = [
   { value: 'floating', label: '悬浮' },
   { value: 'full', label: '通栏' },
@@ -194,8 +206,20 @@ function setDesktopDock(value: DesktopDockMode) {
     title: 'Dock 样式已更新',
     message:
       value === 'floating'
-        ? '悬浮 Dock 已启用，桌面窗口可以延伸到 Dock 下方'
+        ? '悬浮 Dock 已启用，最大化窗口默认让出 Dock 区域；开启 Dock 自动隐藏后可铺满'
         : '通栏 Dock 已启用，窗口底部会预留 Dock 空间',
+    tone: 'info',
+    duration: 2400,
+  });
+}
+
+function setDesktopDockAutoHide(value: boolean) {
+  updateSettings({ desktopDockAutoHide: value });
+  toast({
+    title: value ? 'Dock 自动隐藏已开启' : 'Dock 自动隐藏已关闭',
+    message: value
+      ? '悬浮状态下，有窗口最大化时 1.5 秒后隐藏，鼠标移到桌面底部边缘呼出'
+      : '悬浮状态下，最大化窗口会让出 Dock 所占区域',
     tone: 'info',
     duration: 2400,
   });
@@ -558,7 +582,7 @@ async function onReset() {
         <div class="setting-row">
           <div class="setting-text">
             <strong>服务器桌面状态条</strong>
-            <span>悬浮为居中胶囊；通栏横跨桌面顶部，最大化窗口自动让出状态条区域。</span>
+            <span>悬浮为居中胶囊；通栏横跨桌面顶部。两种样式下最大化窗口都会让出状态条区域。</span>
           </div>
           <div class="settings-segment" role="group" aria-label="服务器桌面状态条">
             <button
@@ -576,8 +600,22 @@ async function onReset() {
 
         <div class="setting-row">
           <div class="setting-text">
+            <strong>状态条自动隐藏</strong>
+            <span>
+              仅悬浮胶囊生效：有窗口最大化时 1.5 秒后隐藏，鼠标移到桌面顶部边缘呼出；隐藏期间最大化窗口铺满桌面。通栏样式下此项不起作用。
+            </span>
+          </div>
+          <LgSwitch
+            :value="state.settings.desktopBarAutoHide"
+            aria-label="状态条自动隐藏"
+            @update:value="setDesktopBarAutoHide"
+          />
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-text">
             <strong>服务器桌面 Dock</strong>
-            <span>悬浮为底部居中胶囊，窗口可延伸到 Dock 下方；通栏贴底横跨整个桌面，窗口底部自动预留空间。</span>
+            <span>悬浮为底部居中胶囊；通栏贴底横跨整个桌面。两种样式下最大化窗口都会让出 Dock 区域。</span>
           </div>
           <div class="settings-segment" role="group" aria-label="服务器桌面 Dock">
             <button
@@ -591,6 +629,20 @@ async function onReset() {
               {{ option.label }}
             </button>
           </div>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-text">
+            <strong>Dock 自动隐藏</strong>
+            <span>
+              仅悬浮 Dock 生效：有窗口最大化时 1.5 秒后隐藏，鼠标移到桌面底部边缘呼出；隐藏期间最大化窗口铺满桌面。通栏样式下此项不起作用。
+            </span>
+          </div>
+          <LgSwitch
+            :value="state.settings.desktopDockAutoHide"
+            aria-label="Dock 自动隐藏"
+            @update:value="setDesktopDockAutoHide"
+          />
         </div>
 
         <p class="settings-note">

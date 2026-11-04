@@ -245,14 +245,17 @@ export interface AppSettings {
   idleLock: number;
   closeBehavior: CloseBehavior;
   desktopBar: DesktopBarMode;
+  desktopBarAutoHide: boolean;
   desktopDock: DesktopDockMode;
+  desktopDockAutoHide: boolean;
   autostart: boolean;
   permit: { defaultMinutes: PermitMinutes };
   alerts: AlertSettings;
   updateSource: string;
+  logsSeenAt: number;
 }
 
-export type BackupSettings = Omit<AppSettings, 'autostart'>;
+export type BackupSettings = Omit<AppSettings, 'autostart' | 'logsSeenAt'>;
 
 export interface ThemeChoices {
   console: ThemeId;

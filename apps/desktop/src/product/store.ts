@@ -75,11 +75,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   idleLock: 30,
   closeBehavior: 'ask',
   desktopBar: 'floating',
+  desktopBarAutoHide: false,
   desktopDock: 'full',
+  desktopDockAutoHide: false,
   autostart: false,
   permit: { defaultMinutes: 15 },
   alerts: DEFAULT_ALERT_SETTINGS,
   updateSource: 'auto',
+  logsSeenAt: 0,
 };
 
 export const DEFAULT_THEMES: ThemeChoices = {
@@ -112,13 +115,25 @@ function readSettings(value: unknown): AppSettings {
       ? raw.closeBehavior
       : DEFAULT_SETTINGS.closeBehavior,
     desktopBar: isDesktopBarMode(raw.desktopBar) ? raw.desktopBar : DEFAULT_SETTINGS.desktopBar,
+    desktopBarAutoHide:
+      typeof raw.desktopBarAutoHide === 'boolean'
+        ? raw.desktopBarAutoHide
+        : DEFAULT_SETTINGS.desktopBarAutoHide,
     desktopDock: isDesktopDockMode(raw.desktopDock)
       ? raw.desktopDock
       : DEFAULT_SETTINGS.desktopDock,
+    desktopDockAutoHide:
+      typeof raw.desktopDockAutoHide === 'boolean'
+        ? raw.desktopDockAutoHide
+        : DEFAULT_SETTINGS.desktopDockAutoHide,
     autostart: typeof raw.autostart === 'boolean' ? raw.autostart : DEFAULT_SETTINGS.autostart,
     permit: normalizePermitSettings(raw.permit),
     alerts: normalizeAlertSettings(raw.alerts),
     updateSource: normalizeUpdateSource(raw.updateSource),
+    logsSeenAt:
+      typeof raw.logsSeenAt === 'number' && Number.isFinite(raw.logsSeenAt) && raw.logsSeenAt > 0
+        ? raw.logsSeenAt
+        : DEFAULT_SETTINGS.logsSeenAt,
   };
 }
 
@@ -259,9 +274,24 @@ export const fleet = computed(() => {
   };
 });
 
+function isException(log: LogEntry) {
+  return log.status === 'failed' || log.status === 'warning';
+}
+
 export const unreadEvents = computed(
-  () => state.logs.filter((log) => log.status === 'failed' || log.status === 'warning').length,
+  () => state.logs.filter((log) => isException(log) && log.ts > state.settings.logsSeenAt).length,
 );
+
+export function markLogsSeen(now = Date.now()) {
+  let latest = 0;
+  for (const log of state.logs) {
+    if (isException(log) && log.ts > latest) latest = log.ts;
+  }
+  if (latest === 0) return;
+  const next = Math.max(now, latest);
+  if (next <= state.settings.logsSeenAt) return;
+  updateSettings({ logsSeenAt: next });
+}
 
 function hydrateStored(stored: StoredState) {
   state.themes = readThemes(stored.themes);
@@ -938,11 +968,18 @@ export async function applyBackup(
     }
     if (scope.settings) {
       const localAutostart = state.settings.autostart;
+      // 备份不含已读水位，导入后沿用本机的，避免清空的徽标被备份“重新点亮”
+      const localLogsSeenAt = state.settings.logsSeenAt;
       const imported = readSettings(payload.settings);
       state.settings =
         strategy === 'replace'
-          ? { ...imported, autostart: localAutostart }
-          : { ...state.settings, ...imported, autostart: localAutostart };
+          ? { ...imported, autostart: localAutostart, logsSeenAt: localLogsSeenAt }
+          : {
+              ...state.settings,
+              ...imported,
+              autostart: localAutostart,
+              logsSeenAt: localLogsSeenAt,
+            };
       state.themes = readThemes(payload.themes);
     }
     persistNow();

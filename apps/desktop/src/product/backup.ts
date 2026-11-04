@@ -149,7 +149,9 @@ function normalizeSettings(value: unknown): BackupSettings {
     idleLock: Number.isFinite(idleLock) && idleLock >= 0 && idleLock <= 240 ? Math.round(idleLock) : 30,
     closeBehavior: isCloseBehavior(value.closeBehavior) ? value.closeBehavior : 'ask',
     desktopBar: isDesktopBarMode(value.desktopBar) ? value.desktopBar : 'floating',
+    desktopBarAutoHide: readBool(value, 'desktopBarAutoHide', false),
     desktopDock: isDesktopDockMode(value.desktopDock) ? value.desktopDock : 'full',
+    desktopDockAutoHide: readBool(value, 'desktopDockAutoHide', false),
     permit: normalizePermitSettings(value.permit),
     alerts: normalizeAlertSettings(value.alerts),
     updateSource: normalizeUpdateSource(value.updateSource),
@@ -254,6 +256,7 @@ export function buildBackupPayload(input: {
     : [];
   const settings: BackupSettings = { ...input.settings };
   delete (settings as Partial<AppSettings>).autostart;
+  delete (settings as Partial<AppSettings>).logsSeenAt;
 
   return {
     appVersion: APP_VERSION,

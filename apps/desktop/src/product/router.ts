@@ -1,5 +1,5 @@
 import { ref } from 'vue';
-import type { Route, RouteName } from './types';
+import type { Route, RouteName, SettingsTab } from './types';
 
 // 控制台页面的中文标题唯一来源；`desktop` 由服务器名单独拼装，不在此表中。
 export const ROUTE_TITLES: Record<Exclude<RouteName, 'desktop'>, string> = {
@@ -11,6 +11,18 @@ export const ROUTE_TITLES: Record<Exclude<RouteName, 'desktop'>, string> = {
 
 export function routeTitle(name: Exclude<RouteName, 'desktop'>): string {
   return ROUTE_TITLES[name];
+}
+
+const SETTINGS_TABS: ReadonlyArray<SettingsTab> = [
+  'appearance',
+  'general',
+  'security',
+  'alerts',
+  'data',
+];
+
+function parseSettingsTab(value: string | undefined): SettingsTab | undefined {
+  return SETTINGS_TABS.find((tab) => tab === value);
 }
 
 function parseHash(hash: string): Route {
@@ -29,7 +41,10 @@ function parseHash(hash: string): Route {
   if (parts[0] === 'alerts') {
     return { name: 'alerts', tab: parts[1] === 'audit' ? 'audit' : 'alerts' };
   }
-  if (parts[0] === 'settings') return { name: 'settings' };
+  if (parts[0] === 'settings') {
+    const tab = parseSettingsTab(parts[1]);
+    return tab ? { name: 'settings', tab } : { name: 'settings' };
+  }
   if (parts[0] === 'desktop' && parts[1]) return { name: 'desktop', id: parts[1] };
   return { name: 'overview' };
 }
@@ -37,6 +52,7 @@ function parseHash(hash: string): Route {
 export function routeToHash(route: Route) {
   if (route.name === 'desktop' && route.id) return `#/desktop/${encodeURIComponent(route.id)}`;
   if (route.name === 'alerts') return route.tab === 'audit' ? '#/alerts/audit' : '#/alerts';
+  if (route.name === 'settings' && route.tab) return `#/settings/${route.tab}`;
   return `#/${route.name}`;
 }
 

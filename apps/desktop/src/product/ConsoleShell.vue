@@ -1,9 +1,16 @@
 <script setup lang="ts">
-import { computed, h, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { LgAppBackground, LgButton, LgDropdown, LgIcon, themeOptions } from '@lightguard/lightui';
+import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import {
+  LgAppBackground,
+  LgButton,
+  LgDropdown,
+  LgIcon,
+  LgPopover,
+  themeOptions,
+} from '@lightguard/lightui';
 import type { ThemeId } from '@lightguard/lightui';
 import { APP_VERSION } from './data';
-import { route } from './router';
+import { navigate, route } from './router';
 import { backendAvailable, fleet, setTheme, state, tickAll, unreadEvents } from './store';
 import { alertsState, loadAlerts, subscribeAlerts } from './alerts/store';
 import { openWizard, toast } from './ui';
@@ -67,6 +74,7 @@ onBeforeUnmount(() => {
   stopAlerts();
   themeObserver?.disconnect();
   themeObserver = null;
+  window.removeEventListener('keydown', onWorkspaceKeydown);
 });
 
 const themeMenuOptions = computed(() =>
@@ -124,6 +132,35 @@ function renderThemeLabel(option: { key: string | number; label: string }) {
     ],
   );
 }
+
+const workspaceOpen = ref(false);
+const workspaceTrigger = ref<HTMLButtonElement | null>(null);
+const workspaceMenu = ref<HTMLElement | null>(null);
+
+const workspaceDetail = computed(() =>
+  backendAvailable ? 'SSH 直连 · 只读采集' : '浏览器预览',
+);
+
+function goToSettings(tab?: 'data') {
+  workspaceOpen.value = false;
+  navigate(tab ? { name: 'settings', tab } : { name: 'settings' });
+}
+
+function onWorkspaceKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Escape') return;
+  workspaceOpen.value = false;
+  workspaceTrigger.value?.focus();
+}
+
+watch(workspaceOpen, async (open) => {
+  if (!open) {
+    window.removeEventListener('keydown', onWorkspaceKeydown);
+    return;
+  }
+  window.addEventListener('keydown', onWorkspaceKeydown);
+  await nextTick();
+  workspaceMenu.value?.querySelector<HTMLButtonElement>('button')?.focus();
+});
 
 const pageMeta = computed(() => {
   if (route.value.name === 'alerts') {
@@ -242,13 +279,10 @@ function onThemeSelect(key: string) {
       </nav>
 
       <div class="console-side__foot">
-        <div class="console-workspace">
-          <span class="console-avatar" aria-hidden="true">LG</span>
-          <div>
-            <strong>本地工作区</strong>
-            <small>{{ backendAvailable ? 'SSH 直连 · 只读采集' : '浏览器预览' }} · v{{ APP_VERSION }}</small>
-          </div>
+        <div class="console-workspace" :title="workspaceDetail">
           <span class="console-mode__dot" :class="{ 'is-off': !backendAvailable }" aria-hidden="true" />
+          <span class="console-workspace__label">{{ backendAvailable ? 'SSH 直连' : '浏览器预览' }}</span>
+          <span class="console-workspace__version">v{{ APP_VERSION }}</span>
         </div>
 
         <LgDropdown
@@ -307,11 +341,47 @@ function onThemeSelect(key: string) {
             <LgIcon name="alert" :size="12" />
             {{ fleet.attention }} 台需关注
           </span>
-          <span class="console-mode-chip">
-            <span class="console-mode__dot" :class="{ 'is-off': !backendAvailable }" aria-hidden="true" />
-            {{ backendAvailable ? 'SSH 直连' : '预览模式' }}
-          </span>
-          <span class="console-avatar" aria-label="本地工作区">LG</span>
+          <LgPopover
+            trigger="click"
+            placement="bottom-end"
+            :show="workspaceOpen"
+            content-style="padding: 0"
+            @update:show="workspaceOpen = $event"
+          >
+            <template #trigger>
+              <button
+                ref="workspaceTrigger"
+                type="button"
+                class="console-avatar"
+                aria-label="工作区菜单"
+                :aria-expanded="workspaceOpen"
+                title="工作区菜单"
+              >
+                LG
+              </button>
+            </template>
+            <div ref="workspaceMenu" class="workspace-menu">
+              <div class="workspace-menu__identity">
+                <span
+                  class="console-mode__dot"
+                  :class="{ 'is-off': !backendAvailable }"
+                  aria-hidden="true"
+                />
+                <span class="workspace-menu__text">
+                  <strong>本地工作区</strong>
+                  <small>{{ workspaceDetail }} · v{{ APP_VERSION }}</small>
+                </span>
+              </div>
+              <button type="button" class="workspace-menu__item" @click="goToSettings()">
+                <LgIcon name="sliders" :size="15" />
+                <span>设置</span>
+              </button>
+              <button type="button" class="workspace-menu__item" @click="goToSettings('data')">
+                <LgIcon name="info" :size="15" />
+                <span>关于 LightGuard</span>
+              </button>
+            </div>
+          </LgPopover>
         </div>
       </header>
 
@@ -502,30 +572,28 @@ function onThemeSelect(key: string) {
 .console-workspace {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 9px 10px;
+  gap: 8px;
+  padding: 8px 10px;
   border: var(--lg-border-width) solid var(--lg-border);
   border-radius: var(--lg-radius-md);
   background: var(--lg-surface);
 }
 
-.console-workspace > div {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.console-workspace strong {
+.console-workspace__label {
+  overflow: hidden;
+  color: var(--lg-text-secondary);
   font-size: var(--lg-fs-sm);
   font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.console-workspace small {
-  overflow: hidden;
+.console-workspace__version {
+  flex: 0 0 auto;
+  margin-left: auto;
   color: var(--lg-text-muted);
+  font-family: var(--lg-font-mono);
   font-size: var(--lg-fs-label);
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -535,6 +603,7 @@ function onThemeSelect(key: string) {
   place-items: center;
   width: 28px;
   height: 28px;
+  padding: 0;
   border: 1px solid color-mix(in srgb, var(--lg-primary) 30%, var(--lg-border));
   border-radius: var(--lg-radius-sm);
   background: linear-gradient(145deg, var(--lg-primary-soft), var(--lg-accent-soft));
@@ -542,6 +611,82 @@ function onThemeSelect(key: string) {
   font-family: var(--lg-font-mono);
   font-size: var(--lg-fs-label);
   font-weight: 700;
+  cursor: pointer;
+  transition: border-color var(--lg-dur-fast) var(--lg-ease);
+}
+
+.console-avatar:hover {
+  border-color: var(--lg-primary);
+}
+
+.console-avatar:focus-visible {
+  outline: 2px solid var(--lg-primary);
+  outline-offset: 2px;
+}
+
+.workspace-menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  padding: 6px;
+}
+
+.workspace-menu__identity {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-bottom: 4px;
+  padding: 8px 9px 10px;
+  border-bottom: var(--lg-border-width) solid var(--lg-border);
+}
+
+.workspace-menu__identity .console-mode__dot {
+  margin-top: 5px;
+}
+
+.workspace-menu__text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.workspace-menu__text strong {
+  color: var(--lg-text);
+  font-size: var(--lg-fs-sm);
+  font-weight: 600;
+}
+
+.workspace-menu__text small {
+  color: var(--lg-text-muted);
+  font-size: var(--lg-fs-label);
+  line-height: 1.5;
+}
+
+.workspace-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 9px;
+  border: 0;
+  border-radius: var(--lg-radius-sm);
+  background: transparent;
+  color: var(--lg-text-secondary);
+  font-family: inherit;
+  font-size: var(--lg-fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-menu__item:hover {
+  background: var(--lg-hover);
+  color: var(--lg-text);
+}
+
+.workspace-menu__item:focus-visible {
+  outline: 2px solid var(--lg-primary);
+  outline-offset: -2px;
 }
 
 .console-mode__dot {
@@ -556,21 +701,6 @@ function onThemeSelect(key: string) {
 .console-mode__dot.is-off {
   background: var(--lg-warning);
   box-shadow: 0 0 0 4px var(--lg-warning-soft);
-}
-
-.console-mode div {
-  display: flex;
-  flex-direction: column;
-}
-
-.console-mode strong {
-  font-size: var(--lg-fs-sm);
-  font-weight: 600;
-}
-
-.console-mode small {
-  color: var(--lg-text-muted);
-  font-size: var(--lg-fs-label);
 }
 
 .console-theme {
@@ -703,24 +833,6 @@ function onThemeSelect(key: string) {
   white-space: nowrap;
 }
 
-.console-mode-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 8px;
-  border: var(--lg-border-width) solid var(--lg-border);
-  border-radius: var(--lg-radius-full);
-  color: var(--lg-text-muted);
-  font-size: var(--lg-fs-label);
-  white-space: nowrap;
-}
-
-.console-mode-chip .console-mode__dot {
-  width: 5px;
-  height: 5px;
-  box-shadow: 0 0 0 3px var(--lg-success-soft);
-}
-
 .console-head {
   display: flex;
   align-items: flex-end;
@@ -793,8 +905,7 @@ function onThemeSelect(key: string) {
 }
 
 @media (max-width: 640px) {
-  .console-attention,
-  .console-mode-chip {
+  .console-attention {
     display: none;
   }
 

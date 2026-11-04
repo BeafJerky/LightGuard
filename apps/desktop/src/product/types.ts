@@ -279,10 +279,12 @@ export interface PersistedState {
 
 export type RouteName = 'overview' | 'connections' | 'settings' | 'desktop' | 'alerts';
 
+export type SettingsTab = 'appearance' | 'general' | 'security' | 'alerts' | 'data';
+
 export interface Route {
   name: RouteName;
   id?: string;
-  tab?: 'alerts' | 'audit';
+  tab?: 'alerts' | 'audit' | SettingsTab;
 }
 
 export interface BackupConnection {

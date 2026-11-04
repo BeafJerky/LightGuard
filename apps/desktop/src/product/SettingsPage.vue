@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import {
   LgButton,
   LgIcon,
@@ -33,6 +33,7 @@ import {
   updateSettings,
 } from './store';
 import { ssh, toSshError } from './ssh';
+import { route } from './router';
 import { switchScopeTheme } from './theme';
 import { confirm, toast } from './ui';
 import type {
@@ -40,10 +41,9 @@ import type {
   CloseBehavior,
   DesktopBarMode,
   DesktopDockMode,
+  SettingsTab,
   ThemeChoices,
 } from './types';
-
-type SettingsTab = 'appearance' | 'general' | 'security' | 'alerts' | 'data';
 
 const tabs: Array<{ id: SettingsTab; label: string; icon: string }> = [
   { id: 'appearance', label: '外观', icon: 'sun' },
@@ -53,7 +53,30 @@ const tabs: Array<{ id: SettingsTab; label: string; icon: string }> = [
   { id: 'data', label: '数据与关于', icon: 'database' },
 ];
 
-const tab = ref<SettingsTab>('appearance');
+function isSettingsTab(value: unknown): value is SettingsTab {
+  return tabs.some((item) => item.id === value);
+}
+
+const initialTab = route.value.name === 'settings' ? route.value.tab : undefined;
+const tab = ref<SettingsTab>(isSettingsTab(initialTab) ? initialTab : 'appearance');
+
+async function scrollToAbout() {
+  await nextTick();
+  document.getElementById('settings-about')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+
+onMounted(() => {
+  if (route.value.name === 'settings' && route.value.tab === 'data') void scrollToAbout();
+});
+
+watch(
+  () => route.value,
+  (next) => {
+    if (next.name !== 'settings' || !isSettingsTab(next.tab)) return;
+    tab.value = next.tab;
+    if (next.tab === 'data') void scrollToAbout();
+  },
+);
 
 const activeLabel = computed(
   () => tabs.find((item) => item.id === tab.value)?.label ?? '设置',
@@ -995,7 +1018,12 @@ async function onReset() {
         </div>
       </LgSurface>
 
-      <LgSurface tone="solid" padding="lg" class="settings-card settings-card--wide">
+      <LgSurface
+        id="settings-about"
+        tone="solid"
+        padding="lg"
+        class="settings-card settings-card--wide"
+      >
         <header class="settings-card__head">
           <span class="settings-card__icon"><LgIcon name="info" :size="17" /></span>
           <div class="settings-card__title">
@@ -1092,6 +1120,10 @@ async function onReset() {
 
 .settings-card--wide {
   grid-column: 1 / -1;
+}
+
+#settings-about {
+  scroll-margin-top: 66px;
 }
 
 .settings-card__head {

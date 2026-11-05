@@ -41,6 +41,8 @@ export function createDesktopEffectsDraw(intensity: EffectsIntensity = 'low') {
   return function drawDesktopEffects(ctx: CanvasRenderingContext2D, frame: CanvasFrame) {
     const { theme, width, height, time } = frame;
     if (width < 2 || height < 2) return;
+    // WIN11 依赖静态云母壁纸，不叠加漂浮粒子。
+    if (theme.pack === 'win11') return;
 
     const t = time / 1000;
     const alpha = ALPHA[intensity];

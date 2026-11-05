@@ -160,7 +160,7 @@ function normalizeSettings(value: unknown): BackupSettings {
 
 function normalizeThemes(value: unknown, warnings: string[]): ThemeChoices {
   if (!isRecord(value)) return { console: 'dark', desktop: 'pixel' };
-  const allowed = ['dark', 'light', 'claude', 'pixel', 'nes', 'tech', 'system'];
+  const allowed = ['dark', 'light', 'claude', 'pixel', 'nes', 'tech', 'win11', 'win11-dark', 'system'];
   const read = (key: 'console' | 'desktop', fallback: ThemeChoices['console']) => {
     const raw = value[key];
     if (typeof raw !== 'string') return fallback;

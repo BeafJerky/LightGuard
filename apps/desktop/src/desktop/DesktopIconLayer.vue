@@ -8,6 +8,15 @@ import {
   withAlpha,
 } from '@lightguard/lightui';
 import type { CanvasFrame } from '@lightguard/lightui';
+import AppIcon from './AppIcon.vue';
+import {
+  APP_ICON_SIZES,
+  appIconScheme,
+  appTileColor,
+  drawAppGlyph,
+  schemeBTile,
+  type AppIconKey,
+} from './appIcons';
 import { drawIconGlyph } from './iconGlyphs';
 import { iconCells, iconLayerSize, type IconLayerVariant } from './iconLayout';
 
@@ -15,6 +24,7 @@ interface DesktopIconItem {
   name: string;
   label: string;
   tile?: string;
+  app?: AppIconKey;
 }
 
 const props = withDefaults(
@@ -58,29 +68,37 @@ function roundRect(
 function draw(ctx: CanvasRenderingContext2D, frame: CanvasFrame) {
   const { theme } = frame;
   const dock = props.variant === 'dock';
-  const tile = dock ? 34 : 46;
-  const tileColors: Record<string, string> = {
-    'tile-about': theme.color.primary,
-    'tile-performance': theme.color.accent,
-    'tile-disks': theme.color.info,
-    'tile-network': theme.color.warning,
-    'tile-processes': theme.color.danger,
-    'tile-connection': theme.color.success,
-    'tile-terminal': theme.color.textSecondary,
-    'tile-docker': theme.color.info,
-  };
+  const sizes = dock ? APP_ICON_SIZES.dock : APP_ICON_SIZES.desktop;
+  const tile = sizes.tile;
+  const scheme = appIconScheme(theme.id);
 
   cells.value.forEach((cell, index) => {
     const item = props.items[index];
     if (!item) return;
     const x = cell.x + (cell.width - tile) / 2;
     const y = cell.y + (dock ? (cell.height - tile) / 2 : 4);
-    const radius = dock ? px(theme.radius.sm, 5) : 12;
-    const tint = item.tile ? tileColors[item.tile] : null;
+    const radius = dock ? px(theme.radius.sm, 5) : px(theme.radius.md, 12);
+    const tint = item.tile ? appTileColor(theme, item.tile) : null;
+    const vivid = Boolean(item.app) && scheme === 'b' && tint !== null;
 
     ctx.beginPath();
     roundRect(ctx, x, y, tile, tile, radius);
-    if (tint) {
+    if (vivid && tint) {
+      const palette = schemeBTile(tint, theme);
+      const gradient = ctx.createLinearGradient(x, y, x + tile, y + tile);
+      gradient.addColorStop(0, palette.start);
+      gradient.addColorStop(1, palette.end);
+      ctx.fillStyle = gradient;
+      ctx.fill();
+      const glowX = x + tile * 0.24;
+      const glowY = y + tile * 0.08;
+      const glow = ctx.createRadialGradient(glowX, glowY, 0, glowX, glowY, tile * 0.84);
+      glow.addColorStop(0, 'rgba(255, 255, 255, 0.14)');
+      glow.addColorStop(0.58, 'rgba(255, 255, 255, 0)');
+      ctx.fillStyle = glow;
+      ctx.fill();
+      ctx.strokeStyle = palette.border;
+    } else if (tint) {
       ctx.fillStyle = theme.color.surface2;
       ctx.fill();
       ctx.fillStyle = withAlpha(tint, 0.34);
@@ -94,11 +112,16 @@ function draw(ctx: CanvasRenderingContext2D, frame: CanvasFrame) {
     ctx.lineWidth = px(theme.color.borderWidth, 1);
     ctx.stroke();
 
-    ctx.strokeStyle = tint ?? theme.color.primary;
-    ctx.lineWidth = px(theme.icon.stroke, 1.7);
-    ctx.lineCap = theme.icon.linecap as CanvasLineCap;
-    ctx.lineJoin = theme.icon.linejoin as CanvasLineJoin;
-    drawIconGlyph(ctx, item.name, x + tile / 2, y + tile / 2, dock ? 18 : 24);
+    if (item.app) {
+      const ink = vivid && tint ? schemeBTile(tint, theme).ink : (tint ?? theme.color.primary);
+      drawAppGlyph(ctx, item.app, x + tile / 2, y + tile / 2, sizes.glyph, ink);
+    } else {
+      ctx.strokeStyle = tint ?? theme.color.primary;
+      ctx.lineWidth = px(theme.icon.stroke, 1.7);
+      ctx.lineCap = theme.icon.linecap as CanvasLineCap;
+      ctx.lineJoin = theme.icon.linejoin as CanvasLineJoin;
+      drawIconGlyph(ctx, item.name, x + tile / 2, y + tile / 2, dock ? 18 : 24);
+    }
 
     if (!dock) {
       ctx.fillStyle = theme.desktop.text;
@@ -143,11 +166,19 @@ function cellStyle(index: number) {
             <button
               type="button"
               class="desktop-icon-layer__btn desktop-icon-layer__btn--dock"
+              :class="{ 'has-app-icon': item.app }"
               :style="cellStyle(index)"
               :aria-label="item.label"
               @click="emit('select', index)"
             >
-              <LgIcon v-if="!canvas" :name="item.name" :size="18" />
+              <AppIcon
+                v-if="!canvas && item.app"
+                :app="item.app"
+                :tile="item.tile ?? ''"
+                :size="APP_ICON_SIZES.dock.tile"
+                :glyph="APP_ICON_SIZES.dock.glyph"
+              />
+              <LgIcon v-else-if="!canvas" :name="item.name" :size="18" />
               <span v-else class="desktop-icon-layer__sr">{{ item.label }}</span>
             </button>
           </template>
@@ -168,7 +199,17 @@ function cellStyle(index: number) {
           @keydown.space.prevent="emit('activate', index)"
         >
           <template v-if="!canvas">
-            <span class="desktop-icon-layer__glyph" :class="item.tile"><LgIcon :name="item.name" :size="24" /></span>
+            <AppIcon
+              v-if="item.app"
+              :app="item.app"
+              :tile="item.tile ?? ''"
+              :size="APP_ICON_SIZES.desktop.tile"
+              :glyph="APP_ICON_SIZES.desktop.glyph"
+              radius="md"
+            />
+            <span v-else class="desktop-icon-layer__glyph" :class="item.tile">
+              <LgIcon :name="item.name" :size="24" />
+            </span>
             <span class="desktop-icon-layer__label">{{ item.label }}</span>
           </template>
           <span v-else class="desktop-icon-layer__sr">{{ item.label }}</span>
@@ -238,6 +279,11 @@ function cellStyle(index: number) {
   border: var(--lg-border-width) solid var(--lg-border);
   background: var(--lg-surface-2);
   color: var(--lg-text-secondary);
+}
+
+.desktop-icon-layer__btn--dock.has-app-icon {
+  border-color: transparent;
+  background: transparent;
 }
 
 .desktop-icon-layer:not(.is-canvas) .desktop-icon-layer__btn--dock:hover {

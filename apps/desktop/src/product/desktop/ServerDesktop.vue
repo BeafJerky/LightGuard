@@ -12,6 +12,8 @@ import {
 } from '@lightguard/lightui';
 import type { ThemeId } from '@lightguard/lightui';
 import DesktopIconLayer from '../../desktop/DesktopIconLayer.vue';
+import AppIcon from '../../desktop/AppIcon.vue';
+import { APP_ICON_SIZES } from '../../desktop/appIcons';
 import DesktopWindow from './DesktopWindow.vue';
 import {
   DESKTOP_APPS,
@@ -55,11 +57,16 @@ const { width: shellWidth, height: shellHeight } = useElementSize(shell);
 const FULL_BAR_HEIGHT = 46;
 const fullBar = computed(() => state.settings.desktopBar === 'full');
 const barInset = computed(() => (fullBar.value ? FULL_BAR_HEIGHT : 0));
-// 通栏时 Dock 占布局，窗口要让出 54px；悬浮时 Dock 覆盖在窗口之上，只留 6px 边距。
-const DOCK_FULL_HEIGHT = 54;
+// 通栏时 Dock 占布局，窗口要让出 50px；悬浮时 Dock 覆盖在窗口之上，只留 6px 边距。
+const DOCK_FULL_HEIGHT = 50;
 const DOCK_FLOATING_INSET = 6;
 const dockFloating = computed(() => state.settings.desktopDock === 'floating');
-const dockInset = computed(() => (dockFloating.value ? DOCK_FLOATING_INSET : DOCK_FULL_HEIGHT));
+const narrowShell = computed(
+  () => (shellWidth.value || (typeof window === 'undefined' ? 1280 : window.innerWidth)) <= 719,
+);
+const dockInset = computed(() =>
+  dockFloating.value ? DOCK_FLOATING_INSET : narrowShell.value ? 46 : DOCK_FULL_HEIGHT,
+);
 const iconRows = computed(() => {
   const height = shellHeight.value || (typeof window === 'undefined' ? 900 : window.innerHeight);
   return Math.max(1, Math.floor((height - 138) / 92));
@@ -170,7 +177,12 @@ const visibleApps = computed(() =>
   }),
 );
 const iconItems = computed(() =>
-  visibleApps.value.map((app) => ({ name: app.icon, label: app.title, tile: app.tile })),
+  visibleApps.value.map((app) => ({
+    app: app.key,
+    name: app.icon,
+    label: app.title,
+    tile: app.tile,
+  })),
 );
 
 const startApps = computed(() => {
@@ -215,6 +227,8 @@ const themeGlyphs: Record<string, string> = {
   pixel: 'grid',
   nes: 'cartridge',
   tech: 'spark',
+  win11: 'dashboard',
+  'win11-dark': 'dashboard',
 };
 
 const themeSwatches = computed(() =>
@@ -627,7 +641,12 @@ async function onRetry() {
             class="desk-start__app"
             @click="openApp(app.key)"
           >
-            <span class="desk-start__tile" :class="app.tile"><LgIcon :name="app.icon" :size="16" /></span>
+            <AppIcon
+              :app="app.key"
+              :tile="app.tile"
+              :size="APP_ICON_SIZES.start.tile"
+              :glyph="APP_ICON_SIZES.start.glyph"
+            />
             <span>
               <strong>{{ app.title }}</strong>
               <small>{{ app.description }}</small>
@@ -709,10 +728,10 @@ async function onRetry() {
           aria-label="开始菜单"
           @click="toggleStart"
         >
-          <LgIcon name="grid" :size="19" />
+          <LgIcon name="grid" :size="21" />
         </button>
         <button type="button" class="desk-taskbar__search" @click="openSearch">
-          <LgIcon name="search" :size="13" />
+          <LgIcon name="search" :size="14" />
           搜索应用
         </button>
       </div>
@@ -732,13 +751,18 @@ async function onRetry() {
           :title="app.title"
           @click="toggleTaskbar(app.key)"
         >
-          <span class="desk-taskbar__tile" :class="app.tile"><LgIcon :name="app.icon" :size="15" /></span>
+          <AppIcon
+            :app="app.key"
+            :tile="app.tile"
+            :size="narrowShell ? APP_ICON_SIZES.narrowTaskbar.tile : APP_ICON_SIZES.taskbar.tile"
+            :glyph="narrowShell ? APP_ICON_SIZES.narrowTaskbar.glyph : APP_ICON_SIZES.taskbar.glyph"
+          />
         </button>
       </div>
 
       <div class="desk-taskbar__right">
         <button type="button" class="desk-taskbar__icon" aria-label="显示桌面" title="显示桌面" @click="onShowDesktop">
-          <LgIcon name="monitor" :size="14" />
+          <LgIcon name="monitor" :size="16" />
         </button>
         <!--
           许可入口必须排在窄屏要隐藏的显示器图标之后：窄屏规则靠 :first-child 选中
@@ -753,7 +777,7 @@ async function onRetry() {
           :title="`写操作已解锁 · ${permitState.remaining}`"
           @click="openPermitPanel"
         >
-          <LgIcon name="unlock" :size="14" />
+          <LgIcon name="unlock" :size="15" />
           <span class="desk-taskbar__permit">{{ permitState.remaining }}</span>
         </button>
         <button
@@ -764,7 +788,7 @@ async function onRetry() {
           title="系统托盘"
           @click="toggleTray"
         >
-          <LgIcon :name="themeGlyphs[state.themes.desktop] ?? 'moon'" :size="14" />
+          <LgIcon :name="themeGlyphs[state.themes.desktop] ?? 'moon'" :size="16" />
         </button>
         <div class="desk-clock">
           <strong>{{ clockTime }}</strong>
@@ -825,7 +849,11 @@ async function onRetry() {
 <style scoped>
 .serverdesk {
   --desk-bar-space: 46px;
-  --desk-dock-footprint: 54px;
+  --desk-dock-height: 50px;
+  --desk-dock-bottom: 0px;
+  /* Dock 顶边位置：开始菜单与托盘浮层贴着它上方展开。 */
+  --desk-dock-top: calc(var(--desk-dock-height) + var(--desk-dock-bottom));
+  --desk-dock-footprint: var(--desk-dock-height);
   /* 最大化窗口的让位量默认等于状态条 / Dock 的实际占位，悬浮胶囊因此不会压住窗口内容；
      开启自动隐藏后（is-*-bleed）归零，让最大化窗口铺满桌面，胶囊呼出时临时浮在窗口之上。 */
   --desk-max-top: var(--desk-bar-space);
@@ -1163,13 +1191,13 @@ async function onRetry() {
 
 .desk-start {
   position: absolute;
-  bottom: 54px;
-  left: 10px;
+  bottom: var(--desk-dock-top);
+  left: 12px;
   z-index: 250;
   display: flex;
   flex-direction: column;
-  width: min(560px, calc(100vw - 20px));
-  max-height: calc(100dvh - 74px);
+  width: min(560px, calc(100vw - 24px));
+  max-height: calc(100dvh - var(--desk-dock-top) - 20px);
   padding: 12px;
   overflow: auto;
   border: 1px solid var(--lg-border-strong);
@@ -1289,15 +1317,6 @@ async function onRetry() {
   white-space: nowrap;
 }
 
-.desk-start__tile {
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-}
-
 .desk-start__themes {
   display: flex;
   flex-wrap: wrap;
@@ -1374,8 +1393,8 @@ async function onRetry() {
 
 .desk-tray {
   position: absolute;
-  right: 10px;
-  bottom: 54px;
+  right: 12px;
+  bottom: var(--desk-dock-top);
   z-index: 250;
   display: flex;
   flex-direction: column;
@@ -1497,9 +1516,9 @@ async function onRetry() {
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: 8px;
-  height: 54px;
+  height: var(--desk-dock-height);
   margin-top: auto;
-  padding: 0 10px;
+  padding: 0 12px;
   border-top: var(--lg-border-width) solid var(--lg-border);
   background: color-mix(in srgb, var(--lg-surface) 82%, transparent);
   backdrop-filter: blur(var(--lg-panel-blur));
@@ -1510,24 +1529,33 @@ async function onRetry() {
 .desk-taskbar__right {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
 }
 
+.desk-taskbar__left {
+  gap: 6px;
+}
+
 /* 悬浮 Dock：底部居中胶囊，脱离布局流，窗口可以延伸到它后方（macOS 式覆盖）。 */
+.serverdesk.is-dock-floating {
+  --desk-dock-height: 48px;
+  --desk-dock-bottom: 8px;
+}
+
 .serverdesk.is-dock-floating .desk-taskbar {
   position: absolute;
   right: auto;
-  bottom: 8px;
+  bottom: var(--desk-dock-bottom);
   left: 50%;
   display: flex;
   justify-content: center;
-  gap: 10px;
+  gap: 8px;
   width: auto;
   max-width: calc(100% - 24px);
-  height: 46px;
+  height: var(--desk-dock-height);
   margin: 0;
-  padding: 0 8px;
+  padding: 0 10px;
   transform: translateX(-50%);
   border: var(--lg-border-width) solid var(--lg-border-strong);
   border-radius: var(--lg-radius-full);
@@ -1566,8 +1594,8 @@ async function onRetry() {
   display: grid;
   flex: 0 0 auto;
   place-items: center;
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   padding: 0;
   border: 0;
   border-radius: var(--lg-radius-sm);
@@ -1608,8 +1636,8 @@ async function onRetry() {
   display: grid;
   flex: 0 0 auto;
   place-items: center;
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   padding: 0;
   border: 0;
   border-radius: var(--lg-radius-sm);
@@ -1632,13 +1660,17 @@ async function onRetry() {
 .desk-taskbar__app.is-open::after {
   content: '';
   position: absolute;
-  bottom: 1px;
+  bottom: 3px;
   left: 50%;
-  width: 14px;
+  width: 6px;
   height: 2px;
   transform: translateX(-50%);
   border-radius: 2px;
   background: var(--lg-primary);
+}
+
+.desk-taskbar__app.is-active::after {
+  width: 16px;
 }
 
 .desk-taskbar__app.is-min::after {
@@ -1650,8 +1682,8 @@ async function onRetry() {
   display: grid;
   flex: 0 0 auto;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: 0;
   border-radius: var(--lg-radius-sm);
@@ -1665,14 +1697,6 @@ async function onRetry() {
   color: var(--lg-text);
 }
 
-.desk-taskbar__tile {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  border-radius: var(--lg-radius-sm);
-}
-
 .desk-taskbar__label,
 .desk-taskbar__empty {
   display: none;
@@ -1683,7 +1707,7 @@ async function onRetry() {
   flex: 0 0 auto;
   flex-direction: column;
   align-items: flex-end;
-  padding: 0 4px 0 8px;
+  padding: 0 4px 0 10px;
   color: var(--lg-text-secondary);
   font-family: var(--lg-font-mono);
   line-height: 1.2;
@@ -1904,7 +1928,8 @@ async function onRetry() {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  padding: 0 6px;
+  height: 32px;
+  padding: 0 8px;
   border: var(--lg-border-width) solid transparent;
   border-radius: var(--lg-radius-sm);
   background: transparent;
@@ -1941,9 +1966,9 @@ async function onRetry() {
     --desk-bar-space: 46px;
   }
 
-  /* 窄屏通栏 Dock 只有 50px，让位量要跟着缩，否则最大化窗口底部多留一条空。 */
+  /* 窄屏通栏 Dock 只有 46px，让位量跟随 Dock 高度，避免最大化窗口底部多留空。 */
   .serverdesk:not(.is-dock-floating) {
-    --desk-dock-footprint: 50px;
+    --desk-dock-height: 46px;
   }
 
   .conn-bar {
@@ -1981,9 +2006,8 @@ async function onRetry() {
   }
 
   .desk-taskbar {
-    height: 50px;
     gap: 4px;
-    padding: 0 6px;
+    padding: 0 8px;
   }
 
   .serverdesk.is-dock-floating .desk-taskbar {
@@ -2003,11 +2027,6 @@ async function onRetry() {
   .desk-taskbar__app {
     width: 32px;
     height: 32px;
-  }
-
-  .desk-taskbar__tile {
-    width: 24px;
-    height: 24px;
   }
 
   /* 窄屏隐藏任务栏首个显示器图标（“显示桌面”）；退出全屏入口已移到顶部状态条。

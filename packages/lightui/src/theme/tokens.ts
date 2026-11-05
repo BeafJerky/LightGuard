@@ -447,6 +447,161 @@ const tech: ThemeTokens = {
   icon: { stroke: '1.7px', linecap: 'round', linejoin: 'round' },
 };
 
+const WIN11_SANS =
+  '"Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif';
+const WIN11_DISPLAY =
+  '"Segoe UI Variable Display", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif';
+const WIN11_MONO =
+  '"Cascadia Code", "Cascadia Mono", "JetBrains Mono", "SFMono-Regular", Consolas, monospace';
+
+const fluentMotion = {
+  fast: '100ms',
+  base: '167ms',
+  slow: '250ms',
+  ease: 'cubic-bezier(0.1, 0.9, 0.2, 1)',
+  spring: 'cubic-bezier(0.3, 1.4, 0.6, 1)',
+};
+
+const win11: ThemeTokens = {
+  id: 'win11',
+  label: 'WIN11',
+  description: '云母浅色、Fluent 圆角与蓝色强调',
+  mode: 'light',
+  pack: 'win11',
+  color: {
+    bg: '#f3f3f3',
+    bgSoft: '#ebebeb',
+    surface: '#ffffff',
+    surface2: '#f9f9f9',
+    surface3: '#f0f0f0',
+    surfaceGlass: 'rgba(249, 249, 249, 0.85)',
+    border: 'rgba(0, 0, 0, 0.08)',
+    borderStrong: 'rgba(0, 0, 0, 0.45)',
+    borderWidth: '1px',
+    hover: 'rgba(0, 0, 0, 0.037)',
+    pressed: 'rgba(0, 0, 0, 0.06)',
+    text: '#1a1a1a',
+    textSecondary: '#424242',
+    textMuted: '#5f5f5f',
+    primary: '#005fb8',
+    primaryHover: '#1a6fc4',
+    primaryPressed: '#004c93',
+    primarySoft: 'rgba(0, 95, 184, 0.1)',
+    onPrimary: '#ffffff',
+    success: '#0f7b0f',
+    successSoft: 'rgba(15, 123, 15, 0.1)',
+    accent: '#744da9',
+    accentSoft: 'rgba(116, 77, 169, 0.1)',
+    warning: '#9d5d00',
+    warningSoft: '#fff4ce',
+    danger: '#c42b1c',
+    dangerSoft: '#fde7e9',
+    info: '#005fb8',
+    infoSoft: 'rgba(0, 95, 184, 0.1)',
+    focus: '#005fb8',
+    chartGrid: 'rgba(0, 0, 0, 0.07)',
+  },
+  radius: { sm: '4px', md: '8px', lg: '12px', xl: '16px', full: '999px' },
+  shadow: {
+    sm: '0 1px 2px rgba(0, 0, 0, 0.05), 0 2px 6px rgba(0, 0, 0, 0.04)',
+    lg: '0 12px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06)',
+    hard: 'none',
+    color: 'rgba(15, 23, 42, 0.18)',
+  },
+  font: { sans: WIN11_SANS, mono: WIN11_MONO, display: WIN11_DISPLAY },
+  motion: fluentMotion,
+  surface: {
+    panelBlur: '30px',
+    texture: 'none',
+    textureSize: 'auto',
+    textureOpacity: '0',
+    appBgImage:
+      'radial-gradient(900px 560px at 12% -12%, rgba(0, 120, 212, 0.08), transparent 62%), radial-gradient(760px 480px at 96% -4%, rgba(116, 77, 169, 0.06), transparent 60%)',
+    appGridImage: 'none',
+    appGridSize: '56px 56px',
+    desktopWallpaper:
+      'radial-gradient(760px 620px at 62% 26%, rgba(0, 120, 212, 0.42), transparent 58%), radial-gradient(620px 620px at 70% 58%, rgba(116, 77, 169, 0.28), transparent 62%), radial-gradient(700px 520px at 34% 34%, rgba(255, 255, 255, 0.55), transparent 66%), linear-gradient(160deg, #e8f2ff 0%, #cfe2fb 46%, #b3cdf2 100%)',
+    desktopVignette:
+      'radial-gradient(1200px 800px at 50% 45%, transparent 60%, rgba(0, 60, 120, 0.12) 100%)',
+  },
+  desktop: {
+    text: '#10233b',
+    textMuted: 'rgba(16, 35, 59, 0.68)',
+    textShadow: '0 1px 2px rgba(255, 255, 255, 0.7)',
+  },
+  icon: { stroke: '1.5px', linecap: 'round', linejoin: 'round' },
+};
+
+const win11Dark: ThemeTokens = {
+  id: 'win11-dark',
+  label: 'WIN11 深色',
+  description: '暗色云母、青色强调与 Fluent 层次',
+  mode: 'dark',
+  pack: 'win11',
+  color: {
+    bg: '#202020',
+    bgSoft: '#1c1c1c',
+    surface: '#2b2b2b',
+    surface2: '#323232',
+    surface3: '#3a3a3a',
+    surfaceGlass: 'rgba(44, 44, 44, 0.85)',
+    border: 'rgba(255, 255, 255, 0.09)',
+    borderStrong: 'rgba(255, 255, 255, 0.55)',
+    borderWidth: '1px',
+    hover: 'rgba(255, 255, 255, 0.06)',
+    pressed: 'rgba(255, 255, 255, 0.09)',
+    text: '#ffffff',
+    textSecondary: '#c5c5c5',
+    textMuted: '#9d9d9d',
+    primary: '#60cdff',
+    primaryHover: '#7ed7ff',
+    primaryPressed: '#4cb8eb',
+    primarySoft: 'rgba(96, 205, 255, 0.14)',
+    onPrimary: '#000000',
+    success: '#6ccb5f',
+    successSoft: 'rgba(108, 203, 95, 0.14)',
+    accent: '#c3a6ff',
+    accentSoft: 'rgba(195, 166, 255, 0.14)',
+    warning: '#fce100',
+    warningSoft: 'rgba(252, 225, 0, 0.14)',
+    danger: '#ff99a4',
+    dangerSoft: 'rgba(255, 153, 164, 0.14)',
+    info: '#60cdff',
+    infoSoft: 'rgba(96, 205, 255, 0.14)',
+    focus: '#60cdff',
+    chartGrid: 'rgba(255, 255, 255, 0.08)',
+  },
+  radius: { sm: '4px', md: '8px', lg: '12px', xl: '16px', full: '999px' },
+  shadow: {
+    sm: '0 2px 6px rgba(0, 0, 0, 0.35)',
+    lg: '0 16px 40px rgba(0, 0, 0, 0.55)',
+    hard: 'none',
+    color: 'rgba(0, 0, 0, 0.65)',
+  },
+  font: { sans: WIN11_SANS, mono: WIN11_MONO, display: WIN11_DISPLAY },
+  motion: fluentMotion,
+  surface: {
+    panelBlur: '30px',
+    texture: 'none',
+    textureSize: 'auto',
+    textureOpacity: '0',
+    appBgImage:
+      'radial-gradient(900px 560px at 12% -12%, rgba(96, 205, 255, 0.07), transparent 62%), radial-gradient(760px 480px at 96% -4%, rgba(195, 166, 255, 0.05), transparent 60%)',
+    appGridImage: 'none',
+    appGridSize: '56px 56px',
+    desktopWallpaper:
+      'radial-gradient(760px 620px at 62% 26%, rgba(0, 120, 212, 0.5), transparent 58%), radial-gradient(620px 620px at 70% 58%, rgba(116, 77, 169, 0.36), transparent 62%), radial-gradient(760px 560px at 32% 30%, rgba(0, 60, 120, 0.35), transparent 66%), linear-gradient(160deg, #0b1b2c 0%, #071522 52%, #040f19 100%)',
+    desktopVignette:
+      'radial-gradient(1200px 800px at 50% 45%, transparent 58%, rgba(0, 0, 0, 0.5) 100%)',
+  },
+  desktop: {
+    text: '#ffffff',
+    textMuted: 'rgba(255, 255, 255, 0.72)',
+    textShadow: '0 1px 4px rgba(0, 0, 0, 0.65)',
+  },
+  icon: { stroke: '1.5px', linecap: 'round', linejoin: 'round' },
+};
+
 export const themes: Record<ThemeName, ThemeTokens> = {
   dark,
   light,
@@ -454,6 +609,8 @@ export const themes: Record<ThemeName, ThemeTokens> = {
   pixel,
   nes,
   tech,
+  win11,
+  'win11-dark': win11Dark,
 };
 
 export const themeOptions: Array<{

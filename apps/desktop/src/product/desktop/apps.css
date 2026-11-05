@@ -631,28 +631,7 @@
   color: var(--lg-primary);
 }
 
-.tile-about,
-.tile-performance,
-.tile-disks,
-.tile-network,
-.tile-processes,
-.tile-connection,
-.tile-files,
-.tile-terminal,
-.tile-docker {
-  /* 图标底色由主题 token 派生，7 套主题与深浅模式保持一致。 */
-  border: var(--lg-border-width) solid color-mix(in srgb, var(--tile-color) 34%, var(--lg-border));
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--tile-color) 36%, var(--lg-surface-2)),
-    color-mix(in srgb, var(--tile-color) 15%, var(--lg-surface))
-  );
-  color: var(--tile-color);
-  box-shadow:
-    var(--lg-shadow-sm),
-    inset 0 1px 0 color-mix(in srgb, var(--lg-surface) 28%, transparent);
-}
-
+/* 应用图标色由主题 token 派生；色块配方与字形见 desktop/AppIcon.vue。 */
 .tile-about {
   --tile-color: var(--lg-primary);
 }

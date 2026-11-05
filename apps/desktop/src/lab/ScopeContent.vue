@@ -75,6 +75,7 @@ const packLabels: Record<string, string> = {
   pixel: '像素',
   nes: '红白机',
   tech: '科技',
+  win11: 'WIN11',
 };
 
 const statusLabel = computed(() =>
@@ -717,6 +718,7 @@ const desktopIcons = [
 .theme-chip__dot[data-pack='pixel'] { border-radius: 1px; background: #f5b544; }
 .theme-chip__dot[data-pack='nes'] { border-radius: 1px; background: #e60012; }
 .theme-chip__dot[data-pack='tech'] { background: #00e5ff; box-shadow: 0 0 8px rgba(0, 229, 255, 0.6); }
+.theme-chip__dot[data-pack='win11'] { background: #005fb8; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12); }
 
 /* ---------- KPI ---------- */
 .kpi-row {

@@ -11,15 +11,18 @@ import FileList from './FileList.vue';
 import FilePreview from './FilePreview.vue';
 import FileTree from './FileTree.vue';
 import NewFolderDialog from './NewFolderDialog.vue';
+import { pathCrumbs, visibleCrumbs } from './breadcrumb';
 import { useFiles } from './useFiles';
+import type { SortKey } from './listModel';
 import './files.css';
 
 const props = defineProps<{ server: Server }>();
 const files = useFiles(props.server);
 
 const address = ref('');
+const addressEditing = ref(false);
 const drawerOpen = ref(false);
-const menuOpen = ref<'view' | 'more' | ''>('');
+const menuOpen = ref<'sort' | 'view' | 'more' | ''>('');
 const context = ref<{ entry: FileEntry; x: number; y: number } | null>(null);
 const pendingDownload = ref<FileEntry | null>(null);
 const addressInput = ref<HTMLInputElement | null>(null);
@@ -32,6 +35,15 @@ const viewOptions = [
   { mode: 'grid' as const, label: '小图标' },
   { mode: 'list' as const, label: '列表' },
   { mode: 'details' as const, label: '详细信息' },
+];
+
+const sortOptions: { key: SortKey; label: string }[] = [
+  { key: 'name', label: '名称' },
+  { key: 'size', label: '大小' },
+  { key: 'mtime', label: '修改时间' },
+  { key: 'type', label: '类型' },
+  { key: 'mode', label: '权限' },
+  { key: 'owner', label: '所有者' },
 ];
 
 const folderCount = computed(() =>
@@ -53,6 +65,8 @@ const statusText = computed(() => {
 const activeDownloads = computed(() =>
   files.downloads.value.filter((task) => task.status === 'waiting' || task.status === 'running'),
 );
+const crumbs = computed(() => pathCrumbs(files.currentPath.value || '/'));
+const crumbView = computed(() => visibleCrumbs(crumbs.value));
 // 「连接已断开」只在曾经建立过会话时才有意义；从未连接时提示先连接。
 const sessionLost = computed(() => Boolean(props.server.sessionId) && files.offline.value);
 
@@ -60,6 +74,7 @@ watch(
   () => files.currentPath.value,
   (path) => {
     address.value = path;
+    addressEditing.value = false;
     drawerOpen.value = false;
     context.value = null;
     pendingDownload.value = null;
@@ -68,8 +83,13 @@ watch(
   { immediate: true },
 );
 
-function toggleMenu(name: 'view' | 'more') {
+function toggleMenu(name: 'sort' | 'view' | 'more') {
   menuOpen.value = menuOpen.value === name ? '' : name;
+}
+
+function chooseSort(key: SortKey) {
+  files.toggleSort(key);
+  menuOpen.value = '';
 }
 
 function chooseMode(mode: 'grid' | 'list' | 'details') {
@@ -79,17 +99,35 @@ function chooseMode(mode: 'grid' | 'list' | 'details') {
 
 function submitAddress() {
   const target = address.value.trim();
+  addressEditing.value = false;
   if (target) void files.navigate(target);
   else address.value = files.currentPath.value;
 }
 
-function resetAddress() {
+function cancelEdit() {
+  if (!addressEditing.value) return;
   address.value = files.currentPath.value;
+  addressEditing.value = false;
 }
 
 function focusAddress() {
-  addressInput.value?.focus();
-  addressInput.value?.select();
+  addressEditing.value = true;
+  void nextTick(() => {
+    addressInput.value?.focus();
+    addressInput.value?.select();
+  });
+}
+
+function navigateTo(path: string) {
+  if (path === files.currentPath.value) return;
+  addressEditing.value = false;
+  void files.navigate(path);
+}
+
+function onCrumbsClick(event: MouseEvent) {
+  const target = event.target;
+  if (target instanceof Element && target.closest('button')) return;
+  focusAddress();
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -264,102 +302,189 @@ watch(
 
     <template v-else>
       <div class="lgfiles-toolbar">
-        <button type="button" class="lgfiles-icon-btn" aria-label="后退" :disabled="!files.canBack.value" @click="files.go(-1)">
-          <LgIcon name="chevron-left" :size="15" />
-        </button>
-        <button type="button" class="lgfiles-icon-btn" aria-label="前进" :disabled="!files.canForward.value" @click="files.go(1)">
-          <LgIcon name="chevron-right" :size="15" />
-        </button>
-        <button type="button" class="lgfiles-icon-btn" aria-label="上级" :disabled="!files.canUp.value" @click="files.goUp()">
-          <LgIcon name="arrow-up" :size="15" />
-        </button>
-        <button type="button" class="lgfiles-icon-btn" aria-label="刷新" @click="files.refresh()">
-          <LgIcon name="refresh" :size="15" />
-        </button>
-        <button
-          ref="newFolderButton"
-          type="button"
-          class="lgfiles-icon-btn lgfiles-new-folder"
-          :class="{ 'is-locked': permit.locked }"
-          data-action="new-folder"
-          aria-label="新建文件夹"
-          :aria-disabled="permit.locked ? 'true' : undefined"
-          :title="permit.locked ? '需先解锁写操作' : '新建文件夹'"
-          @click="onNewFolder"
-        >
-          <LgIcon name="folder-plus" :size="15" />
-        </button>
-        <form class="lgfiles-address" @submit.prevent="submitAddress">
-          <input
-            ref="addressInput"
-            v-model="address"
-            aria-label="当前路径"
-            spellcheck="false"
-            autocomplete="off"
-            @keydown.esc.stop.prevent="resetAddress"
-          />
-        </form>
-        <label class="lgfiles-search">
-          <LgIcon name="search" :size="15" />
-          <input v-model="files.view.query" aria-label="筛选当前目录" placeholder="筛选当前目录" />
-        </label>
-        <div class="lgfiles-menu-anchor">
-          <button
-            type="button"
-            class="lgfiles-icon-btn"
-            :class="{ 'is-on': menuOpen === 'view' }"
-            aria-label="视图"
-            data-menu-toggle
-            @click="toggleMenu('view')"
-          >
-            <LgIcon name="grid" :size="15" />
-          </button>
-          <div v-if="menuOpen === 'view'" class="lgfiles-menu" role="menu" aria-label="视图">
-            <button
-              v-for="option in viewOptions"
-              :key="option.mode"
-              type="button"
-              class="lgfiles-menu__item"
-              :class="{ 'is-checked': files.view.mode === option.mode }"
-              role="menuitemradio"
-              :aria-checked="files.view.mode === option.mode"
-              @click="chooseMode(option.mode)"
+        <div class="lgfiles-toolbar__row lgfiles-toolbar__row--nav">
+          <div class="lgfiles-toolbar__group">
+            <button type="button" class="lgfiles-icon-btn" aria-label="后退" :disabled="!files.canBack.value" @click="files.go(-1)">
+              <LgIcon name="chevron-left" :size="18" />
+            </button>
+            <button type="button" class="lgfiles-icon-btn" aria-label="前进" :disabled="!files.canForward.value" @click="files.go(1)">
+              <LgIcon name="chevron-right" :size="18" />
+            </button>
+            <button type="button" class="lgfiles-icon-btn" aria-label="上级" :disabled="!files.canUp.value" @click="files.goUp()">
+              <LgIcon name="arrow-up" :size="18" />
+            </button>
+            <button type="button" class="lgfiles-icon-btn" aria-label="刷新" @click="files.refresh()">
+              <LgIcon name="refresh" :size="18" />
+            </button>
+          </div>
+          <form class="lgfiles-address" aria-keyshortcuts="Control+L" @submit.prevent="submitAddress">
+            <div
+              v-show="!addressEditing"
+              class="lgfiles-crumbs"
+              role="navigation"
+              aria-label="当前路径"
+              title="点击空白处或按 Ctrl+L 编辑路径"
+              @click="onCrumbsClick"
             >
-              <LgIcon v-if="files.view.mode === option.mode" name="check" :size="13" />
-              <span v-else class="lgfiles-menu__blank" />
-              {{ option.label }}
-            </button>
-          </div>
+              <LgIcon name="folder" :size="15" class="lgfiles-crumbs__icon" />
+              <template v-for="(item, index) in crumbView" :key="item.kind === 'ellipsis' ? 'more' : item.crumb.path">
+                <button
+                  v-if="item.kind === 'ellipsis'"
+                  type="button"
+                  class="lgfiles-crumb__more"
+                  aria-label="显示完整路径"
+                  :title="item.hidden.map((crumb) => crumb.path).join(' / ')"
+                  @click.stop="focusAddress"
+                >
+                  …
+                </button>
+                <button
+                  v-else
+                  type="button"
+                  class="lgfiles-crumb"
+                  :class="{ 'is-current': item.crumb.path === files.currentPath.value }"
+                  :data-crumb-path="item.crumb.path"
+                  :title="item.crumb.path"
+                  @click.stop="navigateTo(item.crumb.path)"
+                >
+                  {{ item.crumb.label }}
+                </button>
+                <LgIcon
+                  v-if="index < crumbView.length - 1"
+                  name="chevron-right"
+                  :size="12"
+                  class="lgfiles-crumbs__sep"
+                />
+              </template>
+            </div>
+            <input
+              v-show="addressEditing"
+              ref="addressInput"
+              v-model="address"
+              aria-label="当前路径"
+              spellcheck="false"
+              autocomplete="off"
+              @blur="cancelEdit"
+              @keydown.esc.stop.prevent="cancelEdit"
+            />
+          </form>
+          <label class="lgfiles-search">
+            <LgIcon name="search" :size="16" />
+            <input v-model="files.view.query" aria-label="筛选当前目录" placeholder="筛选当前目录" />
+          </label>
         </div>
-        <button
-          type="button"
-          class="lgfiles-icon-btn"
-          :class="{ 'is-on': files.previewOpen.value }"
-          aria-label="预览"
-          @click="files.togglePreview()"
-        >
-          <LgIcon name="eye" :size="15" />
-        </button>
-        <button type="button" class="lgfiles-icon-btn lgfiles-only-narrow" aria-label="目录树" @click="drawerOpen = !drawerOpen">
-          <LgIcon name="menu" :size="15" />
-        </button>
-        <div class="lgfiles-menu-anchor">
+
+        <div class="lgfiles-toolbar__row lgfiles-toolbar__row--actions">
+          <button
+            ref="newFolderButton"
+            type="button"
+            class="lgfiles-cmd lgfiles-new-folder"
+            :class="{ 'is-locked': permit.locked }"
+            data-action="new-folder"
+            aria-label="新建文件夹"
+            :aria-disabled="permit.locked ? 'true' : undefined"
+            :title="permit.locked ? '需先解锁写操作' : '新建文件夹'"
+            @click="onNewFolder"
+          >
+            <LgIcon name="folder-plus" :size="16" />
+            <span class="lgfiles-cmd__label">新建文件夹</span>
+          </button>
+          <span class="lgfiles-toolbar__divider" aria-hidden="true" />
+          <div class="lgfiles-menu-anchor">
+            <button
+              type="button"
+              class="lgfiles-cmd"
+              :class="{ 'is-on': menuOpen === 'sort' }"
+              aria-label="排序"
+              data-menu-toggle
+              @click="toggleMenu('sort')"
+            >
+              <LgIcon name="sort" :size="16" />
+              <span class="lgfiles-cmd__label">排序</span>
+              <LgIcon name="chevron-down" :size="12" class="lgfiles-cmd__chev" />
+            </button>
+            <div v-if="menuOpen === 'sort'" class="lgfiles-menu lgfiles-menu--start" role="menu" aria-label="排序">
+              <button
+                v-for="option in sortOptions"
+                :key="option.key"
+                type="button"
+                class="lgfiles-menu__item lgfiles-menu__item--sort"
+                :class="{ 'is-checked': files.view.sortKey === option.key }"
+                role="menuitemradio"
+                :aria-checked="files.view.sortKey === option.key"
+                @click="chooseSort(option.key)"
+              >
+                <LgIcon v-if="files.view.sortKey === option.key" name="check" :size="13" />
+                <span v-else class="lgfiles-menu__blank" />
+                {{ option.label }}
+                <span v-if="files.view.sortKey === option.key" class="lgfiles-menu__dir" aria-hidden="true">
+                  {{ files.view.sortDir === 'asc' ? '↑' : '↓' }}
+                </span>
+              </button>
+            </div>
+          </div>
+          <div class="lgfiles-menu-anchor">
+            <button
+              type="button"
+              class="lgfiles-cmd"
+              :class="{ 'is-on': menuOpen === 'view' }"
+              aria-label="视图"
+              data-menu-toggle
+              @click="toggleMenu('view')"
+            >
+              <LgIcon name="grid" :size="16" />
+              <span class="lgfiles-cmd__label">查看</span>
+              <LgIcon name="chevron-down" :size="12" class="lgfiles-cmd__chev" />
+            </button>
+            <div v-if="menuOpen === 'view'" class="lgfiles-menu lgfiles-menu--start" role="menu" aria-label="视图">
+              <button
+                v-for="option in viewOptions"
+                :key="option.mode"
+                type="button"
+                class="lgfiles-menu__item"
+                :class="{ 'is-checked': files.view.mode === option.mode }"
+                role="menuitemradio"
+                :aria-checked="files.view.mode === option.mode"
+                @click="chooseMode(option.mode)"
+              >
+                <LgIcon v-if="files.view.mode === option.mode" name="check" :size="13" />
+                <span v-else class="lgfiles-menu__blank" />
+                {{ option.label }}
+              </button>
+            </div>
+          </div>
+          <span class="lgfiles-toolbar__spacer" />
+          <button type="button" class="lgfiles-icon-btn lgfiles-only-narrow" aria-label="目录树" @click="drawerOpen = !drawerOpen">
+            <LgIcon name="menu" :size="16" />
+          </button>
+          <div class="lgfiles-menu-anchor">
+            <button
+              type="button"
+              class="lgfiles-icon-btn"
+              :class="{ 'is-on': menuOpen === 'more' }"
+              aria-label="更多"
+              data-menu-toggle
+              @click="toggleMenu('more')"
+            >
+              <LgIcon name="more" :size="18" />
+            </button>
+            <div v-if="menuOpen === 'more'" class="lgfiles-menu">
+              <button type="button" @click="files.setShowHidden(!files.view.showHidden); menuOpen = ''">
+                {{ files.view.showHidden ? '隐藏隐藏文件' : '显示隐藏文件' }}
+              </button>
+              <button type="button" @click="files.refresh(); menuOpen = ''">清空缓存并刷新</button>
+            </div>
+          </div>
           <button
             type="button"
-            class="lgfiles-icon-btn"
-            :class="{ 'is-on': menuOpen === 'more' }"
-            aria-label="更多"
-            data-menu-toggle
-            @click="toggleMenu('more')"
+            class="lgfiles-cmd"
+            :class="{ 'is-on': files.previewOpen.value }"
+            aria-label="预览"
+            @click="files.togglePreview()"
           >
-            <LgIcon name="more" :size="15" />
+            <LgIcon name="eye" :size="16" />
+            <span class="lgfiles-cmd__label">预览</span>
           </button>
-          <div v-if="menuOpen === 'more'" class="lgfiles-menu">
-            <button type="button" @click="files.setShowHidden(!files.view.showHidden); menuOpen = ''">
-              {{ files.view.showHidden ? '隐藏隐藏文件' : '显示隐藏文件' }}
-            </button>
-            <button type="button" @click="files.refresh(); menuOpen = ''">清空缓存并刷新</button>
-          </div>
         </div>
       </div>
 

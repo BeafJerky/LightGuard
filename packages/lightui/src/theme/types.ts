@@ -1,7 +1,15 @@
-export type ThemeName = 'dark' | 'light' | 'claude' | 'pixel' | 'nes' | 'tech';
+export type ThemeName =
+  | 'dark'
+  | 'light'
+  | 'claude'
+  | 'pixel'
+  | 'nes'
+  | 'tech'
+  | 'win11'
+  | 'win11-dark';
 export type ThemeId = 'system' | ThemeName;
 export type ThemeMode = 'dark' | 'light';
-export type ThemePack = 'default' | 'claude' | 'pixel' | 'nes' | 'tech';
+export type ThemePack = 'default' | 'claude' | 'pixel' | 'nes' | 'tech' | 'win11';
 export type ThemeScope = 'console' | 'desktop';
 
 export interface ThemeColors {

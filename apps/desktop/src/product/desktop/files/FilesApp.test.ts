@@ -157,6 +157,82 @@ describe('FilesApp', () => {
     wrapper.unmount();
   });
 
+  it('navigates from breadcrumb segments and switches to the path editor with Ctrl+L', async () => {
+    const wrapper = await mountOnline();
+    const input = wrapper.find('.lgfiles-address input');
+    expect(input.isVisible()).toBe(false);
+    expect(wrapper.findAll('.lgfiles-crumb').map((item) => item.text())).toEqual(['/', 'home', 'test']);
+
+    await wrapper.find('[data-crumb-path="/home"]').trigger('click');
+    await flushPromises();
+    await flushPromises();
+    expect(backend.sftpList).toHaveBeenCalledWith('srv_1', '/home');
+    expect(wrapper.findAll('.lgfiles-crumb').map((item) => item.text())).toEqual(['/', 'home']);
+
+    const viewport = wrapper.find('.lgfiles-list__viewport').element as HTMLElement;
+    viewport.dispatchEvent(new KeyboardEvent('keydown', { key: 'l', ctrlKey: true, bubbles: true }));
+    await flushPromises();
+    expect(input.isVisible()).toBe(true);
+    expect((input.element as HTMLInputElement).value).toBe('/home');
+    expect(document.activeElement).toBe(input.element);
+
+    await input.setValue('/home/test/docs');
+    await wrapper.find('.lgfiles-address').trigger('submit');
+    await flushPromises();
+    await flushPromises();
+    expect(wrapper.findAll('.lgfiles-crumb').map((item) => item.text())).toEqual([
+      '/',
+      'home',
+      'test',
+      'docs',
+    ]);
+    expect(input.isVisible()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('cancels the path editor with Escape', async () => {
+    const wrapper = await mountOnline();
+    const listsBefore = backend.sftpList.mock.calls.length;
+    const viewport = wrapper.find('.lgfiles-list__viewport').element as HTMLElement;
+    viewport.dispatchEvent(new KeyboardEvent('keydown', { key: 'l', ctrlKey: true, bubbles: true }));
+    await flushPromises();
+
+    const input = wrapper.find('.lgfiles-address input');
+    await input.setValue('/changed');
+    await input.trigger('keydown', { key: 'Escape' });
+    await flushPromises();
+
+    expect(input.isVisible()).toBe(false);
+    expect((input.element as HTMLInputElement).value).toBe('/home/test');
+    // 树展开也会列目录；这里只断言取消编辑没有触发新的导航。
+    expect(backend.sftpList.mock.calls.length).toBe(listsBefore);
+    wrapper.unmount();
+  });
+
+  it('collapses a long path and opens the editor from the ellipsis', async () => {
+    const wrapper = await mountOnline();
+    const input = wrapper.find('.lgfiles-address input');
+    await input.setValue('/home/alice/projects/lightguard/src/app');
+    await wrapper.find('.lgfiles-address').trigger('submit');
+    await flushPromises();
+    await flushPromises();
+
+    const more = wrapper.find('.lgfiles-crumb__more');
+    expect(more.exists()).toBe(true);
+    expect(wrapper.findAll('.lgfiles-crumb').map((item) => item.text())).toEqual([
+      '/',
+      'lightguard',
+      'src',
+      'app',
+    ]);
+
+    await more.trigger('click');
+    await flushPromises();
+    expect(input.isVisible()).toBe(true);
+    expect((input.element as HTMLInputElement).value).toBe('/home/alice/projects/lightguard/src/app');
+    wrapper.unmount();
+  });
+
   it('confirms a directory download from the context menu', async () => {
     const wrapper = await mountOnline();
     await openContextDownload(wrapper, '/home/test/docs');
@@ -256,6 +332,57 @@ describe('FilesApp', () => {
     expect(wrapper.find('.lgfiles-list__head').exists()).toBe(true);
     expect(window.localStorage.getItem('lg.files.view')).toBe('details');
 
+    wrapper.unmount();
+  });
+
+  it('splits navigation and actions across two toolbar rows', async () => {
+    const wrapper = await mountOnline();
+    const rows = wrapper.findAll('.lgfiles-toolbar__row');
+    expect(rows).toHaveLength(2);
+    const [first, second] = rows;
+
+    expect(first.find('.lgfiles-address').exists()).toBe(true);
+    expect(first.find('.lgfiles-search').exists()).toBe(true);
+    expect(first.find('button[aria-label="后退"]').exists()).toBe(true);
+    expect(first.find('button[aria-label="刷新"]').exists()).toBe(true);
+
+    expect(second.find('[data-action="new-folder"]').exists()).toBe(true);
+    expect(second.find('button[aria-label="排序"]').exists()).toBe(true);
+    expect(second.find('button[aria-label="视图"]').exists()).toBe(true);
+    expect(second.find('button[aria-label="预览"]').exists()).toBe(true);
+    expect(second.find('button[aria-label="更多"]').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('sorts from the toolbar menu and toggles direction on the active key', async () => {
+    const wrapper = await mountOnline();
+    const openSort = async () => {
+      await wrapper.find('button[aria-label="排序"]').trigger('click');
+      await flushPromises();
+    };
+
+    await openSort();
+    const items = () => wrapper.findAll('[aria-label="排序"] + .lgfiles-menu button');
+    expect(items()).toHaveLength(6);
+    expect(items()[0].attributes('aria-checked')).toBe('true');
+    expect(items()[0].text()).toContain('↑');
+
+    const size = items().find((item) => item.text().includes('大小'))!;
+    await size.trigger('click');
+    await flushPromises();
+    expect(wrapper.find('.lgfiles-menu').exists()).toBe(false);
+
+    await openSort();
+    const active = items().find((item) => item.attributes('aria-checked') === 'true')!;
+    expect(active.text()).toContain('大小');
+    expect(active.text()).toContain('↑');
+
+    await active.trigger('click');
+    await flushPromises();
+    await openSort();
+    const flipped = items().find((item) => item.attributes('aria-checked') === 'true')!;
+    expect(flipped.text()).toContain('大小');
+    expect(flipped.text()).toContain('↓');
     wrapper.unmount();
   });
 

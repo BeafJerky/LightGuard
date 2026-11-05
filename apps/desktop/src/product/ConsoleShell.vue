@@ -41,6 +41,8 @@ const themeGlyphs: Record<string, string> = {
   pixel: 'grid',
   nes: 'cartridge',
   tech: 'spark',
+  win11: 'dashboard',
+  'win11-dark': 'dashboard',
 };
 
 const currentTheme = computed(

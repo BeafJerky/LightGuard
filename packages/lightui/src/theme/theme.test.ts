@@ -51,11 +51,20 @@ const colorKeys: Array<keyof ThemeTokens['color']> = [
 ];
 
 describe('theme tokens', () => {
-  it('defines all 6 concrete themes plus system', () => {
-    expect(Object.keys(themes)).toEqual(['dark', 'light', 'claude', 'pixel', 'nes', 'tech']);
-    expect(themeOptions).toHaveLength(7);
+  it('defines all 8 concrete themes plus system', () => {
+    expect(Object.keys(themes)).toEqual([
+      'dark',
+      'light',
+      'claude',
+      'pixel',
+      'nes',
+      'tech',
+      'win11',
+      'win11-dark',
+    ]);
+    expect(themeOptions).toHaveLength(9);
     expect(themeOptions[0].id).toBe('system');
-    expect(new Set(themeOptions.map((option) => option.id)).size).toBe(7);
+    expect(new Set(themeOptions.map((option) => option.id)).size).toBe(9);
   });
 
   it.each(themeEntries)('%s has every color token', (_name, theme) => {
@@ -73,10 +82,43 @@ describe('theme tokens', () => {
   it('resolves system to the default pack only', () => {
     expect(resolveTheme('system', true)).toBe(themes.dark);
     expect(resolveTheme('system', false)).toBe(themes.light);
-    for (const id of ['dark', 'light', 'claude', 'pixel', 'nes', 'tech'] as const) {
+    for (const id of [
+      'dark',
+      'light',
+      'claude',
+      'pixel',
+      'nes',
+      'tech',
+      'win11',
+      'win11-dark',
+    ] as const) {
       expect(resolveTheme(id, true)).toBe(themes[id]);
       expect(resolveTheme(id, false)).toBe(themes[id]);
     }
+  });
+
+  it('ships a Fluent WIN11 pair with Mica surfaces', () => {
+    const light = themes.win11;
+    const dark = themes['win11-dark'];
+
+    expect(light.mode).toBe('light');
+    expect(dark.mode).toBe('dark');
+    expect(light.pack).toBe('win11');
+    expect(dark.pack).toBe('win11');
+
+    expect(light.radius.sm).toBe('4px');
+    expect(light.radius.md).toBe('8px');
+    expect(dark.radius.md).toBe('8px');
+    expect(light.font.sans).toContain('Segoe UI Variable');
+    expect(dark.font.sans).toContain('Segoe UI Variable');
+    expect(light.font.mono).toContain('Cascadia');
+    expect(light.surface.panelBlur).toBe('30px');
+    expect(dark.surface.panelBlur).toBe('30px');
+
+    expect(light.color.primary).toBe('#005fb8');
+    expect(dark.color.primary).toBe('#60cdff');
+    expect(dark.color.onPrimary).toBe('#000000');
+    expect(light.motion.base).toBe('167ms');
   });
 
   it('keeps pixel themes square and stepped', () => {

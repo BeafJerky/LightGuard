@@ -2,6 +2,24 @@ import { describe, expect, it } from 'vitest';
 import { buildBackupPayload, validatePayload } from './backup';
 import { DEFAULT_SETTINGS } from './store';
 
+function validate(themes: Record<string, unknown>) {
+  return validatePayload({
+    appVersion: '0.15.3',
+    scope: { settings: false, connections: false },
+    settings: {},
+    themes,
+    connections: [],
+  });
+}
+
+describe('backup themes', () => {
+  it('keeps the WIN11 pair', () => {
+    const result = validate({ console: 'win11', desktop: 'win11-dark' });
+    expect(result.payload.themes).toEqual({ console: 'win11', desktop: 'win11-dark' });
+    expect(result.warnings).toEqual([]);
+  });
+});
+
 function readSettings(settings: Record<string, unknown>) {
   return validatePayload({
     appVersion: '0.12.0',

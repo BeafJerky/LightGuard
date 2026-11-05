@@ -23,6 +23,7 @@
     <symbol id="lg-i-power" viewBox="0 0 24 24"><path d="M12 3v9" /><path d="M6.4 6.4a8 8 0 1 0 11.2 0" /></symbol>
     <symbol id="lg-i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none" /><circle cx="19" cy="12" r="1.2" fill="currentColor" stroke="none" /></symbol>
     <symbol id="lg-i-filter" viewBox="0 0 24 24"><path d="M3 5h18M6 12h12M10 19h4" /></symbol>
+    <symbol id="lg-i-sort" viewBox="0 0 24 24"><path d="M4 7h9M4 12h6M4 17h3" /><path d="M18 7v10m-3-3 3 3 3-3" /></symbol>
     <symbol id="lg-i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></symbol>
     <symbol id="lg-i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" /></symbol>
     <symbol id="lg-i-monitor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></symbol>

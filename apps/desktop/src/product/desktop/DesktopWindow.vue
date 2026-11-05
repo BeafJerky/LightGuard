@@ -199,7 +199,7 @@ function onPendingRestoreMove(event: PointerEvent) {
 
 function onTitlePointerDown(event: PointerEvent) {
   if (event.button !== 0) return;
-  if ((event.target as HTMLElement).closest('.lgdesk-win__controls')) return;
+  if ((event.target as HTMLElement).closest('.lgdesk-win__controls, [data-win-drag-ignore]')) return;
   emit('focus');
   if (props.win.maximized) {
     const rect = root.value?.getBoundingClientRect();
@@ -223,7 +223,7 @@ function onTitlePointerDown(event: PointerEvent) {
 }
 
 function onTitleDoubleClick(event: MouseEvent) {
-  if ((event.target as HTMLElement).closest('.lgdesk-win__controls')) return;
+  if ((event.target as HTMLElement).closest('.lgdesk-win__controls, [data-win-drag-ignore]')) return;
   // 还原后紧接着的单击会与拖动自身的 click 组成双击，不能随即把窗口重新最大化
   if (performance.now() - lastDragRestoreAt < 600) return;
   emit('maximize');
@@ -310,6 +310,7 @@ onBeforeUnmount(() => {
         :session="session"
         :started-at="startedAt"
         @disconnect="emit('disconnect')"
+        @close="emit('close')"
       />
     </div>
   </section>

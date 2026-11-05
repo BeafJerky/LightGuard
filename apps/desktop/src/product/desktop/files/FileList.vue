@@ -35,7 +35,15 @@ const emit = defineEmits<{
   back: [];
   refresh: [];
   context: [payload: { entry: FileEntry; x: number; y: number }];
+  'open-tab': [entry: FileEntry];
 }>();
+
+function onAuxClick(event: MouseEvent, entry: FileEntry) {
+  if (event.button !== 1) return;
+  event.preventDefault();
+  if ((entry.targetKind ?? entry.kind) !== 'dir') return;
+  emit('open-tab', entry);
+}
 
 const DETAIL_ROW_HEIGHT = 40;
 const LIST_ROW_HEIGHT = 38;
@@ -288,6 +296,7 @@ watch(() => props.resetKey, async () => {
             :title="cell.entry.name"
             @click="emit('select', cell.entry)"
             @dblclick="emit('open', cell.entry)"
+            @auxclick="onAuxClick($event, cell.entry)"
             @contextmenu.prevent="emit('context', { entry: cell.entry, x: $event.clientX, y: $event.clientY })"
           >
             <FileIcon :entry="cell.entry" :scheme="scheme" :size="52" />
@@ -308,6 +317,7 @@ watch(() => props.resetKey, async () => {
           :aria-selected="selected === row.entry.path"
           @click="emit('select', row.entry)"
           @dblclick="emit('open', row.entry)"
+          @auxclick="onAuxClick($event, row.entry)"
           @contextmenu.prevent="emit('context', { entry: row.entry, x: $event.clientX, y: $event.clientY })"
         >
           <span class="lgfiles-list__cell is-name">

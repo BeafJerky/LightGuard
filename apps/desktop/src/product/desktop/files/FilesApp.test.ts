@@ -443,6 +443,127 @@ describe('FilesApp', () => {
     wrapper.unmount();
   });
 
+  it('renders one tab and opens a second at the current path', async () => {
+    const wrapper = await mountOnline();
+    expect(wrapper.findAll('.lgfiles-tab')).toHaveLength(1);
+
+    await wrapper.find('.lgfiles-tab-add').trigger('click');
+    await flushPromises();
+    await flushPromises();
+
+    expect(wrapper.findAll('.lgfiles-tab')).toHaveLength(2);
+    expect(wrapper.findAll('.lgfiles-tab.is-active')).toHaveLength(1);
+    wrapper.unmount();
+  });
+
+  it('keeps a separate path per tab when switching', async () => {
+    const wrapper = await mountOnline();
+    await wrapper.find('.lgfiles-tab-add').trigger('click');
+    await flushPromises();
+    await flushPromises();
+    const activeView = () => wrapper.find('.lgfiles-view.is-active');
+    const activeAddress = () => (activeView().find('.lgfiles-address input').element as HTMLInputElement).value;
+
+    expect(activeAddress()).toBe('/home/test');
+    await activeView().find('[data-path="/home/test/docs"]').trigger('dblclick');
+    await flushPromises();
+    await flushPromises();
+    expect(activeAddress()).toBe('/home/test/docs');
+
+    await wrapper.findAll('.lgfiles-tab')[0].trigger('click');
+    await flushPromises();
+    expect(activeAddress()).toBe('/home/test');
+
+    await wrapper.findAll('.lgfiles-tab')[1].trigger('click');
+    await flushPromises();
+    expect(activeAddress()).toBe('/home/test/docs');
+    wrapper.unmount();
+  });
+
+  it('opens a folder in a new tab from the context menu and middle click', async () => {
+    const wrapper = await mountOnline();
+    await wrapper.find('[data-path="/home/test/docs"]').trigger('contextmenu', { clientX: 40, clientY: 40 });
+    await flushPromises();
+    const newTab = wrapper.findAll('.lgfiles-context button').find((item) => item.text() === '在新标签页打开')!;
+    await newTab.trigger('click');
+    await flushPromises();
+    await flushPromises();
+    expect(wrapper.findAll('.lgfiles-tab')).toHaveLength(2);
+    const activeAddress = () =>
+      (wrapper.find('.lgfiles-view.is-active .lgfiles-address input').element as HTMLInputElement).value;
+    expect(activeAddress()).toBe('/home/test/docs');
+
+    await wrapper.findAll('.lgfiles-tab')[0].trigger('click');
+    await flushPromises();
+    await wrapper
+      .find('.lgfiles-view.is-active [data-path="/home/test/docs"]')
+      .trigger('auxclick', { button: 1 });
+    await flushPromises();
+    expect(wrapper.findAll('.lgfiles-tab')).toHaveLength(3);
+    wrapper.unmount();
+  });
+
+  it('emits close-window when the last tab closes', async () => {
+    const wrapper = await mountOnline();
+    await wrapper.find('.lgfiles-tab__close').trigger('click');
+    expect(wrapper.emitted('close-window')).toHaveLength(1);
+    wrapper.unmount();
+  });
+
+  it('handles Ctrl+T and Ctrl+W', async () => {
+    const wrapper = await mountOnline();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', ctrlKey: true }));
+    await flushPromises();
+    await flushPromises();
+    expect(wrapper.findAll('.lgfiles-tab')).toHaveLength(2);
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', ctrlKey: true }));
+    await flushPromises();
+    expect(wrapper.findAll('.lgfiles-tab')).toHaveLength(1);
+    wrapper.unmount();
+  });
+
+  it('keeps focus inside the view so shortcuts survive closing the active tab', async () => {
+    const wrapper = await mountOnline();
+    await wrapper.find('.lgfiles-tab-add').trigger('click');
+    await flushPromises();
+    await flushPromises();
+
+    const viewport = wrapper.find('.lgfiles-view.is-active .lgfiles-list__viewport').element as HTMLElement;
+    viewport.focus();
+    expect(document.activeElement).toBe(viewport);
+    viewport.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', ctrlKey: true, bubbles: true }));
+    await flushPromises();
+    await flushPromises();
+
+    expect(wrapper.findAll('.lgfiles-tab')).toHaveLength(1);
+    // 关闭后焦点留在窗口内，下一次 Ctrl+W 才不会落到 body 上失效。
+    const nextViewport = wrapper.find('.lgfiles-view.is-active .lgfiles-list__viewport').element as HTMLElement;
+    expect(document.activeElement).toBe(nextViewport);
+
+    nextViewport.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', ctrlKey: true, bubbles: true }));
+    await flushPromises();
+    expect(wrapper.emitted('close-window')).toHaveLength(1);
+    wrapper.unmount();
+  });
+
+  it('moves focus into the activated tab so shortcuts keep working', async () => {
+    const wrapper = await mountOnline();
+    await wrapper.find('.lgfiles-tab-add').trigger('click');
+    await flushPromises();
+    await flushPromises();
+
+    const viewport = wrapper.find('.lgfiles-view.is-active .lgfiles-list__viewport').element as HTMLElement;
+    viewport.focus();
+    viewport.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', ctrlKey: true, bubbles: true }));
+    await flushPromises();
+    await flushPromises();
+
+    const nextViewport = wrapper.find('.lgfiles-view.is-active .lgfiles-list__viewport').element as HTMLElement;
+    expect(document.activeElement).toBe(nextViewport);
+    wrapper.unmount();
+  });
+
   it('creates a folder from the toolbar, refreshes the list and restores focus', async () => {
     applyPermit({
       serverId: 'srv_1',

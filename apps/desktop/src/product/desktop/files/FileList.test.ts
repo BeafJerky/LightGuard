@@ -52,6 +52,17 @@ describe('FileList', () => {
     expect(wrapper.emitted('open')?.[0]?.[0]).toMatchObject({ name: 'a.txt' });
   });
 
+  it('opens directories in a new tab on middle click and ignores files', async () => {
+    const wrapper = mount(FileList, {
+      props: props({ entries: [entry('docs', 'dir'), entry('a.txt')] }),
+    });
+    await wrapper.find('[data-path="/tmp/docs"]').trigger('auxclick', { button: 1 });
+    await wrapper.find('[data-path="/tmp/a.txt"]').trigger('auxclick', { button: 1 });
+    const emitted = wrapper.emitted('open-tab');
+    expect(emitted).toHaveLength(1);
+    expect(emitted?.[0]?.[0]).toMatchObject({ path: '/tmp/docs' });
+  });
+
   it('shows empty, error and truncation states', async () => {
     const empty = mount(FileList, { props: props({ entries: [] }) });
     expect(empty.text()).toContain('此文件夹为空');

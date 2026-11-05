@@ -1111,3 +1111,152 @@
     display: none;
   }
 }
+
+/* 文件多标签：标题栏内标签条；空白处仍可拖动窗口。 */
+.lgfiles-tabbar {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  height: 100%;
+  cursor: grab;
+}
+
+.lgfiles-tabbar__strip {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.lgfiles-tabbar__strip::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* 固定拖拽 / 双击区：不随标签滚动，标签占满宽度时仍可移动或最大化窗口。 */
+.lgfiles-tabbar__drag {
+  flex: 0 0 56px;
+  align-self: stretch;
+}
+
+.lgfiles-tab {
+  display: inline-flex;
+  flex: 0 1 190px;
+  align-items: center;
+  gap: 6px;
+  min-width: 92px;
+  height: 28px;
+  padding: 0 4px 0 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--lg-text-secondary);
+  font-size: var(--lg-fs-label);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.lgfiles-tab.is-active {
+  border-color: var(--lg-border);
+  background: var(--lg-surface);
+  color: var(--lg-text);
+  box-shadow: inset 0 -2px 0 var(--lg-primary);
+}
+
+.lgfiles-tab__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lgfiles-tab__close {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--lg-text-muted);
+  opacity: 0;
+  cursor: pointer;
+}
+
+.lgfiles-tab.is-active .lgfiles-tab__close,
+.lgfiles-tab:hover .lgfiles-tab__close,
+.lgfiles-tab:focus-within .lgfiles-tab__close,
+.lgfiles-tab:focus .lgfiles-tab__close {
+  opacity: 1;
+}
+
+.lgfiles-tab__close:hover {
+  background: var(--lg-bg-soft);
+  color: var(--lg-text);
+}
+
+.lgfiles-tab-add {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--lg-text-secondary);
+  cursor: pointer;
+}
+
+.lgfiles-tab-add:hover {
+  background: var(--lg-bg-soft);
+  color: var(--lg-text);
+}
+
+/* Teleport 到标题栏后：隐藏原标题，标签条占据弹性空间，窗口控制保持最右。 */
+.lgdesk-win__bar:has(> .lgfiles-tabbar) {
+  gap: 6px;
+}
+
+.lgdesk-win__bar:has(> .lgfiles-tabbar) .lgdesk-win__title {
+  display: none;
+}
+
+.lgdesk-win__bar:has(> .lgfiles-tabbar) .lgfiles-tabbar {
+  order: 1;
+}
+
+.lgdesk-win__bar:has(> .lgfiles-tabbar) .lgdesk-win__controls {
+  order: 2;
+}
+
+/* 测试或未找到标题栏时的内联兜底。 */
+.lgfiles-tabbar.is-inline {
+  flex: 0 0 auto;
+  height: 36px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--lg-border);
+  background: var(--lg-surface-2);
+}
+
+.lgfiles-tabbar.is-inline .lgfiles-tabbar__drag {
+  display: none;
+}
+
+.lgfiles-view {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}

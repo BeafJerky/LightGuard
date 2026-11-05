@@ -18,7 +18,7 @@ defineProps<{
   startedAt: string;
 }>();
 
-const emit = defineEmits<{ disconnect: [] }>();
+const emit = defineEmits<{ disconnect: []; close: [] }>();
 </script>
 
 <template>
@@ -34,7 +34,7 @@ const emit = defineEmits<{ disconnect: [] }>();
     :started-at="startedAt"
     @disconnect="emit('disconnect')"
   />
-  <FilesApp v-else-if="app === 'files'" :server="server" />
+  <FilesApp v-else-if="app === 'files'" :server="server" @close-window="emit('close')" />
   <DockerApp v-else-if="app === 'docker'" :server="server" />
   <TerminalApp v-else :server="server" />
 </template>

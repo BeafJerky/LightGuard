@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { LgIcon } from '@lightguard/lightui';
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { LgIcon, LG_SCOPE_KEY } from '@lightguard/lightui';
 import type { Server } from '../../types';
 import type { FileEntry, FileKind } from '../../ssh/backend';
 import { toSshError } from '../../ssh';
@@ -12,12 +12,16 @@ import FilePreview from './FilePreview.vue';
 import FileTree from './FileTree.vue';
 import NewFolderDialog from './NewFolderDialog.vue';
 import { pathCrumbs, visibleCrumbs } from './breadcrumb';
+import { resolveIconScheme, type IconScheme } from './iconScheme';
 import { useFiles } from './useFiles';
 import type { SortKey } from './listModel';
 import './files.css';
 
 const props = defineProps<{ server: Server }>();
 const files = useFiles(props.server);
+const scope = inject(LG_SCOPE_KEY, null);
+const themeId = computed(() => scope?.value.theme.id ?? 'light');
+const iconScheme = computed(() => resolveIconScheme(files.iconScheme.value, themeId.value));
 
 const address = ref('');
 const addressEditing = ref(false);
@@ -35,6 +39,12 @@ const viewOptions = [
   { mode: 'grid' as const, label: '小图标' },
   { mode: 'list' as const, label: '列表' },
   { mode: 'details' as const, label: '详细信息' },
+];
+
+const iconOptions: { value: IconScheme; label: string }[] = [
+  { value: 'auto', label: '跟随主题' },
+  { value: 'line', label: '线性 + 分类色' },
+  { value: 'color', label: '彩色图标' },
 ];
 
 const sortOptions: { key: SortKey; label: string }[] = [
@@ -94,6 +104,11 @@ function chooseSort(key: SortKey) {
 
 function chooseMode(mode: 'grid' | 'list' | 'details') {
   files.setMode(mode);
+  menuOpen.value = '';
+}
+
+function chooseIconScheme(scheme: IconScheme) {
+  files.setIconScheme(scheme);
   menuOpen.value = '';
 }
 
@@ -451,6 +466,28 @@ watch(
                 <span v-else class="lgfiles-menu__blank" />
                 {{ option.label }}
               </button>
+              <span class="lgfiles-menu__divider" aria-hidden="true" />
+              <span class="lgfiles-menu__group">文件图标</span>
+              <button
+                v-for="option in iconOptions"
+                :key="option.value"
+                type="button"
+                class="lgfiles-menu__item"
+                :class="{
+                  'is-checked': files.iconScheme.value === option.value,
+                  'lgfiles-menu__item--meta': option.value === 'auto',
+                }"
+                role="menuitemradio"
+                :aria-checked="files.iconScheme.value === option.value"
+                @click="chooseIconScheme(option.value)"
+              >
+                <LgIcon v-if="files.iconScheme.value === option.value" name="check" :size="13" />
+                <span v-else class="lgfiles-menu__blank" />
+                <span>{{ option.label }}</span>
+                <span v-if="option.value === 'auto'" class="lgfiles-menu__dir" aria-hidden="true">
+                  {{ iconScheme === 'color' ? '彩色' : '线性' }}
+                </span>
+              </button>
             </div>
           </div>
           <span class="lgfiles-toolbar__spacer" />
@@ -511,6 +548,7 @@ watch(
             :sort-key="files.view.sortKey"
             :sort-dir="files.view.sortDir"
             :mode="files.view.mode"
+            :scheme="iconScheme"
             :offline="files.offline.value"
             @select="onRowSelect"
             @open="files.open"

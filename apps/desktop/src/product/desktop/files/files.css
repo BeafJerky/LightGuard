@@ -392,11 +392,53 @@
   line-height: 1.2;
 }
 
-/* 文件夹用主色描边 + 低透明填充做双色，其余类型保持单色线性图标。 */
-.lgfiles-grid__icon--folder,
-.lgfiles-list__icon--folder {
+/* 文件夹用主色描边 + 低透明填充做双色；其余类型由 FileIcon 按分类着色。 */
+.lgfiles-file-icon {
+  flex: none;
+  color: var(--lg-text-secondary);
+}
+
+.lgfiles-file-icon.is-tone-primary {
   color: var(--lg-primary);
+}
+
+.lgfiles-file-icon.is-tone-info {
+  color: var(--lg-info);
+}
+
+.lgfiles-file-icon.is-tone-success {
+  color: var(--lg-success);
+}
+
+.lgfiles-file-icon.is-tone-warning {
+  color: var(--lg-warning);
+}
+
+.lgfiles-file-icon.is-tone-danger {
+  color: var(--lg-danger);
+}
+
+.lgfiles-file-icon.is-tone-accent {
+  color: var(--lg-accent);
+}
+
+.lgfiles-file-icon.is-tone-muted {
+  color: var(--lg-text-muted);
+}
+
+.lgfiles-file-icon.is-tone-neutral {
+  color: var(--lg-text-secondary);
+}
+
+.lgfiles-file-icon.is-folder {
   fill: color-mix(in srgb, var(--lg-primary) 16%, transparent);
+}
+
+.lg-fv-sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
 }
 
 .lgfiles-list__truncated {
@@ -737,6 +779,22 @@
 
 .lgfiles-menu__item--sort {
   grid-template-columns: 12px minmax(0, 1fr) auto;
+}
+
+.lgfiles-menu__item--meta {
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+}
+
+.lgfiles-menu__divider {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--lg-border);
+}
+
+.lgfiles-menu__group {
+  padding: 6px 10px 2px;
+  color: var(--lg-text-muted);
+  font-size: var(--lg-fs-label);
 }
 
 .lgfiles-menu__dir {

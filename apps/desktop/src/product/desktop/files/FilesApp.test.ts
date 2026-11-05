@@ -104,6 +104,7 @@ describe('FilesApp', () => {
     vi.clearAllMocks();
     resetGuard();
     window.localStorage.removeItem('lg.files.view');
+    window.localStorage.removeItem('lg.files.icons');
   });
 
   it('asks to connect when there is no session', () => {
@@ -331,6 +332,48 @@ describe('FilesApp', () => {
     await flushPromises();
     expect(wrapper.find('.lgfiles-list__head').exists()).toBe(true);
     expect(window.localStorage.getItem('lg.files.view')).toBe('details');
+
+    wrapper.unmount();
+  });
+
+  it('switches file icon schemes from the view menu and persists', async () => {
+    const wrapper = await mountOnline();
+    const iconHref = () =>
+      wrapper.find('[data-path="/home/test/a.txt"] .lgfiles-file-icon use').attributes('href');
+    const openView = async () => {
+      await wrapper.find('button[aria-label="视图"]').trigger('click');
+      await flushPromises();
+    };
+
+    await openView();
+    expect(wrapper.find('.lgfiles-menu__group').text()).toContain('文件图标');
+    const auto = wrapper.findAll('.lgfiles-menu button').find((item) => item.text().includes('跟随主题'))!;
+    expect(auto.attributes('aria-checked')).toBe('true');
+    // No provider in tests: auto falls back to the light theme, which uses color icons.
+    expect(iconHref()).toBe('#lg-fv-text');
+
+    const line = wrapper
+      .findAll('.lgfiles-menu button')
+      .find((item) => item.text().includes('线性 + 分类色'))!;
+    await line.trigger('click');
+    await flushPromises();
+    expect(window.localStorage.getItem('lg.files.icons')).toBe('line');
+    expect(iconHref()).toBe('#lg-i-file-text');
+
+    await openView();
+    const color = wrapper.findAll('.lgfiles-menu button').find((item) => item.text().includes('彩色图标'))!;
+    await color.trigger('click');
+    await flushPromises();
+    expect(window.localStorage.getItem('lg.files.icons')).toBe('color');
+    expect(iconHref()).toBe('#lg-fv-text');
+
+    await openView();
+    const autoAgain = wrapper
+      .findAll('.lgfiles-menu button')
+      .find((item) => item.text().includes('跟随主题'))!;
+    await autoAgain.trigger('click');
+    await flushPromises();
+    expect(window.localStorage.getItem('lg.files.icons')).toBe('auto');
 
     wrapper.unmount();
   });

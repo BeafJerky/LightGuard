@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { LgIcon } from '@lightguard/lightui';
 import type { FileEntry } from '../../ssh/backend';
-import { fileIcon, fileTypeLabel, formatSize, formatTime } from './format';
+import FileColorSprite from './FileColorSprite.vue';
+import FileIcon from './FileIcon.vue';
+import { fileTypeLabel, formatSize, formatTime } from './format';
+import type { ResolvedIconScheme } from './iconScheme';
 import {
   moveSelection,
   type MoveAction,
@@ -21,6 +23,7 @@ const props = defineProps<{
   sortDir: SortDirection;
   offline: boolean;
   mode: ViewMode;
+  scheme: ResolvedIconScheme;
   /** Changes on directory navigation without remounting the list. */
   resetKey: string;
 }>();
@@ -222,6 +225,7 @@ watch(() => props.resetKey, async () => {
 
 <template>
   <div class="lgfiles-list" :class="[`is-${mode}`, { 'is-offline': offline }]">
+    <FileColorSprite v-if="scheme === 'color'" />
     <div v-if="mode === 'details'" class="lgfiles-list__head" role="row">
       <button
         v-for="column in headers"
@@ -286,11 +290,7 @@ watch(() => props.resetKey, async () => {
             @dblclick="emit('open', cell.entry)"
             @contextmenu.prevent="emit('context', { entry: cell.entry, x: $event.clientX, y: $event.clientY })"
           >
-            <LgIcon
-              :name="fileIcon(cell.entry)"
-              :size="52"
-              :class="{ 'lgfiles-grid__icon--folder': fileIcon(cell.entry) === 'folder' }"
-            />
+            <FileIcon :entry="cell.entry" :scheme="scheme" :size="52" />
             <span class="lgfiles-grid__name">{{ cell.entry.name }}</span>
             <span class="lgfiles-grid__meta">{{ cell.entry.kind === 'dir' ? '' : formatSize(cell.entry.size) }}</span>
           </div>
@@ -311,11 +311,7 @@ watch(() => props.resetKey, async () => {
           @contextmenu.prevent="emit('context', { entry: row.entry, x: $event.clientX, y: $event.clientY })"
         >
           <span class="lgfiles-list__cell is-name">
-            <LgIcon
-              :name="fileIcon(row.entry)"
-              :size="20"
-              :class="{ 'lgfiles-list__icon--folder': fileIcon(row.entry) === 'folder' }"
-            />
+            <FileIcon :entry="row.entry" :scheme="scheme" :size="20" />
             <span class="lgfiles-list__name">{{ row.entry.name }}</span>
           </span>
           <span v-if="mode === 'list'" class="lgfiles-list__cell is-size">

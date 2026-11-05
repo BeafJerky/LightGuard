@@ -261,6 +261,28 @@ describe('useFiles', () => {
     window.localStorage.removeItem('lg.files.view');
   });
 
+  it('defaults the icon scheme to auto and remembers a manual choice', () => {
+    window.localStorage.removeItem('lg.files.icons');
+    const files = useFiles(server(), backend());
+    expect(files.iconScheme.value).toBe('auto');
+
+    files.setIconScheme('line');
+
+    expect(files.iconScheme.value).toBe('line');
+    expect(window.localStorage.getItem('lg.files.icons')).toBe('line');
+    expect(useFiles(server(), backend()).iconScheme.value).toBe('line');
+
+    files.setIconScheme('auto');
+    expect(window.localStorage.getItem('lg.files.icons')).toBe('auto');
+    window.localStorage.removeItem('lg.files.icons');
+  });
+
+  it('falls back to auto for an unknown stored icon scheme', () => {
+    window.localStorage.setItem('lg.files.icons', 'neon');
+    expect(useFiles(server(), backend()).iconScheme.value).toBe('auto');
+    window.localStorage.removeItem('lg.files.icons');
+  });
+
   it('disables up at the filesystem root', async () => {
     const sftpList = vi.fn(
       async (_serverId: string, path: string): Promise<FileListing> =>

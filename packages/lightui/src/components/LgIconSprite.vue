@@ -32,6 +32,19 @@
     <symbol id="lg-i-file-text" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6V3Z" /><path d="M14 3v5h5M9 13h6M9 17h4" /></symbol>
     <symbol id="lg-i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="9.5" r="1.5" /><path d="m4 18 5.5-5 3.5 3 3-2.5L20 18" /></symbol>
     <symbol id="lg-i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1" /><path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1" /></symbol>
+    <symbol id="lg-i-file-config" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6V3Z" /><path d="M14 3v5h5M9 12.5h6M9 16h6" /><circle cx="10.8" cy="12.5" r="1" /><circle cx="13.2" cy="16" r="1" /></symbol>
+    <symbol id="lg-i-file-code" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6V3Z" /><path d="M14 3v5h5" /><path d="m10 12.5-2 2 2 2M14 12.5l2 2-2 2M12.8 11.6l-1.4 5.8" /></symbol>
+    <symbol id="lg-i-file-data" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6V3Z" /><path d="M14 3v5h5" /><ellipse cx="12" cy="12.8" rx="3.3" ry="1.4" /><path d="M8.7 12.8v3.4c0 .8 1.5 1.4 3.3 1.4s3.3-.6 3.3-1.4v-3.4M8.7 14.5c0 .8 1.5 1.4 3.3 1.4s3.3-.6 3.3-1.4" /></symbol>
+    <symbol id="lg-i-file-image" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6V3Z" /><path d="M14 3v5h5" /><rect x="8.6" y="11.6" width="6.8" height="5.2" rx=".8" /><circle cx="10.4" cy="13.3" r=".7" /><path d="m8.9 16.3 2-1.7 1.4 1.2 1.3-1 1.7 1.5" /></symbol>
+    <symbol id="lg-i-file-archive" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6V3Z" /><path d="M14 3v5h5" /><rect x="8.6" y="11.8" width="6.8" height="5.2" rx=".8" /><path d="M12 11.8v5.2M10.3 13.5h3.4" /></symbol>
+    <symbol id="lg-i-file-video" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6V3Z" /><path d="M14 3v5h5" /><rect x="8.6" y="11.6" width="6.8" height="5.2" rx=".8" /><path d="m11 12.9 2.5 1.3L11 15.5v-2.6Z" /></symbol>
+    <symbol id="lg-i-file-audio" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6V3Z" /><path d="M14 3v5h5" /><path d="M10.2 17V12l4-1v5" /><circle cx="9.3" cy="17.2" r="1.1" /><circle cx="13.3" cy="16.2" r="1.1" /></symbol>
+    <symbol id="lg-i-file-key" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6V3Z" /><path d="M14 3v5h5" /><circle cx="10.2" cy="16.2" r="1.5" /><path d="m11.3 15.1 3-3M13.1 12.2l1.1 1.1" /></symbol>
+    <symbol id="lg-i-file-spreadsheet" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6V3Z" /><path d="M14 3v5h5" /><rect x="8.6" y="11.6" width="6.8" height="5.2" rx=".8" /><path d="M8.6 13.3v1.6h6.8M11.7 11.6v5.2" /></symbol>
+    <symbol id="lg-i-file-font" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6V3Z" /><path d="M14 3v5h5" /><path d="m9.2 16.8 2.4-5.7h.8l2.4 5.7M10.4 14.4h3.2" /></symbol>
+    <symbol id="lg-i-file-terminal" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6V3Z" /><path d="M14 3v5h5" /><path d="m9.6 12 1.9 1.8-1.9 1.8M12.8 15.6h2.4" /></symbol>
+    <symbol id="lg-i-file-binary" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6V3Z" /><path d="M14 3v5h5" /><rect x="8.7" y="11.8" width="2.5" height="2.5" rx=".6" /><rect x="12.8" y="14.2" width="2.5" height="2.5" rx=".6" /><path d="M11.2 13h1.6v1.2" /></symbol>
+    <symbol id="lg-i-file-doc" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6V3Z" /><path d="M14 3v5h5" /><path d="M9.2 11.6h3.8l1.4 1.4v4.4H9.2v-5.8Z" /><path d="M12.8 11.6v1.6h1.6M10.3 14.8h2.6M10.3 16.4h2.6" /></symbol>
     <symbol id="lg-i-download" viewBox="0 0 24 24"><path d="M12 4v10m-4-4 4 4 4-4" /><path d="M4 18h16" /></symbol>
     <symbol id="lg-i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" /></symbol>
     <symbol id="lg-i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" /></symbol>

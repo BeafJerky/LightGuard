@@ -31,6 +31,7 @@ function props(overrides: Record<string, unknown> = {}) {
     mode: 'details' as const,
     offline: false,
     resetKey: '',
+    scheme: 'line' as const,
     ...overrides,
   };
 }
@@ -143,5 +144,29 @@ describe('FileList', () => {
     const wrapper = mount(FileList, { props: props({ entries }) });
     expect(wrapper.findAll('[data-path]').length).toBeLessThan(50);
     expect(wrapper.text()).toContain('file0.txt');
+  });
+
+  it('renders line icons with category tones', () => {
+    const wrapper = mount(FileList, {
+      props: props({ entries: [entry('main.rs'), entry('notes', 'dir')] }),
+    });
+    const code = wrapper.find('[data-path="/tmp/main.rs"] .lgfiles-file-icon');
+    expect(code.find('use').attributes('href')).toBe('#lg-i-file-code');
+    expect(code.classes()).toContain('is-tone-info');
+    const folder = wrapper.find('[data-path="/tmp/notes"] .lgfiles-file-icon');
+    expect(folder.find('use').attributes('href')).toBe('#lg-i-folder');
+    expect(folder.classes()).toContain('is-folder');
+  });
+
+  it('renders the color sprite and falls back to line icons for links', () => {
+    const wrapper = mount(FileList, {
+      props: props({
+        scheme: 'color',
+        entries: [entry('main.rs'), entry('lost', 'symlink')],
+      }),
+    });
+    expect(wrapper.find('symbol#lg-fv-rust').exists()).toBe(true);
+    expect(wrapper.find('[data-path="/tmp/main.rs"] use').attributes('href')).toBe('#lg-fv-rust');
+    expect(wrapper.find('[data-path="/tmp/lost"] use').attributes('href')).toBe('#lg-i-link');
   });
 });

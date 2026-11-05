@@ -16,6 +16,11 @@ import {
   isTextPreviewable,
 } from './format';
 import {
+  loadIconScheme,
+  saveIconScheme,
+  type IconScheme,
+} from './iconScheme';
+import {
   moveSelection,
   toggleSort,
   visibleEntries,
@@ -133,6 +138,7 @@ export function useFiles(server: Server, client: SshBackend = ssh) {
   const historyIndex = ref(-1);
   const previewOpen = ref(false);
   const downloads = ref<DownloadTask[]>([]);
+  const iconScheme = ref<IconScheme>(loadIconScheme());
   const view = reactive<ListViewState>({
     sortKey: 'name',
     sortDir: 'asc',
@@ -492,6 +498,12 @@ export function useFiles(server: Server, client: SshBackend = ssh) {
     saveViewMode(mode);
   }
 
+  function setIconScheme(scheme: IconScheme): void {
+    if (iconScheme.value === scheme) return;
+    iconScheme.value = scheme;
+    saveIconScheme(scheme);
+  }
+
   watch(
     () => server.sessionId,
     (next, previous) => {
@@ -537,6 +549,7 @@ export function useFiles(server: Server, client: SshBackend = ssh) {
     selectedPath,
     selectedEntry,
     view,
+    iconScheme,
     notice,
     historyIndex,
     canBack,
@@ -563,6 +576,7 @@ export function useFiles(server: Server, client: SshBackend = ssh) {
     removeDownload,
     setShowHidden,
     setMode,
+    setIconScheme,
     selectTree,
     openTree,
     resolveKind,

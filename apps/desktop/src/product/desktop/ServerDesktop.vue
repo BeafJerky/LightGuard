@@ -853,7 +853,7 @@ async function onRetry() {
   --desk-dock-bottom: 0px;
   /* Dock 顶边位置：开始菜单与托盘浮层贴着它上方展开。 */
   --desk-dock-top: calc(var(--desk-dock-height) + var(--desk-dock-bottom));
-  --desk-dock-footprint: var(--desk-dock-height);
+  --desk-dock-footprint: calc(var(--desk-dock-height) + var(--desk-dock-bottom));
   /* 最大化窗口的让位量默认等于状态条 / Dock 的实际占位，悬浮胶囊因此不会压住窗口内容；
      开启自动隐藏后（is-*-bleed）归零，让最大化窗口铺满桌面，胶囊呼出时临时浮在窗口之上。 */
   --desk-max-top: var(--desk-bar-space);
@@ -1046,6 +1046,37 @@ async function onRetry() {
 .conn-bar__fullscreen:hover {
   border-color: var(--lg-border-strong);
   color: var(--lg-text);
+}
+
+/* 悬浮状态条放大一档；通栏模式继续使用 46px 的 --desk-bar-space。 */
+.serverdesk:not(.is-bar-full) {
+  --desk-bar-space: 54px;
+}
+
+.serverdesk:not(.is-bar-full) .conn-bar {
+  gap: 12px;
+  height: 42px;
+  padding: 0 14px;
+}
+
+.serverdesk:not(.is-bar-full) .conn-bar__back {
+  width: 28px;
+  height: 28px;
+}
+
+.serverdesk:not(.is-bar-full) .conn-bar__power,
+.serverdesk:not(.is-bar-full) .conn-bar__fullscreen {
+  height: 28px;
+  padding: 0 14px;
+}
+
+.serverdesk:not(.is-bar-full) .conn-bar__dot {
+  width: 9px;
+  height: 9px;
+}
+
+.serverdesk:not(.is-bar-full) .conn-bar__name {
+  max-width: 220px;
 }
 
 .serverdesk.is-bar-full .conn-bar {
@@ -1539,8 +1570,8 @@ async function onRetry() {
 
 /* 悬浮 Dock：底部居中胶囊，脱离布局流，窗口可以延伸到它后方（macOS 式覆盖）。 */
 .serverdesk.is-dock-floating {
-  --desk-dock-height: 48px;
-  --desk-dock-bottom: 8px;
+  --desk-dock-height: 60px;
+  --desk-dock-bottom: 12px;
 }
 
 .serverdesk.is-dock-floating .desk-taskbar {
@@ -1550,12 +1581,12 @@ async function onRetry() {
   left: 50%;
   display: flex;
   justify-content: center;
-  gap: 8px;
+  gap: 16px;
   width: auto;
   max-width: calc(100% - 24px);
   height: var(--desk-dock-height);
   margin: 0;
-  padding: 0 10px;
+  padding: 0 18px;
   transform: translateX(-50%);
   border: var(--lg-border-width) solid var(--lg-border-strong);
   border-radius: var(--lg-radius-full);
@@ -1722,6 +1753,52 @@ async function onRetry() {
 .desk-clock span {
   color: var(--lg-desktop-text-muted, var(--lg-text-muted));
   font-size: var(--lg-fs-label);
+}
+
+/* 悬浮 Dock 放大一档；通栏 Dock 保持原尺寸。 */
+.serverdesk.is-dock-floating .desk-taskbar__left {
+  gap: 10px;
+}
+
+.serverdesk.is-dock-floating .desk-taskbar__center,
+.serverdesk.is-dock-floating .desk-taskbar__right {
+  gap: 8px;
+}
+
+.serverdesk.is-dock-floating .desk-taskbar__start,
+.serverdesk.is-dock-floating .desk-taskbar__app {
+  width: 48px;
+  height: 48px;
+}
+
+.serverdesk.is-dock-floating .desk-taskbar__start svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* 图标按比例放大，避免为悬浮 / 通栏两种 Dock 维护两套 APP_ICON_SIZES。 */
+.serverdesk.is-dock-floating .desk-taskbar__app > * {
+  transform: scale(1.13);
+}
+
+.serverdesk.is-dock-floating .desk-taskbar__search {
+  height: 40px;
+  padding: 0 16px 0 14px;
+  gap: 9px;
+}
+
+.serverdesk.is-dock-floating .desk-taskbar__icon:not(.desk-taskbar__permit-btn) {
+  width: 36px;
+  height: 36px;
+}
+
+.serverdesk.is-dock-floating .desk-taskbar__icon:not(.desk-taskbar__permit-btn) svg {
+  width: 18px;
+  height: 18px;
+}
+
+.serverdesk.is-dock-floating .desk-clock {
+  padding: 0 8px 0 14px;
 }
 
 .desk-offline {
@@ -1973,8 +2050,6 @@ async function onRetry() {
 
   .conn-bar {
     top: 8px;
-    height: 32px;
-    gap: 5px;
   }
 
   .serverdesk.is-bar-full .conn-bar {
@@ -1990,10 +2065,6 @@ async function onRetry() {
 
   .conn-bar__name {
     max-width: 110px;
-  }
-
-  .conn-bar__fullscreen {
-    padding: 0 7px;
   }
 
   .conn-bar__fullscreen-text {
@@ -2076,6 +2147,42 @@ async function onRetry() {
   .conn-bar .conn-bar__permit,
   .desk-taskbar__right .desk-taskbar__permit-btn {
     display: none;
+  }
+
+  /* 全量密度：窄屏同步放宽，但整体仍低于宽屏一档。 */
+  .serverdesk:not(.is-bar-full) {
+    --desk-bar-space: 48px;
+  }
+
+  .serverdesk:not(.is-bar-full) .conn-bar {
+    height: 40px;
+    gap: 10px;
+    padding: 0 12px;
+  }
+
+  /* 窄屏仍限制服务器名长度，避免放大后的胶囊被长名称撑满。 */
+  .serverdesk:not(.is-bar-full) .conn-bar__name {
+    max-width: 110px;
+  }
+
+  .serverdesk.is-dock-floating {
+    --desk-dock-height: 56px;
+    --desk-dock-bottom: 12px;
+  }
+
+  .serverdesk.is-dock-floating .desk-taskbar {
+    gap: 10px;
+    padding: 0 12px;
+  }
+
+  .serverdesk.is-dock-floating .desk-taskbar__start {
+    width: 44px;
+    height: 44px;
+  }
+
+  .serverdesk.is-dock-floating .desk-taskbar__app {
+    width: 40px;
+    height: 40px;
   }
 }
 </style>

@@ -1,12 +1,12 @@
 {
-  "version": "0.15.3",
-  "notes": "# LightGuard v0.15.3\n\n自 v0.15.0 起累计（含未单独发布的 0.15.1 / 0.15.2）。\n\n## 新增\n\n- 新增 WIN11 浅色 / 深色主题，可从系统托盘直接切换；7 套主题继续支持控制台与服务器桌面双作用域。\n- 桌面任务栏按 Windows 11 比例统一密度：通栏 50px / 悬浮 48px，开始与应用按钮 40×40、图标块 30×30、字形 21px，窄屏通栏 46px。\n- 应用图标重绘为统一实心字形；dark / light / WIN11 浅深使用高饱和配色，纸墨 / 像素 / 红白机 / 科技保留原配色。\n- 文件窗口多标签：标签条并入窗口标题栏，右侧固定保留 56px 拖拽 / 双击区；支持「+」、Ctrl+T、右键「在新标签页打开」与目录中键新建，关闭按钮 / 中键 / Ctrl+W 关闭，Ctrl+Tab 与 Ctrl+1–8 切换，上限 8 个。每个标签独立保存路径与前进 / 后退历史，目录树、下载任务、视图模式与图标偏好跨标签共享；关闭最后一个标签即关闭文件窗口。\n- 文件「查看」菜单新增文件图标方案：跟随主题 / 线性 + 分类色 / 彩色图标，选择写入本机并即时生效。\n- 文件工具栏改为两行：导航与可编辑面包屑 + 当前目录搜索；新建文件夹、排序、查看与预览。新增排序菜单，表头排序方向同步。\n- 右上 LG 头像改为工作区菜单（版本、设置、关于），侧栏工作区卡压缩为单行并完整显示版本号；设置页支持 `#/settings/:tab` 深链。\n- 状态条与 Dock 支持自动隐藏（仅在窗口最大化时生效）；拖动最大化窗口可还原并跟随指针；连接日志新增未读异常角标。\n\n## 修复\n\n- 对齐 `@tauri-apps/plugin-notification`（2.8.0）与 Rust crate 版本，修复 Tauri CLI 2.12 因版本不一致中止打包的问题。\n- 关闭 WebView2 过滚动，窗口尺寸与视口保持一致；全屏退出入口移到状态条，避免悬浮遮挡内容。\n\n## 重要说明\n\n- Windows x64 NSIS 安装包；当前未做 Authenticode 代码签名，SmartScreen 可能提示未知发布者。\n- 0.13.0 及更早版本不含 updater，需先手动安装一次 0.14.0 或更新版本。\n- **不支持降级**：0.15 起数据库位于 `%LOCALAPPDATA%\\com.lightguard.desktop\\data\\lightguard.db`，回到 0.14.x 会读取旧路径并新建空库。\n- 文件窗口多标签状态仅在当前窗口会话内保留，不跨应用重启持久化；文件上传 / 重命名 / 删除 / 改权限仍未提供。\n- 系统通知仅在提示仍显示时可点击定位；应用完全退出期间不采样、不告警。\n- Web 形态仅用于界面预览，不随本 Release 发布。\n\n安装包 SHA256: 64df09e54df89e010c50149fdb58f69d03713a5f1ea396989d41a97bf11ef1a3\n\n## 完整变更\n\nhttps://github.com/BeafJerky/LightGuard/compare/v0.15.0...v0.15.3",
-  "pub_date": "2026-11-06T01:10:18.594Z",
+  "version": "0.15.4",
+  "notes": "# LightGuard v0.15.4\n\n自 v0.15.3 起累计（本批次仅一个提交）。\n\n## 变更\n\n- 服务器桌面悬浮状态条放大一档：高度 42px、返回按钮 28×28、电源 / 全屏按钮高 28px、状态指示点 9px，服务器名限宽 220px；通栏模式保持原尺寸。\n- 悬浮 Dock 高度 48→60px、底边距 8→12px，任务栏间距与图标同步放大；最大化窗口的让位量改为计入 Dock 底部偏移，避免压住 Dock 或留白不一致。\n- 窄屏下悬浮状态条与 Dock 放宽但仍低于宽屏一档，长服务器名继续限宽。\n\n## 重要说明\n\n- Windows x64 NSIS 安装包；当前未做 Authenticode 代码签名，SmartScreen 可能提示未知发布者。\n- 0.13.0 及更早版本不含 updater，需先手动安装一次 0.14.0 或更新版本。\n- **不支持降级**：0.15 起数据库位于 `%LOCALAPPDATA%\\com.lightguard.desktop\\data\\lightguard.db`，回到 0.14.x 会读取旧路径并新建空库。\n- 已发布版本中仍未完成的实机验证（暂停 / 取消、镜像回退、跨重启、稍后安装、通知点击、O3 / O5 / O6）见 PRD §15.11，不计为通过。\n- Web 形态仅用于界面预览，不随本 Release 发布。\n\n## 校验\n\n`LightGuard_0.15.4_x64-setup.exe`\n\nSHA256: `6cfd63bf72c6699743c8d45b1cf747d81f207e3a96064d5e1957574a6dffd78e`\n\n## 完整变更\n\nhttps://github.com/BeafJerky/LightGuard/compare/v0.15.3...v0.15.4",
+  "pub_date": "2026-11-08T12:00:43.859Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUVorSDFkZWthcnlFWFg5QUozWnZpVGphcmJ5QTNYTkdQOEdmVkxXam1tdzN5dWQxSU95QmhuUUI3K2JFcStSYXJ3dVBJd0s5SVU2cjVTVmg3ZG1vUTdFaXRlOWoxcndNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzOTI3NDE4CWZpbGU6TGlnaHRHdWFyZF8wLjE1LjNfeDY0LXNldHVwLmV4ZQl2ZXJzaW9uOjAuMTUuMwo5Q3NRL0tDbG93L3RSUG93ZVhoeS93TGRhV1ZFZzhXd2hXTjBQMFIvUVJSVFRJYVBMek1MVVdwUFFFOWtXTklpNnplV1VyUVlsMUNvUmRsandBY0pDUT09Cg==",
-      "url": "https://gh-proxy.com/https://github.com/BeafJerky/LightGuard/releases/download/v0.15.3/LightGuard_0.15.3_x64-setup.exe",
-      "size": 6903184
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUVorSDFkZWthci9EN2ZGYjB6M2g3UWFFeHlZUWVPL3l2N0pOMDBVRVBGL08zTDEwQ1FCZ0FOZ1Q0T1lJZ1hobjdSamNycDVHZmtnVmlFZm13M3htYXhmaGo5djNxc3d3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MTM4ODE3CWZpbGU6TGlnaHRHdWFyZF8wLjE1LjRfeDY0LXNldHVwLmV4ZQl2ZXJzaW9uOjAuMTUuNApNUkFQR0VKK25KVmJmbXgzZm91MHF0Z2F5Y0NhL2ZaOU9lbXY2b0ErSTRZMUY1WFJQTUw1VXR2NkxUWHU3TmtoNEpUeHd4b3djcExudXFTK3Q5TDZDdz09Cg==",
+      "url": "https://gh-proxy.com/https://github.com/BeafJerky/LightGuard/releases/download/v0.15.4/LightGuard_0.15.4_x64-setup.exe",
+      "size": 6897138
     }
   }
 }

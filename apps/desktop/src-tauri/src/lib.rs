@@ -10,10 +10,34 @@ pub mod updater;
 pub mod test_support;
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager};
 use tauri_plugin_window_state::{AppHandleExt, StateFlags, WindowExt};
+
+// 由 vibe_images/final/{light,dark} 的 128px / 32px PNG 转出的原始 RGBA，
+// 避免为运行时图标解码再引入 PNG 依赖。换图时同步重新导出这四个文件。
+const WINDOW_ICON_LIGHT: &[u8] = include_bytes!("../icons/owl-light-128.rgba");
+const WINDOW_ICON_DARK: &[u8] = include_bytes!("../icons/owl-dark-128.rgba");
+const TRAY_ICON_LIGHT: &[u8] = include_bytes!("../icons/owl-light-32.rgba");
+const TRAY_ICON_DARK: &[u8] = include_bytes!("../icons/owl-dark-32.rgba");
+
+fn window_icon(mode: &str) -> Image<'static> {
+    if mode == "dark" {
+        Image::new(WINDOW_ICON_DARK, 128, 128)
+    } else {
+        Image::new(WINDOW_ICON_LIGHT, 128, 128)
+    }
+}
+
+fn tray_icon(mode: &str) -> Image<'static> {
+    if mode == "dark" {
+        Image::new(TRAY_ICON_DARK, 32, 32)
+    } else {
+        Image::new(TRAY_ICON_LIGHT, 32, 32)
+    }
+}
 
 // 前端注册好关闭监听后才拦截系统关闭，避免启动早期请求被吞掉。
 static CLOSE_BRIDGE_READY: AtomicBool = AtomicBool::new(false);
@@ -78,6 +102,25 @@ fn app_close_ready() {
     CLOSE_BRIDGE_READY.store(true, Ordering::SeqCst);
 }
 
+// 窗口图标跟随控制台主题，托盘跟随系统外观；两档图标由前端在主题变化时推送。
+#[tauri::command]
+fn set_app_icons(
+    app: tauri::AppHandle,
+    window_mode: String,
+    tray_mode: String,
+) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        window
+            .set_icon(window_icon(&window_mode))
+            .map_err(|error| error.to_string())?;
+    }
+    if let Some(tray) = app.tray_by_id("lightguard-tray") {
+        tray.set_icon(Some(tray_icon(&tray_mode)))
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
 fn show_main_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     if let Some(window) = app.get_webview_window("main") {
         // 必须先取消最小化再钳制：最小化窗口的 `outer_position()` 是图标矩形
@@ -112,9 +155,7 @@ fn setup_tray<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()>
             }
         });
 
-    if let Some(icon) = app.default_window_icon() {
-        tray = tray.icon(icon.clone());
-    }
+    tray = tray.icon(tray_icon("light"));
     tray.build(app)?;
     Ok(())
 }
@@ -225,6 +266,9 @@ pub fn run() {
             // 自启拉起时留在托盘，用户双击时钳制到可见显示器并聚焦。
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.restore_state(window_state_flags());
+                // 先放上浅档品牌图标，避免启动瞬间闪回旧的构建期图标；
+                // 前端挂载后会按控制台主题立即校正深/浅。
+                let _ = window.set_icon(window_icon("light"));
                 // 圆角与描边要在窗口露面之前设好；自启路径稍后从托盘打开也保留该外观。
                 #[cfg(windows)]
                 tune_window(&window);
@@ -307,6 +351,7 @@ pub fn run() {
             updater::update_install,
             app_quit,
             app_close_ready,
+            set_app_icons,
             set_window_border_color,
         ])
         .run(tauri::generate_context!())
@@ -333,5 +378,46 @@ mod tests {
         assert!(!rect_intersects((1920, 0, 800, 600), monitor));
         assert!(!rect_intersects((0, 1081, 800, 600), monitor));
         assert!(rect_intersects((1920, 0, 800, 600), (1920, 0, 1920, 1080)));
+    }
+
+    #[test]
+    fn embedded_icons_keep_the_expected_tier_background() {
+        assert_eq!(WINDOW_ICON_LIGHT.len(), 128 * 128 * 4);
+        assert_eq!(WINDOW_ICON_DARK.len(), 128 * 128 * 4);
+        assert_eq!(TRAY_ICON_LIGHT.len(), 32 * 32 * 4);
+        assert_eq!(TRAY_ICON_DARK.len(), 32 * 32 * 4);
+        // 四角透明（圆角），圆角内的底色保持对应档位，同时守住 RGBA 通道顺序。
+        assert_eq!(WINDOW_ICON_LIGHT[3], 0);
+        assert_eq!(WINDOW_ICON_DARK[3], 0);
+        assert_eq!(TRAY_ICON_LIGHT[3], 0);
+        assert_eq!(TRAY_ICON_DARK[3], 0);
+        let window_light_inner = 24 * 128 * 4 + 24 * 4;
+        let window_dark_inner = 24 * 128 * 4 + 24 * 4;
+        assert_near(&WINDOW_ICON_LIGHT[window_light_inner..window_light_inner + 4], [0xED, 0xD5, 0xAB, 0xFF]);
+        assert_near(&WINDOW_ICON_DARK[window_dark_inner..window_dark_inner + 4], [0x1B, 0x2C, 0x4A, 0xFF]);
+        let tray_light_inner = 6 * 32 * 4 + 6 * 4;
+        let tray_dark_inner = 6 * 32 * 4 + 6 * 4;
+        assert_near(&TRAY_ICON_LIGHT[tray_light_inner..tray_light_inner + 4], [0xED, 0xD5, 0xAB, 0xFF]);
+        assert_near(&TRAY_ICON_DARK[tray_dark_inner..tray_dark_inner + 4], [0x1B, 0x2C, 0x4A, 0xFF]);
+    }
+
+    fn assert_near(actual: &[u8], expected: [u8; 4]) {
+        assert_eq!(actual[3], expected[3]);
+        for channel in 0..3 {
+            let delta = (actual[channel] as i16 - expected[channel] as i16).abs();
+            assert!(delta <= 4, "channel {channel} differs by {delta}");
+        }
+    }
+
+    #[test]
+    fn icon_images_use_the_matching_tier_and_size() {
+        assert_eq!(window_icon("dark").width(), 128);
+        assert_eq!(window_icon("light").width(), 128);
+        assert_eq!(tray_icon("dark").width(), 32);
+        assert_eq!(tray_icon("light").width(), 32);
+        assert_eq!(window_icon("dark").rgba()[3], 0);
+        assert_eq!(tray_icon("light").rgba()[3], 0);
+        assert_near(&window_icon("light").rgba()[24 * 128 * 4 + 24 * 4..][..4], [0xED, 0xD5, 0xAB, 0xFF]);
+        assert_near(&tray_icon("dark").rgba()[6 * 32 * 4 + 6 * 4..][..4], [0x1B, 0x2C, 0x4A, 0xFF]);
     }
 }

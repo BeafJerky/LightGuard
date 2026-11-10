@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, watch, watchEffect } from 'vue';
+import { usePreferredDark } from '@vueuse/core';
 import {
   LgConfigProvider,
   LgIconSprite,
@@ -21,6 +22,8 @@ import ThemeSwitchOverlay from './ThemeSwitchOverlay.vue';
 import { backendAvailable, findServer, restartLiveUpdates, state, stopLiveUpdates } from './product/store';
 import { navigateTo, route, routeTitle, startRouter } from './product/router';
 import { startUpdateWatcher, updateController } from './product/updater';
+import { syncAppIcons } from './product/osIcon';
+import { isTauriRuntime } from './product/ssh/tauri';
 import { renderSettings } from './render/settings';
 
 startRouter();
@@ -29,6 +32,15 @@ const scope = computed<ThemeScope>(() => (route.value.name === 'desktop' ? 'desk
 const theme = computed<ThemeId>(() =>
   scope.value === 'desktop' ? state.themes.desktop : state.themes.console,
 );
+
+// 窗口 / 任务栏图标跟随控制台主题；托盘由 syncAppIcons 按系统外观同步。
+const prefersDark = usePreferredDark();
+const framed = isTauriRuntime();
+
+watchEffect(() => {
+  if (!framed) return;
+  void syncAppIcons(state.themes.console, prefersDark.value);
+});
 
 const desktopServer = computed(() => {
   if (route.value.name !== 'desktop' || !route.value.id) return null;

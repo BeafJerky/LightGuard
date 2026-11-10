@@ -10,6 +10,7 @@ import {
 } from '@lightguard/lightui';
 import type { ThemeId } from '@lightguard/lightui';
 import { APP_VERSION } from './data';
+import BrandMark from './BrandMark.vue';
 import { navigate, route } from './router';
 import { backendAvailable, fleet, setTheme, state, tickAll, unreadEvents } from './store';
 import { alertsState, loadAlerts, subscribeAlerts } from './alerts/store';
@@ -235,9 +236,7 @@ function onThemeSelect(key: string) {
 
     <aside class="console-side" :class="{ 'is-open': sideOpen }">
       <a class="console-brand" href="#/overview" aria-label="LightGuard 总览" @click="sideOpen = false">
-        <span class="console-brand__mark" aria-hidden="true">
-          <LgIcon name="shield" :size="21" />
-        </span>
+        <BrandMark class="console-brand__mark" :size="38" radius="var(--lg-radius-md)" />
         <span class="console-brand__text">
           <strong>LightGuard</strong>
           <small>轻守卫 · 服务器守卫</small>
@@ -467,18 +466,6 @@ function onThemeSelect(key: string) {
   padding: 2px 8px;
   color: inherit;
   text-decoration: none;
-}
-
-.console-brand__mark {
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  border: 1px solid var(--lg-border-strong);
-  border-radius: var(--lg-radius-md);
-  background: linear-gradient(155deg, var(--lg-primary-soft), var(--lg-accent-soft));
-  color: var(--lg-primary);
 }
 
 .console-brand__text {

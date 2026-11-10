@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { LgIcon, LG_SCOPE_KEY } from '@lightguard/lightui';
+import BrandMark from './product/BrandMark.vue';
 import { findServer, flushSettings, state, updateSettings } from './product/store';
 import { route, routeTitle } from './product/router';
 import { promptClose } from './product/ui';
@@ -185,9 +186,7 @@ onBeforeUnmount(() => {
   <div v-if="framed" class="window-frame" :class="{ 'is-maximized': maximized, 'is-fullscreen': isFullscreen }">
     <header v-if="!isFullscreen" class="window-bar" data-tauri-drag-region>
       <div class="window-bar__brand" data-tauri-drag-region>
-        <span class="window-bar__mark" data-tauri-drag-region>
-          <LgIcon name="shield" :size="13" />
-        </span>
+        <BrandMark class="window-bar__mark" :size="24" data-tauri-drag-region />
         <strong data-tauri-drag-region>LightGuard</strong>
         <span class="window-bar__page" data-tauri-drag-region>{{ pageLabel }}</span>
       </div>
@@ -261,18 +260,6 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   min-width: 0;
-}
-
-.window-bar__mark {
-  display: grid;
-  flex: 0 0 auto;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  border: var(--lg-border-width) solid color-mix(in srgb, var(--lg-primary) 32%, var(--lg-border));
-  border-radius: var(--lg-radius-sm);
-  background: linear-gradient(145deg, var(--lg-primary-soft), var(--lg-accent-soft));
-  color: var(--lg-primary);
 }
 
 .window-bar__brand strong {

@@ -12,6 +12,7 @@ import {
 } from '@lightguard/lightui';
 import type { ThemeId } from '@lightguard/lightui';
 import DesktopIconLayer from '../../desktop/DesktopIconLayer.vue';
+import BrandMark from '../BrandMark.vue';
 import AppIcon from '../../desktop/AppIcon.vue';
 import { APP_ICON_SIZES } from '../../desktop/appIcons';
 import DesktopWindow from './DesktopWindow.vue';
@@ -691,7 +692,7 @@ async function onRetry() {
     <div v-if="trayOpen" class="desk-scrim" @click="trayOpen = false" />
     <section v-if="trayOpen" class="desk-tray" role="dialog" aria-label="系统托盘">
       <header class="desk-tray__head">
-        <span class="desk-tray__mark"><LgIcon name="shield" :size="15" /></span>
+        <BrandMark class="desk-tray__mark" :size="26" radius="8px" />
         <div>
           <strong>LightGuard</strong>
           <small>{{ server.encryption ? 'SSH 直连 · 会话加密' : 'SSH 直连 · 只读采集' }}</small>
@@ -825,7 +826,7 @@ async function onRetry() {
 
     <div v-if="booting" class="desk-boot" role="status" aria-live="polite">
       <div class="desk-boot__card">
-        <span class="desk-boot__mark"><LgIcon name="shield" :size="26" /></span>
+        <BrandMark class="desk-boot__mark" :size="52" radius="15px" />
         <h1>LightGuard</h1>
         <p>{{ server.name }} · {{ server.ip }}:{{ server.port }}</p>
         <ul class="desk-boot__steps">
@@ -1460,16 +1461,6 @@ async function onRetry() {
   font-size: var(--lg-fs-label);
 }
 
-.desk-tray__mark {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
-  background: var(--lg-primary-soft);
-  color: var(--lg-primary);
-}
-
 .desk-tray__row {
   display: flex;
   align-items: baseline;
@@ -1887,13 +1878,6 @@ async function onRetry() {
 }
 
 .desk-boot__mark {
-  display: grid;
-  place-items: center;
-  width: 52px;
-  height: 52px;
-  border-radius: 15px;
-  background: var(--lg-primary-soft);
-  color: var(--lg-primary);
   animation: desk-pulse 1.6s var(--lg-ease) infinite;
 }
 

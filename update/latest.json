@@ -1,12 +1,12 @@
 {
-  "version": "0.15.4",
-  "notes": "# LightGuard v0.15.4\n\n自 v0.15.3 起累计（本批次仅一个提交）。\n\n## 变更\n\n- 服务器桌面悬浮状态条放大一档：高度 42px、返回按钮 28×28、电源 / 全屏按钮高 28px、状态指示点 9px，服务器名限宽 220px；通栏模式保持原尺寸。\n- 悬浮 Dock 高度 48→60px、底边距 8→12px，任务栏间距与图标同步放大；最大化窗口的让位量改为计入 Dock 底部偏移，避免压住 Dock 或留白不一致。\n- 窄屏下悬浮状态条与 Dock 放宽但仍低于宽屏一档，长服务器名继续限宽。\n\n## 重要说明\n\n- Windows x64 NSIS 安装包；当前未做 Authenticode 代码签名，SmartScreen 可能提示未知发布者。\n- 0.13.0 及更早版本不含 updater，需先手动安装一次 0.14.0 或更新版本。\n- **不支持降级**：0.15 起数据库位于 `%LOCALAPPDATA%\\com.lightguard.desktop\\data\\lightguard.db`，回到 0.14.x 会读取旧路径并新建空库。\n- 已发布版本中仍未完成的实机验证（暂停 / 取消、镜像回退、跨重启、稍后安装、通知点击、O3 / O5 / O6）见 PRD §15.11，不计为通过。\n- Web 形态仅用于界面预览，不随本 Release 发布。\n\n## 校验\n\n`LightGuard_0.15.4_x64-setup.exe`\n\nSHA256: `6cfd63bf72c6699743c8d45b1cf747d81f207e3a96064d5e1957574a6dffd78e`\n\n## 完整变更\n\nhttps://github.com/BeafJerky/LightGuard/compare/v0.15.3...v0.15.4",
-  "pub_date": "2026-11-08T12:00:43.859Z",
+  "version": "0.15.5",
+  "notes": "# LightGuard v0.15.5\n\n自 v0.15.4 起。\n\n## 新增\n\n- 应用内品牌标记统一为定制猫头鹰 IP，替换窗口标题栏、控制台侧栏、服务器桌面托盘面板与启动动画中的占位字标 / 盾形标记。\n- 所有品牌标记按放置尺寸配置圆角：标题栏 24px、侧栏 38px、托盘 26px、启动动画 52px，均为圆角而非直角。\n- 浅色档使用原始米色底，深色档使用藏青 `#1B2C4A` 底；应用内按当前主题自动切换，无需重启。\n- 浏览器 favicon 提供浅 / 深两档，按系统配色方案自动选择。\n- Windows 窗口图标与托盘图标换成对应品牌的 128px / 32px 位图，自带透明圆角；窗口图标随控制台主题切换，托盘图标随系统深浅切换。\n\n## 重要说明\n\n- Windows x64 NSIS 安装包；当前未签名，SmartScreen 可能提示未知发布者。\n- Web 形态为预览，不随本 Release 发布。\n- 0.13.0 及更早版本不含 updater，需先手动安装一次新版本才能进入自动更新通道。\n- 已知限制：\n  - 终端断开遮罩上的「重连会话」按钮点击无响应，需关闭标签重开（已定位为 xterm 链接层遮挡，待后续版本修复，见 PRD §17.5）。\n  - 0.15.0 更新链路除「无更新」外的部分人工场景（暂停 / 取消、镜像回退、跨重启、稍后安装、通知点击）仍缺实机证据，见 PRD §15.11「后续评估」。\n\n## 校验\n\n`LightGuard_0.15.5_x64-setup.exe`\nSHA256: `00f39dfb38b68828c525d906141a492acf4aabebab1ec95b6d73195fdc3ce09e`\n\n## 完整变更\n\nhttps://github.com/BeafJerky/LightGuard/compare/v0.15.4...v0.15.5",
+  "pub_date": "2026-11-10T07:34:53.054Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUVorSDFkZWthci9EN2ZGYjB6M2g3UWFFeHlZUWVPL3l2N0pOMDBVRVBGL08zTDEwQ1FCZ0FOZ1Q0T1lJZ1hobjdSamNycDVHZmtnVmlFZm13M3htYXhmaGo5djNxc3d3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MTM4ODE3CWZpbGU6TGlnaHRHdWFyZF8wLjE1LjRfeDY0LXNldHVwLmV4ZQl2ZXJzaW9uOjAuMTUuNApNUkFQR0VKK25KVmJmbXgzZm91MHF0Z2F5Y0NhL2ZaOU9lbXY2b0ErSTRZMUY1WFJQTUw1VXR2NkxUWHU3TmtoNEpUeHd4b3djcExudXFTK3Q5TDZDdz09Cg==",
-      "url": "https://github.com/BeafJerky/LightGuard/releases/download/v0.15.4/LightGuard_0.15.4_x64-setup.exe",
-      "size": 6897138
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUVorSDFkZWthcjQ1c1RSZTdlMjJLT1NIanErZVhieExTUUFiZzVoMzhieWNuSWxNbXJUcFQ5TzZUSThSQnRFYXVEOGR5dzhkcUo1blMvb1BSMU9OcjAya2ZpdndsMGdZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0Mjk1NzUwCWZpbGU6TGlnaHRHdWFyZF8wLjE1LjVfeDY0LXNldHVwLmV4ZQl2ZXJzaW9uOjAuMTUuNQp1Wmcrc3FmQkRIRUMxdTl1QkZvS0F5MWFaaWY0UTlsRkFUcHAzeURxZTM4K2x3N3hFMTZwNGR3Njd5QUwyUzc2TkZBeDl5V3lwT2VZMEVmc2JYeXBBQT09Cg==",
+      "url": "https://github.com/BeafJerky/LightGuard/releases/download/v0.15.5/LightGuard_0.15.5_x64-setup.exe",
+      "size": 6976558
     }
   }
 }

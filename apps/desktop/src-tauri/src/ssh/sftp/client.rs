@@ -312,10 +312,9 @@ pub async fn set_permissions(
     require_absolute(path)?;
     let client = acquire(state, server_id).await?;
     with_timeout(OP_TIMEOUT, "修改权限超时", async {
-        let mut attrs = client
-            .symlink_metadata(path)
-            .await
-            .map_err(|error| map_error(error, path))?;
+        // 只发送 permissions。把 stat 得到的 size/uid/gid 一并回写会让
+        // SETSTAT 尝试修改目录大小等字段，OpenSSH 直接返回 Failure。
+        let mut attrs = russh_sftp::protocol::FileAttributes::default();
         attrs.permissions = Some(mode & 0o7777);
         client
             .set_metadata(path, attrs)

@@ -1,12 +1,12 @@
 {
-  "version": "0.15.6",
-  "notes": "# LightGuard v0.15.6\n\n自 v0.15.5 起。\n\n## 修复\n\n- 修复 exe、安装器、「安装的应用」、开始菜单快捷方式与任务栏仍显示旧盾牌图标的问题，全部改为定制猫头鹰。\n- 构建期静态图标改由浅档猫头鹰生成：`icon.ico` 含 16 / 24 / 32 / 48 / 64 / 128 / 256px 七档，22% 透明圆角；同步更新 `32x32` / `64x64` / `128x128` / `128x128@2x` / `icon.png`。\n- NSIS 安装器与卸载器显式使用 `icons/icon.ico`。\n- 安装末尾调用 `SHChangeNotify` 标记 exe 图标缓存失效，升级用户启动后任务栏不再残留旧图标。\n\n## 重要说明\n\n- Windows x64 NSIS 安装包；当前未签名，SmartScreen 可能提示未知发布者。\n- Web 形态为预览，不随本 Release 发布。\n- 0.13.0 及更早版本不含 updater，需先手动安装一次新版本才能进入自动更新通道。\n- 若在 0.15.6 之前已安装过同路径版本，任务栏仍显示旧图标时，重启资源管理器或注销一次即可刷新。\n- 已知限制：\n  - 终端断开遮罩上的「重连会话」按钮点击无响应，需关闭标签重开（已定位为 xterm 链接层遮挡，待后续版本修复，见 PRD §17.5）。\n  - 0.15.0 更新链路除「无更新」外的部分人工场景（暂停 / 取消、镜像回退、跨重启、稍后安装、通知点击）仍缺实机证据，见 PRD §15.11「后续评估」。\n\n## 校验\n\n`LightGuard_0.15.6_x64-setup.exe`\nSHA256: `43c0f4df2b0c1bbad70ea693f82d479759e6530bfe278b58247d604f179d0b3a`\n\n## 完整变更\n\nhttps://github.com/BeafJerky/LightGuard/compare/v0.15.5...v0.15.6",
-  "pub_date": "2026-11-10T08:11:37.692Z",
+  "version": "0.15.7",
+  "notes": "# LightGuard v0.15.7\n\n自 v0.15.6 起。\n\n## 修复\n\n- 修复终端断开后遮罩上的「重连会话」按钮点击无响应的问题：断开遮罩提升到 xterm 链接层之上，物理点击与键盘 / UIA 激活均可重新连接。\n- 新增遮罩层级守护测试，防止后续样式重构再次遮挡按钮。\n\n## 重要说明\n\n- Windows x64 NSIS 安装包；当前未签名，SmartScreen 可能提示未知发布者。\n- Web 形态为预览，不随本 Release 发布。\n- 0.13.0 及更早版本不含 updater，需先手动安装一次新版本才能进入自动更新通道。\n- 已知限制：\n  - 0.15.0 更新链路除「无更新」外的部分人工场景（暂停 / 取消、镜像回退、跨重启、稍后安装、通知点击）仍缺实机证据，见 PRD §15.11「后续评估」。\n\n## 校验\n\n`LightGuard_0.15.7_x64-setup.exe`\nSHA256: `8eb87598dbe70c1cf895457d87cedf63be7a914c6af195c18ca8fa781b55565a`\n\n## 完整变更\n\nhttps://github.com/BeafJerky/LightGuard/compare/v0.15.6...v0.15.7",
+  "pub_date": "2026-11-14T19:03:14.677Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUVorSDFkZWthcjMxK0dCbWZjRHFjaW42RmpBZXRuMmU3ZWhXTXRaU09yNk5Tc3ZqNmc0dWJvMXgyRXNNaHhmSmdUVlZMdE0yV3drTnZyWFEvUmJ1ZnFsVGp3eUZXUUE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0Mjk4MDMxCWZpbGU6TGlnaHRHdWFyZF8wLjE1LjZfeDY0LXNldHVwLmV4ZQl2ZXJzaW9uOjAuMTUuNgpheEg2NkM0ZEZLNitmTHcreG9rSldZTHRNY2x2NHdWeXVvL1g4dFp6L3NnRXpwaG9kSFRyd0cyRmp5OGw3Zk1RMTlhQUhvL0p6NHY4WS9aTlhVYjFEQT09Cg==",
-      "url": "https://github.com/BeafJerky/LightGuard/releases/download/v0.15.6/LightGuard_0.15.6_x64-setup.exe",
-      "size": 7108780
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUVorSDFkZWthcjltVnd0MExOTkJuWVZjei8zdkNiclZCSEY3UG1seS8rT1ZWSkhNMUlBSkxJVzZyWWdta0FENDJyWTdBMkJIT1BrOGszK0J4M05ONGZValpmRU1PVmdVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0NjgyOTQzCWZpbGU6TGlnaHRHdWFyZF8wLjE1LjdfeDY0LXNldHVwLmV4ZQl2ZXJzaW9uOjAuMTUuNwovUHBFUkc1QnRUU3I4NEhHTFBWTCt4Y1ZRVC8zMkR1WVE1d2prZTZFRkRjYWFPZ1ZCRjVkTnlUZnF3c2t3UGg1aXFNcnNNWmlsWjN6K3MvS2dWYjFBdz09Cg==",
+      "url": "https://github.com/BeafJerky/LightGuard/releases/download/v0.15.7/LightGuard_0.15.7_x64-setup.exe",
+      "size": 7105945
     }
   }
 }

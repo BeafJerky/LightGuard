@@ -81,6 +81,7 @@ pub struct WritePreview {
     pub rollback: String,
     pub irreversible: bool,
     pub expires_at_ms: i64,
+    pub details: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -90,18 +91,46 @@ pub struct WriteResult {
     pub path: String,
 }
 
-pub fn build_preview(preview_id: String, path: &str, expires_at_ms: i64) -> WritePreview {
+#[allow(clippy::too_many_arguments)]
+pub fn build_preview(
+    preview_id: String,
+    kind: &str,
+    path: &str,
+    operation: &str,
+    target: &str,
+    impact: String,
+    rollback: &str,
+    irreversible: bool,
+    details: serde_json::Value,
+    expires_at_ms: i64,
+) -> WritePreview {
     WritePreview {
         preview_id,
-        kind: "mkdir".to_string(),
+        kind: kind.to_string(),
         path: path.to_string(),
-        operation: "新建文件夹".to_string(),
-        target: path.to_string(),
-        impact: format!("将在 {path} 创建文件夹"),
-        rollback: "执行后可在审计中回退（仅删除空目录）".to_string(),
-        irreversible: false,
+        operation: operation.to_string(),
+        target: target.to_string(),
+        impact,
+        rollback: rollback.to_string(),
+        irreversible,
         expires_at_ms,
+        details,
     }
+}
+
+pub fn build_mkdir_preview(preview_id: String, path: &str, expires_at_ms: i64) -> WritePreview {
+    build_preview(
+        preview_id,
+        "mkdir",
+        path,
+        "新建文件夹",
+        path,
+        format!("将在 {path} 创建文件夹"),
+        "执行后可在审计中回退（仅删除空目录）",
+        false,
+        serde_json::json!({ "path": path }),
+        expires_at_ms,
+    )
 }
 
 pub fn audit_params(path: &str) -> String {
@@ -458,8 +487,8 @@ mod tests {
     }
 
     #[test]
-    fn preview_has_four_sections_and_is_reversible() {
-        let preview = build_preview("abc".to_string(), "/data/reports", 1_700_000_060_000);
+    fn preview_carries_kind_and_details() {
+        let preview = build_mkdir_preview("abc".to_string(), "/data/reports", 1_700_000_060_000);
         assert_eq!(preview.preview_id, "abc");
         assert_eq!(preview.kind, "mkdir");
         assert_eq!(preview.operation, "新建文件夹");
@@ -467,6 +496,7 @@ mod tests {
         assert_eq!(preview.impact, "将在 /data/reports 创建文件夹");
         assert!(preview.rollback.contains("审计"));
         assert!(!preview.irreversible);
+        assert_eq!(preview.details["path"], "/data/reports");
         assert_eq!(preview.expires_at_ms, 1_700_000_060_000);
     }
 
@@ -543,8 +573,11 @@ mod tests {
 
     #[test]
     fn preview_and_result_serialize_camel_case() {
-        let preview = serde_json::to_value(build_preview("abc".to_string(), "/data", 7)).unwrap();
+        let preview =
+            serde_json::to_value(build_mkdir_preview("abc".to_string(), "/data", 7)).unwrap();
         assert_eq!(preview["previewId"], "abc");
+        assert_eq!(preview["kind"], "mkdir");
+        assert_eq!(preview["details"]["path"], "/data");
         assert_eq!(preview["expiresAtMs"], 7);
         assert_eq!(preview["irreversible"], false);
         let result = serde_json::to_value(WriteResult {

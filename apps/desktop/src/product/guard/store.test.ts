@@ -54,6 +54,7 @@ function preview(): WritePreview {
     rollback: '可在审计中回退',
     irreversible: false,
     expiresAtMs: 1_700_000_060_000,
+    details: { path: '/data/reports' },
   };
 }
 

@@ -213,15 +213,17 @@ export interface WriteEvent {
   active: boolean;
 }
 
+export type WriteKind = 'mkdir' | 'upload' | 'rename' | 'delete' | 'chmod';
+
 export interface WritePreviewInput {
   serverId: string;
-  dir: string;
-  name: string;
+  kind: WriteKind;
+  payload: Record<string, unknown>;
 }
 
 export interface WritePreview {
   previewId: string;
-  kind: 'mkdir';
+  kind: WriteKind;
   path: string;
   operation: string;
   target: string;
@@ -229,6 +231,7 @@ export interface WritePreview {
   rollback: string;
   irreversible: boolean;
   expiresAtMs: number;
+  details: Record<string, unknown>;
 }
 
 export interface WriteResult {

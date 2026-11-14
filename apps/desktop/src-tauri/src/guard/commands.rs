@@ -18,7 +18,7 @@ use crate::ssh::state::AppState;
 
 use super::permit::PermitStatus;
 use super::preview::PREVIEW_TTL;
-use super::write::{self, build_preview, WritePreview, WriteResult};
+use super::write::{self, build_mkdir_preview, WritePreview, WriteResult};
 use super::GuardService;
 
 fn db_error(error: DbError) -> SshError {
@@ -120,29 +120,43 @@ pub async fn write_preview(
     state: State<'_, Arc<AppState>>,
     guard: State<'_, Arc<GuardService>>,
     server_id: String,
-    dir: String,
-    name: String,
+    kind: String,
+    payload: Value,
 ) -> Result<WritePreview, SshError> {
     guard.require_permit(&server_id)?;
-    let dir = absolute_dir(&dir)?;
-    let name = write::validate_folder_name(&name)?;
-    let parent = client::canonicalize(state.inner(), &server_id, &dir)
-        .await
-        .map_err(preview_failed)?;
-    let target = write::join_target(&parent, &name)?;
-    if client::try_exists(state.inner(), &server_id, &target)
-        .await
-        .map_err(preview_failed)?
-    {
-        return Err(SshError::preview_failed(format!("目标已存在：{target}")));
+    match kind.as_str() {
+        "mkdir" => {
+            let dir = payload_str(&payload, "dir")?;
+            let name = payload_str(&payload, "name")?;
+            let dir = absolute_dir(dir)?;
+            let name = write::validate_folder_name(name)?;
+            let parent = client::canonicalize(state.inner(), &server_id, &dir)
+                .await
+                .map_err(preview_failed)?;
+            let target = write::join_target(&parent, &name)?;
+            if client::try_exists(state.inner(), &server_id, &target)
+                .await
+                .map_err(preview_failed)?
+            {
+                return Err(SshError::preview_failed(format!("目标已存在：{target}")));
+            }
+            let preview_id = guard.store_preview(
+                &server_id,
+                write::MKDIR_OP,
+                serde_json::json!({ "path": target }),
+            );
+            let expires_at_ms = crate::alerts::now_ms() + PREVIEW_TTL.as_millis() as i64;
+            Ok(build_mkdir_preview(preview_id, &target, expires_at_ms))
+        }
+        other => Err(SshError::invalid_input(format!("不支持的写操作：{other}"))),
     }
-    let preview_id = guard.store_preview(
-        &server_id,
-        write::MKDIR_OP,
-        serde_json::json!({ "path": target }),
-    );
-    let expires_at_ms = crate::alerts::now_ms() + PREVIEW_TTL.as_millis() as i64;
-    Ok(build_preview(preview_id, &target, expires_at_ms))
+}
+
+fn payload_str<'a>(payload: &'a Value, key: &str) -> Result<&'a str, SshError> {
+    payload
+        .get(key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| SshError::invalid_input(format!("预览缺少参数：{key}")))
 }
 
 #[tauri::command]

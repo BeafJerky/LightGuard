@@ -89,8 +89,8 @@ describe('new folder dialog', () => {
     await previewName(wrapper, 'reports');
     expect(mocks.writePreview).toHaveBeenCalledWith({
       serverId: 'srv_1',
-      dir: '/data',
-      name: 'reports',
+      kind: 'mkdir',
+      payload: { dir: '/data', name: 'reports' },
     });
     expect(wrapper.text()).toContain('/data/reports');
     expect(wrapper.text()).toContain('回退');
@@ -283,8 +283,8 @@ describe('new folder dialog', () => {
     // 展示名只用于展示：发给后端的始终是 server id。
     expect(mocks.writePreview).toHaveBeenCalledWith({
       serverId: 'srv_1',
-      dir: '/data',
-      name: 'reports',
+      kind: 'mkdir',
+      payload: { dir: '/data', name: 'reports' },
     });
     expect(mocks.writeExecute).toHaveBeenCalledWith('p1');
     const calls = [

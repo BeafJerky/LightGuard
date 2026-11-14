@@ -599,8 +599,8 @@ describe('FilesApp', () => {
     await flushPromises();
     expect(backend.writePreview).toHaveBeenCalledWith({
       serverId: 'srv_1',
-      dir: '/home/test',
-      name: 'reports',
+      kind: 'mkdir',
+      payload: { dir: '/home/test', name: 'reports' },
     });
     expect(wrapper.find('.new-folder').text()).toContain('web-01 · /home/test/reports');
 

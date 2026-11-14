@@ -5,6 +5,7 @@ import {
   type PermitEvent,
   type PermitStatus,
   type WriteEvent,
+  type WriteKind,
   type WritePreview,
   type WriteResult,
 } from '../ssh';
@@ -121,15 +122,15 @@ export async function lockPermit(serverId: string): Promise<void> {
   }
 }
 
-export async function previewMkdir(
+export async function previewWrite(
   serverId: string,
-  dir: string,
-  name: string,
+  kind: WriteKind,
+  payload: Record<string, unknown>,
 ): Promise<WritePreview | null> {
   guardState.busy = true;
   clearError();
   try {
-    const preview = await ssh.writePreview({ serverId, dir, name });
+    const preview = await ssh.writePreview({ serverId, kind, payload });
     guardState.preview = preview;
     guardState.previewServerId = serverId;
     return preview;
@@ -139,6 +140,14 @@ export async function previewMkdir(
   } finally {
     guardState.busy = false;
   }
+}
+
+export function previewMkdir(
+  serverId: string,
+  dir: string,
+  name: string,
+): Promise<WritePreview | null> {
+  return previewWrite(serverId, 'mkdir', { dir, name });
 }
 
 export async function executePreview(): Promise<WriteResult | null> {

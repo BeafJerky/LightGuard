@@ -145,8 +145,55 @@ pub fn audit_path(params: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+pub const RENAME_OP: &str = "fs.rename";
+pub const RENAME_ROLLBACK_OP: &str = "fs.rename.rollback";
+
+/// 只允许在同一目录内改名；父目录由后端从当前路径推导，前端不能借新名称改目录。
+pub fn rename_targets(path: &str, new_name: &str) -> Result<(String, String), SshError> {
+    absolute_target(path)?;
+    let parent = crate::ssh::sftp::path::parent_of(path)
+        .ok_or_else(|| SshError::preview_failed("无法定位父目录"))?;
+    let name = validate_folder_name(new_name)?;
+    let to = join_target(&parent, &name)?;
+    if to == path {
+        return Err(SshError::preview_failed("新名称与当前名称相同"));
+    }
+    Ok((path.to_string(), to))
+}
+
+pub fn build_rename_preview(
+    preview_id: String,
+    from: &str,
+    to: &str,
+    expires_at_ms: i64,
+) -> WritePreview {
+    build_preview(
+        preview_id,
+        "rename",
+        from,
+        "重命名",
+        &format!("{from} → {to}"),
+        format!("将把 {from} 重命名为 {to}"),
+        "执行后可在审计中回退（改回原名称）",
+        false,
+        serde_json::json!({ "from": from, "to": to }),
+        expires_at_ms,
+    )
+}
+
+pub fn audit_rename_params(from: &str, to: &str) -> String {
+    serde_json::json!({ "from": from, "to": to }).to_string()
+}
+
+pub fn audit_rename_paths(params: &str) -> Option<(String, String)> {
+    let value: serde_json::Value = serde_json::from_str(params).ok()?;
+    let from = value.get("from")?.as_str()?.to_string();
+    let to = value.get("to")?.as_str()?.to_string();
+    Some((from, to))
+}
+
 pub fn rollback_block_reason(row: &AuditRow, has_rollback: bool) -> Option<&'static str> {
-    let supported = row.op == MKDIR_OP
+    let supported = matches!(row.op.as_str(), MKDIR_OP | RENAME_OP)
         || matches!(row.op.as_str(), "docker.container.start" | "docker.container.stop");
     if !supported {
         return Some("该操作不支持回退");
@@ -407,6 +454,112 @@ pub(crate) async fn rollback_mkdir(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+async fn execute_rename_inner(
+    state: &AppState,
+    db: &Database,
+    server_id: &str,
+    from: &str,
+    to: &str,
+    permit_source: &str,
+    op: &str,
+    rollback_of: Option<i64>,
+) -> Result<WriteResult, SshError> {
+    absolute_target(from)?;
+    absolute_target(to)?;
+    let started = Instant::now();
+    let server_name = db
+        .server_name(server_id)
+        .unwrap_or_else(|_| server_id.to_string());
+    let params = audit_rename_params(from, to);
+    let outcome = client::rename(state, server_id, from, to).await;
+    match outcome {
+        Ok(()) => {
+            let audit_id = record(
+                db,
+                server_id,
+                &server_name,
+                op,
+                &params,
+                "success",
+                started,
+                permit_source,
+                rollback_of,
+            )
+            .map_err(|audit| audit_lost_after_success("重命名已完成", &audit))?;
+            Ok(WriteResult {
+                audit_id,
+                path: to.to_string(),
+            })
+        }
+        Err(error) => {
+            let result = outcome_for(&error);
+            let operation_error = if result == "unknown" {
+                failed_unknown("重命名", &error)
+            } else {
+                failed("重命名", &error)
+            };
+            match record(
+                db,
+                server_id,
+                &server_name,
+                op,
+                &params,
+                result,
+                started,
+                permit_source,
+                rollback_of,
+            ) {
+                Ok(_) => Err(operation_error),
+                Err(audit) => Err(audit_write_failed(
+                    operation_error,
+                    &audit,
+                    result == "unknown",
+                )),
+            }
+        }
+    }
+}
+
+pub(crate) async fn execute_rename(
+    state: &AppState,
+    db: &Database,
+    server_id: &str,
+    from: &str,
+    to: &str,
+    permit_source: &str,
+) -> Result<WriteResult, SshError> {
+    execute_rename_inner(
+        state, db, server_id, from, to, permit_source, RENAME_OP, None,
+    )
+    .await
+}
+
+pub(crate) async fn rollback_rename(
+    state: &AppState,
+    db: &Database,
+    server_id: &str,
+    audit_id: i64,
+    from: &str,
+    to: &str,
+    permit_source: &str,
+) -> Result<WriteResult, SshError> {
+    if client::try_exists(state, server_id, from).await? {
+        return Err(SshError::invalid_input("原路径已被占用，无法回退"));
+    }
+    execute_rename_inner(
+        state,
+        db,
+        server_id,
+        to,
+        from,
+        permit_source,
+        RENAME_ROLLBACK_OP,
+        Some(audit_id),
+    )
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -498,6 +651,37 @@ mod tests {
         assert!(!preview.irreversible);
         assert_eq!(preview.details["path"], "/data/reports");
         assert_eq!(preview.expires_at_ms, 1_700_000_060_000);
+    }
+
+    #[test]
+    fn rename_targets_validate_name_and_same_path() {
+        assert_eq!(
+            rename_targets("/data/old", "new").unwrap(),
+            ("/data/old".to_string(), "/data/new".to_string())
+        );
+        assert_eq!(
+            rename_targets("/data/old", "old").unwrap_err().code,
+            "PREVIEW_FAILED"
+        );
+        assert_eq!(
+            rename_targets("relative", "new").unwrap_err().code,
+            "INVALID_INPUT"
+        );
+        assert_eq!(
+            rename_targets("/data/old", "a/b").unwrap_err().code,
+            "PREVIEW_FAILED"
+        );
+    }
+
+    #[test]
+    fn rename_preview_is_reversible() {
+        let preview = build_rename_preview("p".into(), "/data/old", "/data/new", 7);
+        assert_eq!(preview.kind, "rename");
+        assert_eq!(preview.target, "/data/old → /data/new");
+        assert!(!preview.irreversible);
+        assert_eq!(preview.details["from"], "/data/old");
+        assert_eq!(preview.details["to"], "/data/new");
+        assert!(preview.rollback.contains("回退"));
     }
 
     #[test]

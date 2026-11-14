@@ -148,6 +148,35 @@ pub async fn write_preview(
             let expires_at_ms = crate::alerts::now_ms() + PREVIEW_TTL.as_millis() as i64;
             Ok(build_mkdir_preview(preview_id, &target, expires_at_ms))
         }
+        "rename" => {
+            let path = payload_str(&payload, "path")?;
+            let new_name = payload_str(&payload, "newName")?;
+            let (from, to) = write::rename_targets(path, new_name)?;
+            if !client::try_exists(state.inner(), &server_id, &from)
+                .await
+                .map_err(preview_failed)?
+            {
+                return Err(SshError::preview_failed("目标已不存在，请刷新后重试"));
+            }
+            if client::try_exists(state.inner(), &server_id, &to)
+                .await
+                .map_err(preview_failed)?
+            {
+                return Err(SshError::preview_failed(format!("目标已存在：{to}")));
+            }
+            let preview_id = guard.store_preview(
+                &server_id,
+                write::RENAME_OP,
+                serde_json::json!({ "from": from, "to": to }),
+            );
+            let expires_at_ms = crate::alerts::now_ms() + PREVIEW_TTL.as_millis() as i64;
+            Ok(write::build_rename_preview(
+                preview_id,
+                &from,
+                &to,
+                expires_at_ms,
+            ))
+        }
         other => Err(SshError::invalid_input(format!("不支持的写操作：{other}"))),
     }
 }
@@ -169,25 +198,44 @@ pub async fn write_execute(
     let preview = guard.take_preview(&preview_id)?;
     // 预览缓存不按服务器分区，执行时也只认预览自己记下的服务器与操作：
     // 服务器由后端写入，前端无法用别的服务器的 id 影响执行目标。
-    if preview.op != write::MKDIR_OP {
-        return Err(SshError::preview_failed(format!(
-            "预览操作不受支持：{}",
-            preview.op
-        )));
-    }
     let minutes = guard.require_permit(&preview.server_id)?;
     client::session_handle(state.inner(), &preview.server_id).await?;
-    let path = preview
-        .payload
-        .get("path")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .ok_or_else(|| SshError::preview_failed("预览内容缺少目标路径"))?;
     let db = database(&db_state)?;
     let lock = guard.begin_write(&preview.server_id)?;
     let permit_source = format!("unlock:{minutes}m");
-    let outcome =
-        write::execute_mkdir(state.inner(), &db, &preview.server_id, &path, &permit_source).await;
+    let outcome = match preview.op.as_str() {
+        write::MKDIR_OP => {
+            let path = preview
+                .payload
+                .get("path")
+                .and_then(Value::as_str)
+                .ok_or_else(|| SshError::preview_failed("预览内容缺少目标路径"))?;
+            write::execute_mkdir(state.inner(), &db, &preview.server_id, path, &permit_source)
+                .await
+        }
+        write::RENAME_OP => {
+            let (from, to) = preview
+                .payload
+                .get("from")
+                .and_then(Value::as_str)
+                .zip(preview.payload.get("to").and_then(Value::as_str))
+                .ok_or_else(|| SshError::preview_failed("预览内容缺少重命名路径"))?;
+            write::execute_rename(
+                state.inner(),
+                &db,
+                &preview.server_id,
+                from,
+                to,
+                &permit_source,
+            )
+            .await
+        }
+        other => {
+            return Err(SshError::preview_failed(format!(
+                "预览操作不受支持：{other}"
+            )))
+        }
+    };
     drop(lock);
     outcome
 }
@@ -237,6 +285,28 @@ pub async fn write_rollback(
             path: outcome.target,
         });
     }
+
+    if row.op == write::RENAME_OP {
+        let (from, to) = write::audit_rename_paths(&row.params)
+            .ok_or_else(|| SshError::invalid_input("审计记录缺少重命名路径"))?;
+        let minutes = guard.require_permit(&row.server_id)?;
+        client::session_handle(state.inner(), &row.server_id).await?;
+        let lock = guard.begin_write(&row.server_id)?;
+        let permit_source = format!("unlock:{minutes}m");
+        let outcome = write::rollback_rename(
+            state.inner(),
+            &db,
+            &row.server_id,
+            audit_id,
+            &from,
+            &to,
+            &permit_source,
+        )
+        .await;
+        drop(lock);
+        return outcome;
+    }
+
     let path = write::audit_path(&row.params)
         .ok_or_else(|| SshError::invalid_input("审计记录缺少目标路径"))?;
     let minutes = guard.require_permit(&row.server_id)?;

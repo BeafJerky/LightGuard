@@ -1318,4 +1318,144 @@ mod tests {
 
         state.sessions.lock().await.remove("guard-it");
     }
+
+    /// 真实服务器夹具：建目录 → 重命名 → 改权限并回退 → 递归删除。
+    /// 无 `LG_SSH_*` 时打印跳过；所有远端操作先收集为 Result，再统一清理与断言。
+    #[tokio::test]
+    async fn real_guard_fixture_rename_chmod_delete() {
+        use crate::db::Database;
+        use crate::ssh::credentials::CredentialStore;
+        use crate::ssh::dto::{AuthKind, ConnectInput};
+        use crate::ssh::session;
+
+        fn env() -> Option<(String, String, String, u16)> {
+            let host = std::env::var("LG_SSH_HOST").ok()?;
+            let user = std::env::var("LG_SSH_USER").ok()?;
+            let password = std::env::var("LG_SSH_PASSWORD").ok()?;
+            if host.is_empty() || user.is_empty() || password.is_empty() {
+                return None;
+            }
+            let port = std::env::var("LG_SSH_PORT")
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(22);
+            Some((host, user, password, port))
+        }
+
+        let Some((host, user, password, port)) = env() else {
+            eprintln!("skipping: LG_SSH_* not set");
+            return;
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = CredentialStore::with_master_key(dir.path().to_path_buf(), [7u8; 32]);
+        let outcome = session::connect(
+            ConnectInput {
+                server_id: "guard-it".to_string(),
+                host,
+                port,
+                user,
+                auth: AuthKind::Password,
+                secret: password,
+                passphrase: None,
+                remember: false,
+                verify_host_key: false,
+            },
+            dir.path(),
+            &store,
+        )
+        .await
+        .expect("connect");
+
+        let state = crate::test_support::headless_state(dir.path().to_path_buf());
+        state.sessions.lock().await.insert(
+            "guard-it".to_string(),
+            std::sync::Arc::new(tokio::sync::Mutex::new(outcome.entry)),
+        );
+        let db = Database::in_memory();
+        let guard = state.guard.clone();
+        guard.unlock("guard-it", 5).expect("unlock");
+        let _write = guard.begin_write("guard-it").expect("write lock");
+
+        let base = crate::test_support::remote_fixture_dir()
+            .unwrap_or_else(|| "/vol1/1000/lg-filetest".to_string());
+        let stamp = crate::alerts::now_ms();
+        let root = format!("{base}/lg-write-{stamp}");
+        let nested = format!("{root}/nested");
+        let new_name = format!("lg-write-{stamp}-renamed");
+        let renamed = format!("{base}/{new_name}");
+
+        let facts: Result<(u32, u32, u32, i64), SshError> = async {
+            execute_mkdir(&state, &db, "guard-it", &root, "unlock:5m").await?;
+            execute_mkdir(&state, &db, "guard-it", &nested, "unlock:5m").await?;
+
+            let (from, to) = rename_targets(&root, &new_name)?;
+            execute_rename(&state, &db, "guard-it", &from, &to, "unlock:5m").await?;
+            if crate::ssh::sftp::list::stat(&state, "guard-it", &root)
+                .await
+                .is_ok()
+            {
+                return Err(SshError::internal("重命名后旧路径仍存在"));
+            }
+
+            let entry = crate::ssh::sftp::list::stat(&state, "guard-it", &renamed).await?;
+            let previous = entry.mode & 0o777;
+            let chmod = execute_chmod(
+                &state,
+                &db,
+                "guard-it",
+                &renamed,
+                0o700,
+                previous,
+                "unlock:5m",
+                CHMOD_OP,
+                None,
+            )
+            .await?;
+            let after = crate::ssh::sftp::list::stat(&state, "guard-it", &renamed).await?;
+            rollback_chmod(
+                &state,
+                &db,
+                "guard-it",
+                chmod.audit_id,
+                &renamed,
+                previous,
+                "unlock:5m",
+            )
+            .await?;
+            let restored = crate::ssh::sftp::list::stat(&state, "guard-it", &renamed).await?;
+            Ok((
+                after.mode & 0o777,
+                restored.mode & 0o777,
+                previous,
+                chmod.audit_id,
+            ))
+        }
+        .await;
+
+        let _ = execute_delete(&state, &db, "guard-it", &renamed, "dir", "unlock:5m").await;
+        let _ = execute_delete(&state, &db, "guard-it", &root, "dir", "unlock:5m").await;
+
+        let (mode_after, mode_restored, previous, chmod_audit) = facts.expect("fixture");
+        assert_eq!(mode_after, 0o700, "chmod 目标权限");
+        assert_eq!(mode_restored, previous, "回退后恢复原权限");
+
+        let rows = db.audit_list(30, 0).expect("audit list");
+        assert!(rows
+            .iter()
+            .any(|row| row.op == RENAME_OP && row.result == "success"));
+        assert!(rows
+            .iter()
+            .any(|row| row.op == CHMOD_OP && row.result == "success"));
+        assert!(rows.iter().any(|row| {
+            row.op == CHMOD_ROLLBACK_OP
+                && row.result == "success"
+                && row.rollback_of == Some(chmod_audit)
+        }));
+        assert!(rows
+            .iter()
+            .any(|row| row.op == DELETE_OP && row.result == "success"));
+
+        state.sessions.lock().await.remove("guard-it");
+    }
 }

@@ -77,36 +77,51 @@ pub async fn remove_tree(
     let mut pending: Vec<(String, usize)> = vec![(path.to_string(), 0)];
     let mut dirs: Vec<String> = Vec::new();
     let mut removed = 0u64;
+    let mut failures: Vec<String> = Vec::new();
     while let Some((dir, depth)) = pending.pop() {
         if depth > max_depth {
             return Err(SshError::write_failed("目录层级过深，已停止删除"));
         }
-        let entries = client
-            .read_dir(&dir)
-            .await
-            .map_err(|error| map_error(error, &dir))?;
+        let entries = match client.read_dir(&dir).await {
+            Ok(entries) => entries,
+            Err(error) => {
+                failures.push(format!("{dir}：{}", map_error(error, &dir).message));
+                continue;
+            }
+        };
         for item in entries {
             let child = item.path();
             if FileKind::from_sftp(item.metadata().file_type()) == FileKind::Dir {
                 pending.push((child, depth + 1));
             } else {
-                client
-                    .remove_file(&child)
-                    .await
-                    .map_err(|error| map_error(error, &child))?;
-                removed += 1;
+                match client.remove_file(&child).await {
+                    Ok(()) => removed += 1,
+                    Err(error) => failures.push(format!("{child}：{}", map_error(error, &child).message)),
+                }
             }
         }
         dirs.push(dir);
     }
     for dir in dirs.into_iter().rev() {
-        client
-            .remove_dir(&dir)
-            .await
-            .map_err(|error| map_error(error, &dir))?;
-        removed += 1;
+        match client.remove_dir(&dir).await {
+            Ok(()) => removed += 1,
+            Err(error) => failures.push(format!("{dir}：{}", map_error(error, &dir).message)),
+        }
     }
-    Ok(removed)
+    if failures.is_empty() {
+        Ok(removed)
+    } else {
+        let shown = failures.iter().take(5).cloned().collect::<Vec<_>>().join("；");
+        let suffix = if failures.len() > 5 {
+            format!("；其余 {} 项略", failures.len() - 5)
+        } else {
+            String::new()
+        };
+        Err(SshError::write_failed(format!(
+            "已删除 {removed} 项，{} 项失败：{shown}{suffix}",
+            failures.len()
+        )))
+    }
 }
 
 #[cfg(test)]

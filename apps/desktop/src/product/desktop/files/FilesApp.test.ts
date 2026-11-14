@@ -618,4 +618,23 @@ describe('FilesApp', () => {
     expect(document.activeElement).toBe(button.element);
     wrapper.unmount();
   });
+
+  it('opens rename from the context menu', async () => {
+    applyPermit({
+      serverId: 'srv_1',
+      locked: false,
+      minutes: 15,
+      expiresAtMs: Date.now() + 15 * 60_000,
+      writeActive: false,
+    });
+    const wrapper = await mountOnline();
+    await wrapper
+      .get('[data-path="/home/test/a.txt"]')
+      .trigger('contextmenu', { clientX: 40, clientY: 40 });
+    await flushPromises();
+    await wrapper.get('[data-action="rename"]').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('.rename-dialog').exists()).toBe(true);
+    wrapper.unmount();
+  });
 });

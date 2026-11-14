@@ -11,6 +11,9 @@ import FileList from './FileList.vue';
 import FilePreview from './FilePreview.vue';
 import FileTree from './FileTree.vue';
 import NewFolderDialog from './NewFolderDialog.vue';
+import RenameDialog from './RenameDialog.vue';
+import PermissionDialog from './PermissionDialog.vue';
+import DeleteDialog from './DeleteDialog.vue';
 import { pathCrumbs, visibleCrumbs } from './breadcrumb';
 import { resolveIconScheme, type IconScheme } from './iconScheme';
 import type { FileTab } from './useFileTabs';
@@ -33,6 +36,9 @@ const addressInput = ref<HTMLInputElement | null>(null);
 const rootRef = ref<HTMLElement | null>(null);
 const newFolderOpen = ref(false);
 const newFolderButton = ref<HTMLButtonElement | null>(null);
+const renameTarget = ref<FileEntry | null>(null);
+const permissionTarget = ref<FileEntry | null>(null);
+const deleteTarget = ref<FileEntry | null>(null);
 const permit = computed(() => permitOf(props.server.id));
 
 const viewOptions = [
@@ -235,6 +241,48 @@ function onNewFolderNeedPermit() {
 function onViewAudit() {
   closeNewFolder();
   openAudit();
+}
+
+function openWriteEntry(entry: FileEntry, target: 'rename' | 'permission' | 'delete') {
+  context.value = null;
+  if (permit.value.locked) {
+    openPermitPanel();
+    return;
+  }
+  if (target === 'rename') renameTarget.value = entry;
+  else if (target === 'permission') permissionTarget.value = entry;
+  else deleteTarget.value = entry;
+}
+
+async function onRenamed(path: string) {
+  renameTarget.value = null;
+  toast({ title: '已重命名', message: path, tone: 'success' });
+  await files.refresh();
+  const entry = files.entries.value.find((item) => item.path === path);
+  if (entry) files.select(entry);
+}
+
+async function onPermissionChanged() {
+  const entry = permissionTarget.value;
+  permissionTarget.value = null;
+  toast({ title: '权限已修改', message: entry?.name ?? '', tone: 'success' });
+  await files.refresh();
+}
+
+async function onDeleted() {
+  const entry = deleteTarget.value;
+  deleteTarget.value = null;
+  toast({ title: '已删除', message: entry?.name ?? '', tone: 'success' });
+  if (entry && files.currentPath.value === entry.path) {
+    await files.goUp();
+  } else {
+    await files.refresh();
+  }
+}
+
+function onWriteNeedPermit(close: () => void) {
+  close();
+  openPermitPanel();
 }
 
 async function contextAction(action: 'open' | 'new-tab' | 'preview' | 'download' | 'copy' | 'meta') {
@@ -587,6 +635,30 @@ onBeforeUnmount(() => {
         </button>
         <button type="button" @click="contextAction('copy')">复制路径</button>
         <button type="button" @click="contextAction('meta')">属性</button>
+        <button
+          type="button"
+          data-action="rename"
+          :aria-disabled="permit.locked ? 'true' : undefined"
+          @click="openWriteEntry(context.entry, 'rename')"
+        >
+          重命名
+        </button>
+        <button
+          type="button"
+          data-action="permission"
+          :aria-disabled="permit.locked ? 'true' : undefined"
+          @click="openWriteEntry(context.entry, 'permission')"
+        >
+          权限
+        </button>
+        <button
+          type="button"
+          data-action="delete"
+          :aria-disabled="permit.locked ? 'true' : undefined"
+          @click="openWriteEntry(context.entry, 'delete')"
+        >
+          删除
+        </button>
         <button type="button" @click="files.refresh(); context = null">刷新</button>
       </div>
 
@@ -643,6 +715,42 @@ onBeforeUnmount(() => {
       @close="closeNewFolder"
       @created="onFolderCreated"
       @need-permit="onNewFolderNeedPermit"
+      @view-audit="onViewAudit"
+    />
+    <RenameDialog
+      v-if="renameTarget"
+      :open="Boolean(renameTarget)"
+      :server-id="server.id"
+      :server-name="server.name || server.id"
+      :path="renameTarget.path"
+      :current-name="renameTarget.name"
+      @close="renameTarget = null"
+      @renamed="onRenamed"
+      @need-permit="onWriteNeedPermit(() => (renameTarget = null))"
+      @view-audit="onViewAudit"
+    />
+    <PermissionDialog
+      v-if="permissionTarget"
+      :open="Boolean(permissionTarget)"
+      :server-id="server.id"
+      :server-name="server.name || server.id"
+      :path="permissionTarget.path"
+      :current-mode="permissionTarget.mode.toString(8).padStart(3, '0')"
+      @close="permissionTarget = null"
+      @changed="onPermissionChanged"
+      @need-permit="onWriteNeedPermit(() => (permissionTarget = null))"
+      @view-audit="onViewAudit"
+    />
+    <DeleteDialog
+      v-if="deleteTarget"
+      :open="Boolean(deleteTarget)"
+      :server-id="server.id"
+      :server-name="server.name || server.id"
+      :path="deleteTarget.path"
+      :kind="deleteTarget.kind === 'dir' ? 'dir' : 'file'"
+      @close="deleteTarget = null"
+      @deleted="onDeleted"
+      @need-permit="onWriteNeedPermit(() => (deleteTarget = null))"
       @view-audit="onViewAudit"
     />
   </div>

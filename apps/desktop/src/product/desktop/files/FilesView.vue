@@ -3,7 +3,7 @@ import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } fr
 import { LgIcon, LG_SCOPE_KEY } from '@lightguard/lightui';
 import type { Server } from '../../types';
 import type { FileEntry, FileKind } from '../../ssh/backend';
-import { toSshError } from '../../ssh';
+import { ssh, toSshError, type UploadSource } from '../../ssh';
 import { openPermitPanel, permitOf } from '../../guard/store';
 import { openAudit } from '../../router';
 import { toast } from '../../ui';
@@ -14,7 +14,15 @@ import NewFolderDialog from './NewFolderDialog.vue';
 import RenameDialog from './RenameDialog.vue';
 import PermissionDialog from './PermissionDialog.vue';
 import DeleteDialog from './DeleteDialog.vue';
+import UploadDialog from './UploadDialog.vue';
+import SearchPanel from './SearchPanel.vue';
 import { pathCrumbs, visibleCrumbs } from './breadcrumb';
+import {
+  loadFavorites,
+  loadRecents,
+  pushRecent,
+  toggleFavorite,
+} from './favorites';
 import { resolveIconScheme, type IconScheme } from './iconScheme';
 import type { FileTab } from './useFileTabs';
 import type { SortKey } from './listModel';
@@ -39,6 +47,12 @@ const newFolderButton = ref<HTMLButtonElement | null>(null);
 const renameTarget = ref<FileEntry | null>(null);
 const permissionTarget = ref<FileEntry | null>(null);
 const deleteTarget = ref<FileEntry | null>(null);
+const uploadOpen = ref(false);
+const uploadFiles = ref<UploadSource[]>([]);
+const searchOpen = ref(false);
+const favoritesOpen = ref(false);
+const favoritesList = ref<string[]>([]);
+const recentsList = ref<string[]>([]);
 const permit = computed(() => permitOf(props.server.id));
 
 const viewOptions = [
@@ -95,6 +109,11 @@ watch(
     context.value = null;
     pendingDownload.value = null;
     menuOpen.value = '';
+    if (path) {
+      pushRecent(props.server.id, path);
+      favoritesList.value = loadFavorites(props.server.id);
+      recentsList.value = loadRecents(props.server.id);
+    }
   },
   { immediate: true },
 );
@@ -171,8 +190,12 @@ function openContext(payload: { entry: FileEntry; x: number; y: number }) {
   };
 }
 
-function onRowSelect(entry: FileEntry) {
-  files.select(entry);
+function onRowSelect(
+  entry: FileEntry,
+  modifiers?: { toggle?: boolean; range?: boolean },
+) {
+  const mode = modifiers?.range ? 'range' : modifiers?.toggle ? 'toggle' : 'single';
+  files.select(entry, mode);
   context.value = null;
 }
 
@@ -283,6 +306,71 @@ async function onDeleted() {
 function onWriteNeedPermit(close: () => void) {
   close();
   openPermitPanel();
+}
+
+async function onUpload() {
+  if (permit.value.locked) {
+    openPermitPanel();
+    return;
+  }
+  const picked = await ssh.pickUploadPaths();
+  if (!picked.length) return;
+  uploadFiles.value = picked;
+  uploadOpen.value = true;
+}
+
+function closeUpload() {
+  uploadOpen.value = false;
+  uploadFiles.value = [];
+}
+
+async function onUploaded(count: number) {
+  closeUpload();
+  toast({ title: '已上传', message: `${count} 个文件`, tone: 'success' });
+  await files.refresh();
+}
+
+async function onSearchOpen(entry: FileEntry) {
+  searchOpen.value = false;
+  const index = entry.path.lastIndexOf('/');
+  const parent = index <= 0 ? '/' : entry.path.slice(0, index);
+  await files.navigate(parent);
+  const found = files.entries.value.find((item) => item.path === entry.path);
+  if (found) files.select(found);
+}
+
+function toggleFavorites() {
+  favoritesOpen.value = !favoritesOpen.value;
+  favoritesList.value = loadFavorites(props.server.id);
+  recentsList.value = loadRecents(props.server.id);
+}
+
+function toggleCurrentFavorite() {
+  const path = files.currentPath.value;
+  if (!path) return;
+  const added = toggleFavorite(props.server.id, path);
+  favoritesList.value = loadFavorites(props.server.id);
+  toast({ title: added ? '已收藏' : '已取消收藏', message: path, tone: 'success' });
+}
+
+function goFavorite(path: string) {
+  favoritesOpen.value = false;
+  void files.navigate(path);
+}
+
+async function batchDownload() {
+  const entries = files.selectedEntries.value;
+  if (!entries.length) return;
+  const targetDir = await ssh.pickDownloadDir();
+  if (!targetDir) return;
+  for (const entry of entries) {
+    await files.downloadTo(entry, targetDir);
+  }
+  toast({
+    title: '已加入下载队列',
+    message: `${entries.length} 项 → 所选目录`,
+    tone: 'success',
+  });
 }
 
 async function contextAction(action: 'open' | 'new-tab' | 'preview' | 'download' | 'copy' | 'meta') {
@@ -430,6 +518,28 @@ onBeforeUnmount(() => {
             <LgIcon name="search" :size="16" />
             <input v-model="files.view.query" aria-label="筛选当前目录" placeholder="筛选当前目录" />
           </label>
+          <button
+            type="button"
+            class="lgfiles-cmd"
+            data-action="deep-search"
+            aria-label="递归搜索"
+            title="递归搜索"
+            @click="searchOpen = true"
+          >
+            <LgIcon name="search" :size="15" />
+            <span class="lgfiles-cmd__label">递归</span>
+          </button>
+          <button
+            type="button"
+            class="lgfiles-cmd"
+            data-action="favorites"
+            aria-label="收藏与最近"
+            title="收藏与最近"
+            @click="toggleFavorites"
+          >
+            <LgIcon name="spark" :size="15" />
+            <span class="lgfiles-cmd__label">收藏</span>
+          </button>
         </div>
 
         <div class="lgfiles-toolbar__row lgfiles-toolbar__row--actions">
@@ -446,6 +556,19 @@ onBeforeUnmount(() => {
           >
             <LgIcon name="folder-plus" :size="16" />
             <span class="lgfiles-cmd__label">新建文件夹</span>
+          </button>
+          <button
+            type="button"
+            class="lgfiles-cmd"
+            :class="{ 'is-locked': permit.locked }"
+            data-action="upload"
+            aria-label="上传"
+            :aria-disabled="permit.locked ? 'true' : undefined"
+            :title="permit.locked ? '需先解锁写操作' : '上传文件'"
+            @click="onUpload"
+          >
+            <LgIcon name="arrow-up" :size="16" />
+            <span class="lgfiles-cmd__label">上传</span>
           </button>
           <span class="lgfiles-toolbar__divider" aria-hidden="true" />
           <div class="lgfiles-menu-anchor">
@@ -568,6 +691,48 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
+      <div
+        v-if="files.selectedPaths.value.length > 1"
+        class="lgfiles-batch"
+        role="status"
+      >
+        <span>已选 {{ files.selectedPaths.value.length }} 项</span>
+        <button type="button" data-action="batch-download" @click="batchDownload">下载</button>
+        <button type="button" data-action="batch-clear" @click="files.clearSelection()">清空</button>
+      </div>
+
+      <div v-if="favoritesOpen" class="lgfiles-favorites">
+        <div class="lgfiles-favorites__head">
+          <strong>收藏与最近</strong>
+          <button type="button" data-action="favorite-current" @click="toggleCurrentFavorite">
+            收藏当前目录
+          </button>
+        </div>
+        <p class="lgfiles-favorites__label">收藏</p>
+        <p v-if="!favoritesList.length" class="lgfiles-favorites__empty">还没有收藏目录。</p>
+        <button
+          v-for="path in favoritesList"
+          :key="`fav-${path}`"
+          type="button"
+          class="lgfiles-favorites__item"
+          :data-path="path"
+          @click="goFavorite(path)"
+        >
+          {{ path }}
+        </button>
+        <p class="lgfiles-favorites__label">最近</p>
+        <p v-if="!recentsList.length" class="lgfiles-favorites__empty">还没有访问记录。</p>
+        <button
+          v-for="path in recentsList"
+          :key="`recent-${path}`"
+          type="button"
+          class="lgfiles-favorites__item"
+          @click="goFavorite(path)"
+        >
+          {{ path }}
+        </button>
+      </div>
+
       <div class="lgfiles-body">
         <aside class="lgfiles-tree" :class="{ 'is-open': drawerOpen }" aria-label="目录树">
           <FileTree
@@ -585,6 +750,7 @@ onBeforeUnmount(() => {
             :reset-key="files.currentPath.value"
             :entries="files.visibleRows.value"
             :selected="files.selectedPath.value"
+            :selected-paths="files.selectedPaths.value"
             :loading="files.loading.value"
             :error="files.error.value?.message ?? ''"
             :truncated="files.truncated.value"
@@ -752,6 +918,27 @@ onBeforeUnmount(() => {
       @deleted="onDeleted"
       @need-permit="onWriteNeedPermit(() => (deleteTarget = null))"
       @view-audit="onViewAudit"
+    />
+    <UploadDialog
+      v-if="uploadOpen"
+      :open="uploadOpen"
+      :server-id="server.id"
+      :server-name="server.name || server.id"
+      :dir="files.currentPath.value"
+      :files="uploadFiles"
+      @close="closeUpload"
+      @uploaded="onUploaded"
+      @need-permit="onWriteNeedPermit(closeUpload)"
+      @view-audit="onViewAudit"
+    />
+    <SearchPanel
+      v-if="searchOpen"
+      :open="searchOpen"
+      :server-id="server.id"
+      :server-name="server.name || server.id"
+      :root="files.currentPath.value"
+      @close="searchOpen = false"
+      @open="onSearchOpen"
     />
   </div>
 </template>

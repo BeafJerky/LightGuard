@@ -1,3 +1,4 @@
+import type { Channel } from '@tauri-apps/api/core';
 import type { AuthKind } from '../types';
 
 export type BackendAuth = Extract<AuthKind, 'password' | 'key'>;
@@ -158,6 +159,17 @@ export interface FileListing {
   truncated: boolean;
 }
 
+export interface SearchResult {
+  entries: FileEntry[];
+  truncated: boolean;
+}
+
+export interface SearchInput {
+  serverId: string;
+  root: string;
+  query: string;
+}
+
 export interface TextPreview {
   content: string;
   encoding: 'utf-8' | 'gb18030';
@@ -189,6 +201,10 @@ export interface DownloadInput {
   kind: FileKind;
   transferId: string;
   onEvent: (event: TransferProgress) => void;
+}
+
+export interface DownloadToInput extends DownloadInput {
+  targetDir: string;
 }
 
 export interface PermitStatus {
@@ -237,6 +253,21 @@ export interface WritePreview {
 export interface WriteResult {
   auditId: number;
   path: string;
+}
+
+export interface UploadSource {
+  path: string;
+  name: string;
+  size: number;
+}
+
+export interface WriteProgress {
+  fileIndex: number;
+  fileName: string;
+  transferred: number;
+  total: number | null;
+  done: number;
+  failed: number;
 }
 
 export type AuditResult = 'success' | 'failed' | 'unknown';
@@ -427,18 +458,22 @@ export interface SshBackend {
   terminalClose(serverId: string, terminalId: string): Promise<void>;
   sftpHome(serverId: string): Promise<string>;
   sftpList(serverId: string, path: string): Promise<FileListing>;
+  sftpSearch(input: SearchInput): Promise<SearchResult>;
   sftpStat(serverId: string, path: string): Promise<FileEntry>;
   sftpPreviewText(serverId: string, path: string): Promise<TextPreview>;
   sftpPreviewImage(serverId: string, path: string): Promise<ImagePreview>;
   sftpDownload(input: DownloadInput): Promise<DownloadResult>;
+  sftpDownloadTo(input: DownloadToInput): Promise<DownloadResult>;
+  pickDownloadDir(): Promise<string | null>;
   sftpTransferCancel(transferId: string): Promise<void>;
   resetLocalData(): Promise<void>;
   permitStatus(serverId: string): Promise<PermitStatus>;
   permitUnlock(serverId: string, minutes: number): Promise<PermitStatus>;
   permitLock(serverId: string): Promise<PermitStatus>;
   writePreview(input: WritePreviewInput): Promise<WritePreview>;
-  writeExecute(previewId: string): Promise<WriteResult>;
+  writeExecute(previewId: string, onEvent?: Channel<WriteProgress>): Promise<WriteResult>;
   writeRollback(auditId: number): Promise<WriteResult>;
+  pickUploadPaths(): Promise<UploadSource[]>;
   auditList(limit: number, offset: number): Promise<AuditEntry[]>;
   alertsList(filter: AlertFilterName, limit: number, offset: number): Promise<AlertsListResult>;
   alertsIgnore(alertId: number, reason: string, untilMs: number): Promise<void>;

@@ -1,11 +1,12 @@
 import { computed, onBeforeUnmount, ref } from 'vue';
+import type { Channel } from '@tauri-apps/api/core';
 import {
   discardPreview,
   executePreview,
   guardState,
   previewWrite,
 } from '../../guard/store';
-import type { WriteKind, WritePreview, WriteResult } from '../../ssh';
+import type { WriteKind, WritePreview, WriteProgress, WriteResult } from '../../ssh';
 
 export type WriteFailureKind =
   | 'preview'
@@ -86,9 +87,9 @@ export function useWriteFlow(
     return false;
   }
 
-  async function runExecute(): Promise<WriteResult | null> {
+  async function runExecute(onEvent?: Channel<WriteProgress>): Promise<WriteResult | null> {
     failure.value = null;
-    const result = await executePreview();
+    const result = await executePreview(onEvent);
     if (result) return result;
     if (guardState.errorCode) {
       failure.value = toFailure(

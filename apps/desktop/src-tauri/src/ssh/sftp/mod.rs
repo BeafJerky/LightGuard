@@ -5,6 +5,7 @@ pub mod dto;
 pub mod list;
 pub mod path;
 pub mod preview;
+pub mod search;
 pub mod transfer;
 
 #[cfg(test)]

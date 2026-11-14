@@ -8,6 +8,8 @@ const OP_LABELS: Record<string, string> = {
   'fs.chmod': '修改权限',
   'fs.chmod.rollback': '恢复权限（回退）',
   'fs.delete': '删除',
+  'fs.upload': '上传文件',
+  'fs.upload.rollback': '删除上传文件（回退）',
   'docker.container.start': '启动容器',
   'docker.container.stop': '停止容器',
   'docker.container.restart': '重启容器',
@@ -25,6 +27,7 @@ const ROLLBACKABLE = new Set([
   'fs.mkdir',
   'fs.rename',
   'fs.chmod',
+  'fs.upload',
   'docker.container.start',
   'docker.container.stop',
 ]);
@@ -76,6 +79,14 @@ export function formatDurationMs(ms: number): string {
 }
 
 export function canRollback(row: AuditEntry, rows: AuditEntry[]): boolean {
+  if (row.op === 'fs.upload') {
+    try {
+      const params = JSON.parse(row.params) as { overwrite?: boolean };
+      if (params.overwrite) return false;
+    } catch {
+      return false;
+    }
+  }
   return (
     ROLLBACKABLE.has(row.op) &&
     row.result === 'success' &&

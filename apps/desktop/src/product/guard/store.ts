@@ -1,4 +1,5 @@
 import { reactive } from 'vue';
+import type { Channel } from '@tauri-apps/api/core';
 import {
   ssh,
   toSshError,
@@ -7,6 +8,7 @@ import {
   type WriteEvent,
   type WriteKind,
   type WritePreview,
+  type WriteProgress,
   type WriteResult,
 } from '../ssh';
 
@@ -150,13 +152,17 @@ export function previewMkdir(
   return previewWrite(serverId, 'mkdir', { dir, name });
 }
 
-export async function executePreview(): Promise<WriteResult | null> {
+export async function executePreview(
+  onEvent?: Channel<WriteProgress>,
+): Promise<WriteResult | null> {
   const preview = guardState.preview;
   if (!preview) return null;
   guardState.busy = true;
   clearError();
   try {
-    const result = await ssh.writeExecute(preview.previewId);
+    const result = onEvent
+      ? await ssh.writeExecute(preview.previewId, onEvent)
+      : await ssh.writeExecute(preview.previewId);
     clearPreview();
     return result;
   } catch (error) {

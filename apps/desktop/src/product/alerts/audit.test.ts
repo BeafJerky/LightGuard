@@ -32,6 +32,7 @@ describe('audit helpers', () => {
     expect(auditOpLabel('fs.rename')).toBe('重命名');
     expect(auditOpLabel('fs.chmod')).toBe('修改权限');
     expect(auditOpLabel('fs.delete')).toBe('删除');
+    expect(auditOpLabel('fs.upload')).toBe('上传文件');
     expect(auditOpLabel('fs.custom')).toBe('fs.custom');
   });
 
@@ -42,6 +43,18 @@ describe('audit helpers', () => {
     expect(canRollback(chmod, [chmod])).toBe(true);
     const remove = row({ id: 3, op: 'fs.delete' });
     expect(canRollback(remove, [remove])).toBe(false);
+    const upload = row({
+      id: 4,
+      op: 'fs.upload',
+      params: '{"path":"/data/a","overwrite":false}',
+    });
+    expect(canRollback(upload, [upload])).toBe(true);
+    const overwrite = row({
+      id: 5,
+      op: 'fs.upload',
+      params: '{"path":"/data/a","overwrite":true}',
+    });
+    expect(canRollback(overwrite, [overwrite])).toBe(false);
     expect(rollbackLabel('fs.rename')).toContain('原名称');
     expect(rollbackLabel('fs.chmod')).toContain('原权限');
   });

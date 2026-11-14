@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use serde_json::Value;
+use tauri::ipc::Channel;
 use tauri::State;
 
 use crate::db::{AuditRow, Database, DbError, DbState};
@@ -253,6 +254,106 @@ pub async fn write_preview(
                 expires_at_ms,
             ))
         }
+        "upload" => {
+            let dir = payload_str(&payload, "dir")?;
+            let policy = payload
+                .get("conflictPolicy")
+                .and_then(Value::as_str)
+                .unwrap_or("skip");
+            let files = payload
+                .get("files")
+                .and_then(Value::as_array)
+                .ok_or_else(|| SshError::invalid_input("预览缺少上传文件清单"))?;
+            if files.is_empty() || files.len() > 50 {
+                return Err(SshError::preview_failed("一次最多上传 50 个文件"));
+            }
+            let dir = client::canonicalize(state.inner(), &server_id, dir)
+                .await
+                .map_err(preview_failed)?;
+            let mut items: Vec<write::UploadPlanItem> = Vec::new();
+            let mut jobs: Vec<write::UploadJob> = Vec::new();
+            let mut skipped = 0usize;
+            for file in files {
+                let local = file
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| SshError::invalid_input("上传项缺少本地路径"))?;
+                let raw_name = file
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| SshError::invalid_input("上传项缺少文件名"))?;
+                let meta = std::fs::metadata(local)
+                    .map_err(|_| SshError::preview_failed("本地文件不可读"))?;
+                if !meta.is_file() {
+                    return Err(SshError::preview_failed("只支持上传普通文件"));
+                }
+                let name = write::validate_folder_name(raw_name)?;
+                let mut target = write::join_target(&dir, &name)?;
+                let exists = client::try_exists(state.inner(), &server_id, &target)
+                    .await
+                    .map_err(preview_failed)?;
+                let action = write::plan_upload(&name, exists, policy);
+                let (action_label, renamed_to, rollbackable) = match action {
+                    write::UploadAction::Create => ("create", None, true),
+                    write::UploadAction::Overwrite => ("overwrite", None, false),
+                    write::UploadAction::Skip => ("skip", None, true),
+                    write::UploadAction::Rename(_) => {
+                        let mut chosen = None;
+                        for index in 1..=999 {
+                            let candidate = write::renamed_name(&name, index);
+                            let candidate_path = write::join_target(&dir, &candidate)?;
+                            if !client::try_exists(state.inner(), &server_id, &candidate_path)
+                                .await
+                                .map_err(preview_failed)?
+                            {
+                                target = candidate_path;
+                                chosen = Some(candidate);
+                                break;
+                            }
+                        }
+                        ("rename", chosen, true)
+                    }
+                };
+                if action_label == "skip" {
+                    skipped += 1;
+                } else {
+                    jobs.push(write::UploadJob {
+                        local_path: local.to_string(),
+                        remote_path: target.clone(),
+                        overwrite: action_label == "overwrite",
+                        size: meta.len(),
+                    });
+                }
+                items.push(write::UploadPlanItem {
+                    name,
+                    remote_path: target,
+                    size: meta.len(),
+                    action: action_label.to_string(),
+                    renamed_to,
+                    rollbackable,
+                });
+            }
+            if jobs.is_empty() {
+                return Err(SshError::preview_failed("没有可上传的文件（全部被跳过）"));
+            }
+            let preview_id = guard.store_preview(
+                &server_id,
+                write::UPLOAD_OP,
+                serde_json::json!({
+                    "dir": dir,
+                    "jobs": jobs,
+                    "skipped": skipped,
+                }),
+            );
+            let expires_at_ms = crate::alerts::now_ms() + PREVIEW_TTL.as_millis() as i64;
+            Ok(write::build_upload_preview(
+                preview_id,
+                &dir,
+                &items,
+                policy,
+                expires_at_ms,
+            ))
+        }
         other => Err(SshError::invalid_input(format!("不支持的写操作：{other}"))),
     }
 }
@@ -270,6 +371,7 @@ pub async fn write_execute(
     guard: State<'_, Arc<GuardService>>,
     db_state: State<'_, DbState>,
     preview_id: String,
+    on_event: Channel<write::WriteProgress>,
 ) -> Result<WriteResult, SshError> {
     let preview = guard.take_preview(&preview_id)?;
     // 预览缓存不按服务器分区，执行时也只认预览自己记下的服务器与操作：
@@ -356,6 +458,43 @@ pub async fn write_execute(
             )
             .await
         }
+        write::UPLOAD_OP => {
+            let jobs: Vec<write::UploadJob> = serde_json::from_value(
+                preview
+                    .payload
+                    .get("jobs")
+                    .cloned()
+                    .unwrap_or_else(|| Value::Array(Vec::new())),
+            )
+            .map_err(|_| SshError::preview_failed("预览内容缺少上传清单"))?;
+            if jobs.is_empty() {
+                return Err(SshError::preview_failed("没有可上传的文件"));
+            }
+            let transfer_id = preview_id.clone();
+            let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            state.transfers.lock().await.insert(
+                transfer_id.clone(),
+                crate::ssh::sftp::client::TransferHandle {
+                    server_id: preview.server_id.clone(),
+                    cancel: cancel.clone(),
+                },
+            );
+            let outcome = write::execute_upload(
+                state.inner(),
+                &db,
+                &preview.server_id,
+                &transfer_id,
+                &jobs,
+                &permit_source,
+                cancel,
+                |progress| {
+                    let _ = on_event.send(progress);
+                },
+            )
+            .await;
+            state.transfers.lock().await.remove(&transfer_id);
+            outcome
+        }
         other => {
             return Err(SshError::preview_failed(format!(
                 "预览操作不受支持：{other}"
@@ -410,6 +549,36 @@ pub async fn write_rollback(
             audit_id: outcome.audit_id,
             path: outcome.target,
         });
+    }
+
+    if row.op == write::UPLOAD_OP {
+        let value: Value = serde_json::from_str(&row.params)
+            .map_err(|_| SshError::invalid_input("审计记录缺少上传信息"))?;
+        let path = value
+            .get("path")
+            .and_then(Value::as_str)
+            .ok_or_else(|| SshError::invalid_input("审计记录缺少上传目标"))?;
+        // 旧记录没有 overwrite 字段时按“不可回退”处理，避免误删覆盖前的同名文件。
+        let overwrite = value
+            .get("overwrite")
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
+        let minutes = guard.require_permit(&row.server_id)?;
+        client::session_handle(state.inner(), &row.server_id).await?;
+        let lock = guard.begin_write(&row.server_id)?;
+        let permit_source = format!("unlock:{minutes}m");
+        let outcome = write::rollback_upload(
+            state.inner(),
+            &db,
+            &row.server_id,
+            audit_id,
+            path,
+            overwrite,
+            &permit_source,
+        )
+        .await;
+        drop(lock);
+        return outcome;
     }
 
     if row.op == write::CHMOD_OP {

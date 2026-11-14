@@ -16,6 +16,7 @@ import {
 const props = defineProps<{
   entries: FileEntry[];
   selected: string;
+  selectedPaths?: string[];
   loading: boolean;
   error: string;
   truncated: boolean;
@@ -29,7 +30,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  select: [entry: FileEntry];
+  select: [entry: FileEntry, modifiers?: { toggle?: boolean; range?: boolean }];
   open: [entry: FileEntry];
   sort: [key: SortKey];
   back: [];
@@ -37,6 +38,8 @@ const emit = defineEmits<{
   context: [payload: { entry: FileEntry; x: number; y: number }];
   'open-tab': [entry: FileEntry];
 }>();
+
+const selectedSet = computed(() => new Set(props.selectedPaths ?? [props.selected]));
 
 function onAuxClick(event: MouseEvent, entry: FileEntry) {
   if (event.button !== 1) return;
@@ -289,12 +292,12 @@ watch(() => props.resetKey, async () => {
             v-for="cell in row.cells"
             :key="cell.entry.path"
             class="lgfiles-grid__cell"
-            :class="{ 'is-selected': selected === cell.entry.path }"
+            :class="{ 'is-selected': selectedSet.has(cell.entry.path) }"
             :data-path="cell.entry.path"
             role="option"
             :aria-selected="selected === cell.entry.path"
             :title="cell.entry.name"
-            @click="emit('select', cell.entry)"
+            @click="emit('select', cell.entry, { toggle: $event.ctrlKey || $event.metaKey, range: $event.shiftKey })"
             @dblclick="emit('open', cell.entry)"
             @auxclick="onAuxClick($event, cell.entry)"
             @contextmenu.prevent="emit('context', { entry: cell.entry, x: $event.clientX, y: $event.clientY })"
@@ -310,12 +313,12 @@ watch(() => props.resetKey, async () => {
           v-for="row in rows"
           :key="row.entry.path"
           class="lgfiles-list__row"
-          :class="{ 'is-selected': selected === row.entry.path, 'is-compact': mode === 'list' }"
+          :class="{ 'is-selected': selectedSet.has(row.entry.path), 'is-compact': mode === 'list' }"
           :style="{ top: `${row.index * rowHeight}px`, height: `${rowHeight}px` }"
           :data-path="row.entry.path"
           role="option"
           :aria-selected="selected === row.entry.path"
-          @click="emit('select', row.entry)"
+          @click="emit('select', row.entry, { toggle: $event.ctrlKey || $event.metaKey, range: $event.shiftKey })"
           @dblclick="emit('open', row.entry)"
           @auxclick="onAuxClick($event, row.entry)"
           @contextmenu.prevent="emit('context', { entry: row.entry, x: $event.clientX, y: $event.clientY })"

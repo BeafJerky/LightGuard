@@ -47,6 +47,67 @@ pub fn tar_command(parent: &str, base: &str) -> String {
     )
 }
 
+/// 上传的临时文件：`<remote>.<transfer_id>.lgpart`。与本地下载的 `.lgpart`
+/// 同名规则，便于取消/断线时统一清理。
+pub fn upload_part_path(remote: &str, transfer_id: &str) -> String {
+    format!("{remote}.{transfer_id}.lgpart")
+}
+
+/// 把本地文件写入远端临时文件；成功后由调用方 rename 到最终名。
+/// 取消时删除临时文件并返回 `Canceled`。
+pub async fn upload_file(
+    client: &SftpSession,
+    local: &Path,
+    part: &str,
+    _transfer_id: &str,
+    cancel: &AtomicBool,
+    mut progress: impl FnMut(u64, Option<u64>),
+) -> Result<TransferOutcome, SshError> {
+    validate_remote_path(part)?;
+    let total = tokio::fs::metadata(local).await.ok().map(|meta| meta.len());
+    let mut source = tokio::fs::File::open(local)
+        .await
+        .map_err(|error| SshError::transfer_failed(format!("无法读取本地文件：{error}")))?;
+    let mut sink = client
+        .open_with_flags(
+            part,
+            OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::TRUNCATE,
+        )
+        .await
+        .map_err(|error| map_error(error.into(), part))?;
+
+    let mut buffer = vec![0u8; CHUNK];
+    let mut sent = 0u64;
+    let mut last_emit = Instant::now();
+    loop {
+        if cancel.load(Ordering::SeqCst) {
+            let _ = sink.close().await;
+            let _ = client.remove_file(part).await;
+            return Ok(TransferOutcome::Canceled { bytes: sent });
+        }
+        let read = source
+            .read(&mut buffer)
+            .await
+            .map_err(|error| SshError::transfer_failed(format!("读取本地文件失败：{error}")))?;
+        if read == 0 {
+            break;
+        }
+        sink.write_all(&buffer[..read])
+            .await
+            .map_err(|error| map_error(error.into(), part))?;
+        sent += read as u64;
+        if last_emit.elapsed() >= PROGRESS_INTERVAL {
+            progress(sent, total);
+            last_emit = Instant::now();
+        }
+    }
+    sink.close()
+        .await
+        .map_err(|error| map_error(error.into(), part))?;
+    progress(sent, total);
+    Ok(TransferOutcome::Saved { bytes: sent })
+}
+
 pub fn split_for_tar(canonical: &str) -> Result<(String, String), SshError> {
     let trimmed = canonical.trim_end_matches('/');
     if trimmed.is_empty() {

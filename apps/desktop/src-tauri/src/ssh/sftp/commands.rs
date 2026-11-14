@@ -1,9 +1,11 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use tauri::ipc::Channel;
 use tauri::{AppHandle, State};
+use tauri_plugin_dialog::DialogExt;
 
 use super::super::error::SshError;
 use super::super::state::AppState;
@@ -15,6 +17,7 @@ use super::dto::{
 use super::list;
 use super::path::{basename, sanitize_local_name, validate_remote_path};
 use super::preview;
+use super::search::{self, SearchResult};
 use super::transfer::{self, TransferOutcome};
 
 fn validate_id(value: &str, label: &str) -> Result<(), SshError> {
@@ -36,6 +39,53 @@ fn test_download_dir() -> Option<PathBuf> {
         .filter(|path| path.is_dir())
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadSource {
+    /// 本地绝对路径。只用于本次上传，不写审计、不落库。
+    pub path: String,
+    pub name: String,
+    pub size: u64,
+}
+
+/// 上传入口：只返回普通文件，最多 50 个；目录与超限项直接过滤。
+#[tauri::command]
+pub async fn pick_upload_paths(app: AppHandle) -> Vec<UploadSource> {
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let app_for_thread = app.clone();
+    let dispatched = app.run_on_main_thread(move || {
+        app_for_thread
+            .dialog()
+            .file()
+            .set_title("选择要上传的文件")
+            .pick_files(move |paths| {
+                let _ = sender.send(paths);
+            });
+    });
+    if dispatched.is_err() {
+        return Vec::new();
+    }
+    match tokio::time::timeout(Duration::from_secs(300), receiver).await {
+        Ok(Ok(Some(files))) => files
+            .into_iter()
+            .filter_map(|file| {
+                let path = file.into_path().ok()?;
+                let meta = std::fs::metadata(&path).ok()?;
+                if !meta.is_file() {
+                    return None;
+                }
+                Some(UploadSource {
+                    path: path.display().to_string(),
+                    name: path.file_name()?.to_string_lossy().to_string(),
+                    size: meta.len(),
+                })
+            })
+            .take(50)
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 #[tauri::command]
 pub async fn sftp_home(
     state: State<'_, Arc<AppState>>,
@@ -54,6 +104,19 @@ pub async fn sftp_list(
     validate_id(&server_id, "服务器标识")?;
     validate_remote_path(&path)?;
     list::list(state.inner(), &server_id, &path).await
+}
+
+#[tauri::command]
+pub async fn sftp_search(
+    state: State<'_, Arc<AppState>>,
+    server_id: String,
+    root: String,
+    query: String,
+) -> Result<SearchResult, SshError> {
+    validate_id(&server_id, "服务器标识")?;
+    validate_remote_path(&root)?;
+    let client = client::acquire(state.inner(), &server_id).await?;
+    search::search(&client, &root, &query).await
 }
 
 #[tauri::command]
@@ -121,6 +184,7 @@ pub async fn sftp_download(
         &transfer_id,
         &cancel,
         &on_event,
+        None,
     )
     .await;
 
@@ -136,6 +200,70 @@ fn canceled_result() -> DownloadResult {
     }
 }
 
+#[tauri::command]
+pub async fn pick_download_dir(app: AppHandle) -> Option<String> {
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let app_for_thread = app.clone();
+    let dispatched = app.run_on_main_thread(move || {
+        app_for_thread
+            .dialog()
+            .file()
+            .set_title("选择保存目录")
+            .pick_folder(move |path| {
+                let _ = sender.send(path);
+            });
+    });
+    if dispatched.is_err() {
+        return None;
+    }
+    match tokio::time::timeout(Duration::from_secs(300), receiver).await {
+        Ok(Ok(Some(path))) => path.into_path().ok().map(|path| path.display().to_string()),
+        _ => None,
+    }
+}
+
+#[tauri::command]
+pub async fn sftp_download_to(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    server_id: String,
+    path: String,
+    kind: FileKind,
+    target_dir: String,
+    transfer_id: String,
+    on_event: Channel<TransferProgress>,
+) -> Result<DownloadResult, SshError> {
+    validate_id(&server_id, "服务器标识")?;
+    validate_id(&transfer_id, "传输标识")?;
+    validate_remote_path(&path)?;
+    let directory = PathBuf::from(&target_dir);
+    if !directory.is_dir() {
+        return Err(SshError::invalid_input("保存目录不存在"));
+    }
+    let cancel = Arc::new(AtomicBool::new(false));
+    state.transfers.lock().await.insert(
+        transfer_id.clone(),
+        TransferHandle {
+            server_id: server_id.clone(),
+            cancel: cancel.clone(),
+        },
+    );
+    let result = run_download(
+        &app,
+        state.inner(),
+        &server_id,
+        &path,
+        kind,
+        &transfer_id,
+        &cancel,
+        &on_event,
+        Some(&directory),
+    )
+    .await;
+    state.transfers.lock().await.remove(&transfer_id);
+    result
+}
+
 async fn run_download(
     app: &AppHandle,
     state: &AppState,
@@ -145,6 +273,7 @@ async fn run_download(
     transfer_id: &str,
     cancel: &Arc<AtomicBool>,
     on_event: &Channel<TransferProgress>,
+    target_dir: Option<&Path>,
 ) -> Result<DownloadResult, SshError> {
     if cancel.load(Ordering::SeqCst) {
         return Ok(canceled_result());
@@ -179,11 +308,14 @@ async fn run_download(
         return Ok(canceled_result());
     }
 
-    let target = match test_download_dir() {
+    let target = match target_dir {
         Some(directory) => directory.join(default_name),
-        None => match transfer::pick_save_path(app, default_name).await {
-            Some(target) => target,
-            None => return Ok(canceled_result()),
+        None => match test_download_dir() {
+            Some(directory) => directory.join(default_name),
+            None => match transfer::pick_save_path(app, default_name).await {
+                Some(target) => target,
+                None => return Ok(canceled_result()),
+            },
         },
     };
     if cancel.load(Ordering::SeqCst) {

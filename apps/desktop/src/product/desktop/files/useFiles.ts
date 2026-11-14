@@ -50,6 +50,8 @@ export function useFiles(server: Server, client: SshBackend = ssh, shared?: File
   const loading = ref(false);
   const error = ref<SshCommandError | null>(null);
   const selectedPath = ref('');
+  const selectedPaths = ref<string[]>([]);
+  const anchorPath = ref('');
   const notice = ref('');
   const history = ref<string[]>([]);
   const historyIndex = ref(-1);
@@ -82,6 +84,9 @@ export function useFiles(server: Server, client: SshBackend = ssh, shared?: File
   const selectedEntry = computed(
     () => entries.value.find((entry) => entry.path === selectedPath.value) ?? null,
   );
+  const selectedEntries = computed(() =>
+    entries.value.filter((entry) => selectedPaths.value.includes(entry.path)),
+  );
   const canBack = computed(() => historyIndex.value > 0);
   const canForward = computed(() => historyIndex.value >= 0 && historyIndex.value < history.value.length - 1);
   const parentPath = computed(() => {
@@ -108,6 +113,10 @@ export function useFiles(server: Server, client: SshBackend = ssh, shared?: File
     if (!entries.value.some((entry) => entry.path === selectedPath.value)) {
       selectedPath.value = '';
     }
+    selectedPaths.value = selectedPaths.value.filter((path) =>
+      entries.value.some((entry) => entry.path === path),
+    );
+    if (!selectedPaths.value.length) anchorPath.value = '';
     return result;
   }
 
@@ -164,7 +173,24 @@ export function useFiles(server: Server, client: SshBackend = ssh, shared?: File
     }
   }
 
-  function select(entry: FileEntry): void {
+  function select(entry: FileEntry, mode: 'single' | 'toggle' | 'range' = 'single'): void {
+    if (mode === 'toggle') {
+      selectedPaths.value = selectedPaths.value.includes(entry.path)
+        ? selectedPaths.value.filter((path) => path !== entry.path)
+        : [...selectedPaths.value, entry.path];
+      anchorPath.value = entry.path;
+    } else if (mode === 'range' && anchorPath.value) {
+      const rows = visibleRows.value;
+      const from = rows.findIndex((row) => row.path === anchorPath.value);
+      const to = rows.findIndex((row) => row.path === entry.path);
+      if (from >= 0 && to >= 0) {
+        const [start, end] = from <= to ? [from, to] : [to, from];
+        selectedPaths.value = rows.slice(start, end + 1).map((row) => row.path);
+      }
+    } else {
+      selectedPaths.value = [entry.path];
+      anchorPath.value = entry.path;
+    }
     selectedPath.value = entry.path;
     previewToken += 1;
     openToken += 1;
@@ -174,6 +200,19 @@ export function useFiles(server: Server, client: SshBackend = ssh, shared?: File
     preview.error = null;
     preview.loading = false;
     if (preview.mode !== 'none') preview.mode = 'meta';
+  }
+
+  function clearSelection(): void {
+    selectedPaths.value = [];
+    selectedPath.value = '';
+    anchorPath.value = '';
+  }
+
+  function selectAll(): void {
+    selectedPaths.value = visibleRows.value.map((entry) => entry.path);
+    if (selectedPaths.value.length) {
+      anchorPath.value = selectedPaths.value[0];
+    }
   }
 
   async function open(entry: FileEntry): Promise<void> {
@@ -284,6 +323,15 @@ export function useFiles(server: Server, client: SshBackend = ssh, shared?: File
     }
   }
 
+  async function downloadTo(entry: FileEntry, targetDir: string): Promise<void> {
+    try {
+      const kind = await session.resolveKind(entry);
+      session.enqueueDownloadTo(entry, kind, targetDir);
+    } catch (caught) {
+      error.value = toSshError(caught);
+    }
+  }
+
   watch(
     () => session.generation.value,
     () => {
@@ -324,7 +372,9 @@ export function useFiles(server: Server, client: SshBackend = ssh, shared?: File
     error,
     truncated,
     selectedPath,
+    selectedPaths,
     selectedEntry,
+    selectedEntries,
     view,
     iconScheme,
     notice,
@@ -341,6 +391,8 @@ export function useFiles(server: Server, client: SshBackend = ssh, shared?: File
     goUp,
     refresh,
     select,
+    clearSelection,
+    selectAll,
     open,
     toggleNode: session.toggleNode,
     retryNode: session.retryNode,
@@ -349,6 +401,7 @@ export function useFiles(server: Server, client: SshBackend = ssh, shared?: File
     closePreview,
     loadPreview,
     download,
+    downloadTo,
     cancelDownload: session.cancelDownload,
     removeDownload: session.removeDownload,
     setShowHidden: session.setShowHidden,

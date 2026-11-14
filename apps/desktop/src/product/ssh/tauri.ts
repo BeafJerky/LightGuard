@@ -8,12 +8,15 @@ import {
   type CredentialStatus,
   type DownloadInput,
   type DownloadResult,
+  type DownloadToInput,
   type FileEntry,
   type FileListing,
   type ImagePreview,
   type PermitEvent,
   type PermitStatus,
   type ReconnectInput,
+  type SearchInput,
+  type SearchResult,
   type ServerSnapshot,
   type SessionStatus,
   type SshBackend,
@@ -25,9 +28,12 @@ import {
   type WriteEvent,
   type WritePreview,
   type WritePreviewInput,
+  type WriteProgress,
   type WriteResult,
+  type UploadSource,
   toSshError,
 } from './backend';
+import { Channel } from '@tauri-apps/api/core';
 
 type CoreModule = typeof import('@tauri-apps/api/core');
 type EventModule = typeof import('@tauri-apps/api/event');
@@ -149,6 +155,10 @@ export const tauriBackend: SshBackend = {
     return call<FileListing>('sftp_list', { serverId, path });
   },
 
+  sftpSearch(input: SearchInput) {
+    return call<SearchResult>('sftp_search', { ...input });
+  },
+
   sftpStat(serverId: string, path: string) {
     return call<FileEntry>('sftp_stat', { serverId, path });
   },
@@ -159,6 +169,24 @@ export const tauriBackend: SshBackend = {
 
   sftpPreviewImage(serverId: string, path: string) {
     return call<ImagePreview>('sftp_preview_image', { serverId, path });
+  },
+
+  async sftpDownloadTo(input: DownloadToInput) {
+    const { Channel } = await loadCore();
+    const channel = new Channel<TransferProgress>();
+    channel.onmessage = (event) => input.onEvent(event);
+    return call<DownloadResult>('sftp_download_to', {
+      serverId: input.serverId,
+      path: input.path,
+      kind: input.kind,
+      targetDir: input.targetDir,
+      transferId: input.transferId,
+      onEvent: channel,
+    });
+  },
+
+  pickDownloadDir() {
+    return call<string | null>('pick_download_dir');
   },
 
   async sftpDownload(input: DownloadInput) {
@@ -198,8 +226,15 @@ export const tauriBackend: SshBackend = {
     return call<WritePreview>('write_preview', { ...input });
   },
 
-  writeExecute(previewId: string) {
-    return call<WriteResult>('write_execute', { previewId });
+  writeExecute(previewId: string, onEvent?: Channel<WriteProgress>) {
+    return call<WriteResult>('write_execute', {
+      previewId,
+      onEvent: onEvent ?? new Channel<WriteProgress>(),
+    });
+  },
+
+  pickUploadPaths() {
+    return call<UploadSource[]>('pick_upload_paths');
   },
 
   writeRollback(auditId: number) {

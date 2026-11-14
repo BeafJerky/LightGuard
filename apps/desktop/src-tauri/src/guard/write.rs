@@ -242,7 +242,7 @@ pub fn build_chmod_preview(
 }
 
 pub fn rollback_block_reason(row: &AuditRow, has_rollback: bool) -> Option<&'static str> {
-    let supported = matches!(row.op.as_str(), MKDIR_OP | RENAME_OP | CHMOD_OP)
+    let supported = matches!(row.op.as_str(), MKDIR_OP | RENAME_OP | CHMOD_OP | UPLOAD_OP)
         || matches!(row.op.as_str(), "docker.container.start" | "docker.container.stop");
     if !supported {
         return Some("该操作不支持回退");
@@ -821,6 +821,305 @@ pub(crate) async fn execute_delete(
     }
 }
 
+pub const UPLOAD_OP: &str = "fs.upload";
+pub const UPLOAD_ROLLBACK_OP: &str = "fs.upload.rollback";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UploadAction {
+    Create,
+    Overwrite,
+    Skip,
+    Rename(String),
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadPlanItem {
+    pub name: String,
+    pub remote_path: String,
+    pub size: u64,
+    pub action: String,
+    pub renamed_to: Option<String>,
+    pub rollbackable: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteProgress {
+    pub file_index: usize,
+    pub file_name: String,
+    pub transferred: u64,
+    pub total: Option<u64>,
+    pub done: usize,
+    pub failed: usize,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadJob {
+    pub local_path: String,
+    pub remote_path: String,
+    pub overwrite: bool,
+    pub size: u64,
+}
+
+/// 冲突策略：skip 默认；overwrite 原文件不可恢复；rename 自动加 ` (n)`。
+pub fn plan_upload(name: &str, exists: bool, policy: &str) -> UploadAction {
+    if !exists {
+        return UploadAction::Create;
+    }
+    match policy {
+        "overwrite" => UploadAction::Overwrite,
+        "rename" => UploadAction::Rename(name.to_string()),
+        _ => UploadAction::Skip,
+    }
+}
+
+/// `name (1).ext`；没有扩展名时 `name (1)`。
+pub fn renamed_name(name: &str, index: usize) -> String {
+    match name.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() && !ext.is_empty() => {
+            format!("{stem} ({index}).{ext}")
+        }
+        _ => format!("{name} ({index})"),
+    }
+}
+
+pub fn build_upload_preview(
+    preview_id: String,
+    dir: &str,
+    items: &[UploadPlanItem],
+    conflict_policy: &str,
+    expires_at_ms: i64,
+) -> WritePreview {
+    let total: u64 = items.iter().map(|item| item.size).sum();
+    let skipped = items.iter().filter(|item| item.action == "skip").count();
+    let overwritten = items
+        .iter()
+        .filter(|item| item.action == "overwrite")
+        .count();
+    let executable = items.len() - skipped;
+    build_preview(
+        preview_id,
+        "upload",
+        dir,
+        "上传文件",
+        dir,
+        format!(
+            "将上传 {executable} 个文件（共 {total} 字节）到 {dir}；跳过 {skipped} 个，覆盖 {overwritten} 个"
+        ),
+        "create / rename 项可在审计中回退（删除新文件）；overwrite 项不可回退",
+        false,
+        serde_json::json!({
+            "dir": dir,
+            "conflictPolicy": conflict_policy,
+            "files": items,
+        }),
+        expires_at_ms,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn execute_upload(
+    state: &AppState,
+    db: &Database,
+    server_id: &str,
+    transfer_id: &str,
+    jobs: &[UploadJob],
+    permit_source: &str,
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    mut progress: impl FnMut(WriteProgress),
+) -> Result<WriteResult, SshError> {
+    let client = client::acquire(state, server_id).await?;
+    let server_name = db
+        .server_name(server_id)
+        .unwrap_or_else(|_| server_id.to_string());
+    let mut succeeded = 0u32;
+    let mut failed = 0u32;
+    let mut last_audit = 0i64;
+
+    for (index, job) in jobs.iter().enumerate() {
+        if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+            break;
+        }
+        let started = Instant::now();
+        let part = crate::ssh::sftp::transfer::upload_part_path(&job.remote_path, transfer_id);
+        let local = std::path::Path::new(&job.local_path);
+        let outcome = crate::ssh::sftp::transfer::upload_file(
+            &client,
+            local,
+            &part,
+            transfer_id,
+            &cancel,
+            |transferred, total| {
+                progress(WriteProgress {
+                    file_index: index,
+                    file_name: job.remote_path.clone(),
+                    transferred,
+                    total,
+                    done: succeeded as usize,
+                    failed: failed as usize,
+                })
+            },
+        )
+        .await;
+
+        let finalized = match outcome {
+            Ok(crate::ssh::sftp::transfer::TransferOutcome::Canceled { .. }) => {
+                failed += 1;
+                let _ = record(
+                    db,
+                    server_id,
+                    &server_name,
+                    UPLOAD_OP,
+                    &serde_json::json!({
+                        "path": job.remote_path,
+                        "size": job.size,
+                        "overwrite": job.overwrite,
+                        "canceled": true,
+                    })
+                    .to_string(),
+                    "failed",
+                    started,
+                    permit_source,
+                    None,
+                );
+                break;
+            }
+            Ok(crate::ssh::sftp::transfer::TransferOutcome::Saved { .. }) => {
+                if job.overwrite {
+                    let _ = client.remove_file(&job.remote_path).await;
+                }
+                client
+                    .rename(&part, &job.remote_path)
+                    .await
+                    .map_err(|error| {
+                        SshError::sftp_failed(format!("重命名上传文件失败：{error}"))
+                    })
+            }
+            Err(error) => Err(error),
+        };
+
+        match finalized {
+            Ok(()) => {
+                last_audit = record(
+                    db,
+                    server_id,
+                    &server_name,
+                    UPLOAD_OP,
+                    &serde_json::json!({
+                        "path": job.remote_path,
+                        "size": job.size,
+                        "overwrite": job.overwrite,
+                    })
+                    .to_string(),
+                    "success",
+                    started,
+                    permit_source,
+                    None,
+                )?;
+                succeeded += 1;
+            }
+            Err(error) => {
+                failed += 1;
+                let result_kind = outcome_for(&error);
+                let _ = record(
+                    db,
+                    server_id,
+                    &server_name,
+                    UPLOAD_OP,
+                    &serde_json::json!({
+                        "path": job.remote_path,
+                        "size": job.size,
+                        "overwrite": job.overwrite,
+                    })
+                    .to_string(),
+                    result_kind,
+                    started,
+                    permit_source,
+                    None,
+                );
+                if error.code == "SESSION_CLOSED" || error.code == "SESSION_NOT_FOUND" {
+                    return Err(failed_unknown("上传文件", &error));
+                }
+            }
+        }
+    }
+
+    if failed > 0 {
+        return Err(SshError::write_failed(format!(
+            "上传完成：成功 {succeeded} 个，失败 {failed} 个"
+        )));
+    }
+    Ok(WriteResult {
+        audit_id: last_audit,
+        path: jobs
+            .first()
+            .map(|job| job.remote_path.clone())
+            .unwrap_or_default(),
+    })
+}
+
+pub(crate) async fn rollback_upload(
+    state: &AppState,
+    db: &Database,
+    server_id: &str,
+    audit_id: i64,
+    path: &str,
+    overwrite: bool,
+    permit_source: &str,
+) -> Result<WriteResult, SshError> {
+    if overwrite {
+        return Err(SshError::invalid_input("覆盖上传不支持回退"));
+    }
+    absolute_target(path)?;
+    let started = Instant::now();
+    let server_name = db
+        .server_name(server_id)
+        .unwrap_or_else(|_| server_id.to_string());
+    let params = serde_json::json!({ "path": path }).to_string();
+    match client::remove_file(state, server_id, path).await {
+        Ok(()) => {
+            let new_id = record(
+                db,
+                server_id,
+                &server_name,
+                UPLOAD_ROLLBACK_OP,
+                &params,
+                "success",
+                started,
+                permit_source,
+                Some(audit_id),
+            )
+            .map_err(|audit| audit_lost_after_success("上传文件已删除", &audit))?;
+            Ok(WriteResult {
+                audit_id: new_id,
+                path: path.to_string(),
+            })
+        }
+        Err(error) => {
+            let result = outcome_for(&error);
+            let operation_error = if result == "unknown" {
+                failed_unknown("删除上传文件", &error)
+            } else {
+                failed("删除上传文件", &error)
+            };
+            let _ = record(
+                db,
+                server_id,
+                &server_name,
+                UPLOAD_ROLLBACK_OP,
+                &params,
+                result,
+                started,
+                permit_source,
+                Some(audit_id),
+            );
+            Err(operation_error)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -979,6 +1278,22 @@ mod tests {
         assert_eq!(preview.details["entries"], 12);
         assert!(preview.impact.contains("12"));
         assert!(preview.rollback.contains("不可回退"));
+    }
+
+    #[test]
+    fn upload_conflict_policy_and_renamed_names() {
+        assert_eq!(plan_upload("a.txt", false, "skip"), UploadAction::Create);
+        assert_eq!(plan_upload("a.txt", true, "skip"), UploadAction::Skip);
+        assert_eq!(
+            plan_upload("a.txt", true, "overwrite"),
+            UploadAction::Overwrite
+        );
+        assert_eq!(
+            plan_upload("a.txt", true, "rename"),
+            UploadAction::Rename("a.txt".to_string())
+        );
+        assert_eq!(renamed_name("a.txt", 2), "a (2).txt");
+        assert_eq!(renamed_name("README", 1), "README (1)");
     }
 
     #[test]
@@ -1457,5 +1772,129 @@ mod tests {
             .any(|row| row.op == DELETE_OP && row.result == "success"));
 
         state.sessions.lock().await.remove("guard-it");
+    }
+
+    /// 真实服务器上传夹具：本地文件 → 远端 .lgpart → 最终名 → 审计 → 回退删除。
+    #[tokio::test]
+    async fn real_guard_fixture_upload_and_rollback() {
+        use crate::db::Database;
+        use crate::ssh::credentials::CredentialStore;
+        use crate::ssh::dto::{AuthKind, ConnectInput};
+        use crate::ssh::session;
+
+        fn env() -> Option<(String, String, String, u16)> {
+            let host = std::env::var("LG_SSH_HOST").ok()?;
+            let user = std::env::var("LG_SSH_USER").ok()?;
+            let password = std::env::var("LG_SSH_PASSWORD").ok()?;
+            if host.is_empty() || user.is_empty() || password.is_empty() {
+                return None;
+            }
+            let port = std::env::var("LG_SSH_PORT")
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(22);
+            Some((host, user, password, port))
+        }
+
+        let Some((host, user, password, port)) = env() else {
+            eprintln!("skipping: LG_SSH_* not set");
+            return;
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let local = dir.path().join("upload-fixture.txt");
+        let content = b"lightguard upload fixture\n";
+        std::fs::write(&local, content).unwrap();
+
+        let store = CredentialStore::with_master_key(dir.path().to_path_buf(), [7u8; 32]);
+        let outcome = session::connect(
+            ConnectInput {
+                server_id: "guard-upload".to_string(),
+                host,
+                port,
+                user,
+                auth: AuthKind::Password,
+                secret: password,
+                passphrase: None,
+                remember: false,
+                verify_host_key: false,
+            },
+            dir.path(),
+            &store,
+        )
+        .await
+        .expect("connect");
+
+        let state = crate::test_support::headless_state(dir.path().to_path_buf());
+        state.sessions.lock().await.insert(
+            "guard-upload".to_string(),
+            std::sync::Arc::new(tokio::sync::Mutex::new(outcome.entry)),
+        );
+        let db = Database::in_memory();
+        let guard = state.guard.clone();
+        guard.unlock("guard-upload", 5).expect("unlock");
+        let _write = guard.begin_write("guard-upload").expect("write lock");
+
+        let base = crate::test_support::remote_fixture_dir()
+            .unwrap_or_else(|| "/vol1/1000/lg-filetest".to_string());
+        let remote = format!("{base}/lg-upload-{}.txt", crate::alerts::now_ms());
+        let jobs = vec![UploadJob {
+            local_path: local.display().to_string(),
+            remote_path: remote.clone(),
+            overwrite: false,
+            size: content.len() as u64,
+        }];
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        let outcome = execute_upload(
+            &state,
+            &db,
+            "guard-upload",
+            "upload-fixture",
+            &jobs,
+            "unlock:5m",
+            cancel,
+            |_| {},
+        )
+        .await;
+
+        let cleanup = async {
+            let _ = execute_delete(&state, &db, "guard-upload", &remote, "file", "unlock:5m").await;
+        };
+
+        match outcome {
+            Ok(result) => {
+                let entry = crate::ssh::sftp::list::stat(&state, "guard-upload", &remote)
+                    .await
+                    .expect("stat uploaded");
+                assert_eq!(entry.size, content.len() as u64);
+                let rows = db.audit_list(10, 0).expect("audit list");
+                assert!(rows
+                    .iter()
+                    .any(|row| row.op == UPLOAD_OP && row.result == "success"));
+                let rolled = rollback_upload(
+                    &state,
+                    &db,
+                    "guard-upload",
+                    result.audit_id,
+                    &remote,
+                    false,
+                    "unlock:5m",
+                )
+                .await
+                .expect("rollback upload");
+                assert_eq!(rolled.path, remote);
+                assert!(crate::ssh::sftp::list::stat(&state, "guard-upload", &remote)
+                    .await
+                    .is_err());
+            }
+            Err(error) => {
+                cleanup.await;
+                panic!("upload failed: {error:?}");
+            }
+        }
+
+        cleanup.await;
+        state.sessions.lock().await.remove("guard-upload");
     }
 }

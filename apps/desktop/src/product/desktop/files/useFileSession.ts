@@ -6,6 +6,7 @@ import {
   type FileEntry,
   type FileKind,
   type SshBackend,
+  type TransferProgress,
 } from '../../ssh';
 import { loadIconScheme, saveIconScheme, type IconScheme } from './iconScheme';
 import type { ViewMode } from './listModel';
@@ -50,6 +51,7 @@ export interface FileSession {
   expandPath(path: string): Promise<void>;
   resolveKind(entry: FileEntry): Promise<FileKind>;
   enqueueDownload(entry: FileEntry, kind: FileKind): void;
+  enqueueDownloadTo(entry: FileEntry, kind: FileKind, targetDir: string): void;
   cancelDownload(id: string): void;
   removeDownload(id: string): void;
   setMode(mode: ViewMode): void;
@@ -232,14 +234,30 @@ export function useFileSession(server: Server, client: SshBackend = ssh): FileSe
     void runDownload(task);
   }
 
-  async function runDownload(task: DownloadTask): Promise<void> {
+  function enqueueDownloadTo(entry: FileEntry, kind: FileKind, targetDir: string): void {
+    const task = reactive<DownloadTask>({
+      id: transferId(),
+      name: entry.name,
+      path: entry.path,
+      kind,
+      transferred: 0,
+      total: null,
+      status: 'waiting',
+      message: '等待中',
+      targetPath: '',
+    });
+    downloads.value = [task, ...downloads.value];
+    void runDownload(task, targetDir);
+  }
+
+  async function runDownload(task: DownloadTask, targetDir?: string): Promise<void> {
     try {
-      const result = await client.sftpDownload({
+      const input = {
         serverId: server.id,
         path: task.path,
         kind: task.kind,
         transferId: task.id,
-        onEvent: (event) => {
+        onEvent: (event: TransferProgress) => {
           if (event.type === 'progress') {
             if (task.status === 'waiting') {
               task.status = 'running';
@@ -249,7 +267,10 @@ export function useFileSession(server: Server, client: SshBackend = ssh): FileSe
             task.total = event.total;
           }
         },
-      });
+      };
+      const result = targetDir
+        ? await client.sftpDownloadTo({ ...input, targetDir })
+        : await client.sftpDownload(input);
       if (result.status === 'canceled') {
         task.status = 'canceled';
         task.message = '已取消';
@@ -321,6 +342,7 @@ export function useFileSession(server: Server, client: SshBackend = ssh): FileSe
     expandPath,
     resolveKind,
     enqueueDownload,
+    enqueueDownloadTo,
     cancelDownload,
     removeDownload,
     setMode,

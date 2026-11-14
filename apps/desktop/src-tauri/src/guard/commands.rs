@@ -177,6 +177,37 @@ pub async fn write_preview(
                 expires_at_ms,
             ))
         }
+        "chmod" => {
+            let path = payload_str(&payload, "path")?;
+            let mode = write::parse_mode(payload_str(&payload, "mode")?)?;
+            let entry = client::stat_entry(state.inner(), &server_id, path)
+                .await
+                .map_err(preview_failed)?;
+            if entry.kind == crate::ssh::sftp::dto::FileKind::Symlink {
+                return Err(SshError::preview_failed("不支持修改符号链接的权限"));
+            }
+            let previous_mode = entry.mode & 0o777;
+            if previous_mode == mode {
+                return Err(SshError::preview_failed("目标权限与当前一致"));
+            }
+            let preview_id = guard.store_preview(
+                &server_id,
+                write::CHMOD_OP,
+                serde_json::json!({
+                    "path": path,
+                    "mode": mode,
+                    "previousMode": previous_mode,
+                }),
+            );
+            let expires_at_ms = crate::alerts::now_ms() + PREVIEW_TTL.as_millis() as i64;
+            Ok(write::build_chmod_preview(
+                preview_id,
+                path,
+                previous_mode,
+                mode,
+                expires_at_ms,
+            ))
+        }
         other => Err(SshError::invalid_input(format!("不支持的写操作：{other}"))),
     }
 }
@@ -227,6 +258,35 @@ pub async fn write_execute(
                 from,
                 to,
                 &permit_source,
+            )
+            .await
+        }
+        write::CHMOD_OP => {
+            let payload = &preview.payload;
+            let path = payload
+                .get("path")
+                .and_then(Value::as_str)
+                .ok_or_else(|| SshError::preview_failed("预览内容缺少权限目标"))?;
+            let mode = payload
+                .get("mode")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| SshError::preview_failed("预览内容缺少目标权限"))?
+                as u32;
+            let previous_mode = payload
+                .get("previousMode")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| SshError::preview_failed("预览内容缺少原权限"))?
+                as u32;
+            write::execute_chmod(
+                state.inner(),
+                &db,
+                &preview.server_id,
+                path,
+                mode,
+                previous_mode,
+                &permit_source,
+                write::CHMOD_OP,
+                None,
             )
             .await
         }
@@ -284,6 +344,36 @@ pub async fn write_rollback(
             audit_id: outcome.audit_id,
             path: outcome.target,
         });
+    }
+
+    if row.op == write::CHMOD_OP {
+        let value: Value = serde_json::from_str(&row.params)
+            .map_err(|_| SshError::invalid_input("审计记录缺少权限信息"))?;
+        let path = value
+            .get("path")
+            .and_then(Value::as_str)
+            .ok_or_else(|| SshError::invalid_input("审计记录缺少权限目标"))?;
+        let previous_mode = value
+            .get("previousMode")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| SshError::invalid_input("审计记录缺少原权限"))?
+            as u32;
+        let minutes = guard.require_permit(&row.server_id)?;
+        client::session_handle(state.inner(), &row.server_id).await?;
+        let lock = guard.begin_write(&row.server_id)?;
+        let permit_source = format!("unlock:{minutes}m");
+        let outcome = write::rollback_chmod(
+            state.inner(),
+            &db,
+            &row.server_id,
+            audit_id,
+            path,
+            previous_mode,
+            &permit_source,
+        )
+        .await;
+        drop(lock);
+        return outcome;
     }
 
     if row.op == write::RENAME_OP {

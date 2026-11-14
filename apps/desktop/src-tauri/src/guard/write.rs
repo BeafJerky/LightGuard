@@ -192,8 +192,57 @@ pub fn audit_rename_paths(params: &str) -> Option<(String, String)> {
     Some((from, to))
 }
 
+pub const CHMOD_OP: &str = "fs.chmod";
+pub const CHMOD_ROLLBACK_OP: &str = "fs.chmod.rollback";
+
+/// 只接受三位八进制 `000`–`777`，或带前导 0 的四位写法（`0755`）。
+/// 拒绝 setuid / setgid / sticky，避免把一次“改权限”变成提权入口。
+pub fn parse_mode(input: &str) -> Result<u32, SshError> {
+    let trimmed = input.trim();
+    if trimmed.is_empty()
+        || trimmed.len() > 4
+        || !trimmed.chars().all(|c| ('0'..='7').contains(&c))
+    {
+        return Err(SshError::preview_failed("权限必须是 000–777 的八进制数"));
+    }
+    let value = u32::from_str_radix(trimmed, 8)
+        .map_err(|_| SshError::preview_failed("权限必须是 000–777 的八进制数"))?;
+    if value > 0o777 {
+        return Err(SshError::preview_failed("权限不能包含特殊位"));
+    }
+    Ok(value)
+}
+
+pub fn build_chmod_preview(
+    preview_id: String,
+    path: &str,
+    previous_mode: u32,
+    mode: u32,
+    expires_at_ms: i64,
+) -> WritePreview {
+    build_preview(
+        preview_id,
+        "chmod",
+        path,
+        "修改权限",
+        path,
+        format!(
+            "将把 {path} 的权限从 {:03o} 改为 {mode:03o}",
+            previous_mode & 0o777
+        ),
+        "执行后可在审计中恢复原权限",
+        false,
+        serde_json::json!({
+            "path": path,
+            "mode": mode,
+            "previousMode": previous_mode,
+        }),
+        expires_at_ms,
+    )
+}
+
 pub fn rollback_block_reason(row: &AuditRow, has_rollback: bool) -> Option<&'static str> {
-    let supported = matches!(row.op.as_str(), MKDIR_OP | RENAME_OP)
+    let supported = matches!(row.op.as_str(), MKDIR_OP | RENAME_OP | CHMOD_OP)
         || matches!(row.op.as_str(), "docker.container.start" | "docker.container.stop");
     if !supported {
         return Some("该操作不支持回退");
@@ -560,6 +609,102 @@ pub(crate) async fn rollback_rename(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn execute_chmod(
+    state: &AppState,
+    db: &Database,
+    server_id: &str,
+    path: &str,
+    mode: u32,
+    previous_mode: u32,
+    permit_source: &str,
+    op: &str,
+    rollback_of: Option<i64>,
+) -> Result<WriteResult, SshError> {
+    absolute_target(path)?;
+    let started = Instant::now();
+    let server_name = db
+        .server_name(server_id)
+        .unwrap_or_else(|_| server_id.to_string());
+    let params = serde_json::json!({
+        "path": path,
+        "mode": mode,
+        "previousMode": previous_mode,
+    })
+    .to_string();
+    let outcome = client::set_permissions(state, server_id, path, mode).await;
+    match outcome {
+        Ok(()) => {
+            let audit_id = record(
+                db,
+                server_id,
+                &server_name,
+                op,
+                &params,
+                "success",
+                started,
+                permit_source,
+                rollback_of,
+            )
+            .map_err(|audit| audit_lost_after_success("权限已修改", &audit))?;
+            Ok(WriteResult {
+                audit_id,
+                path: path.to_string(),
+            })
+        }
+        Err(error) => {
+            let result = outcome_for(&error);
+            let operation_error = if result == "unknown" {
+                failed_unknown("修改权限", &error)
+            } else {
+                failed("修改权限", &error)
+            };
+            match record(
+                db,
+                server_id,
+                &server_name,
+                op,
+                &params,
+                result,
+                started,
+                permit_source,
+                rollback_of,
+            ) {
+                Ok(_) => Err(operation_error),
+                Err(audit) => Err(audit_write_failed(
+                    operation_error,
+                    &audit,
+                    result == "unknown",
+                )),
+            }
+        }
+    }
+}
+
+pub(crate) async fn rollback_chmod(
+    state: &AppState,
+    db: &Database,
+    server_id: &str,
+    audit_id: i64,
+    path: &str,
+    previous_mode: u32,
+    permit_source: &str,
+) -> Result<WriteResult, SshError> {
+    let current = client::stat_entry(state, server_id, path).await?;
+    execute_chmod(
+        state,
+        db,
+        server_id,
+        path,
+        previous_mode,
+        current.mode & 0o777,
+        permit_source,
+        CHMOD_ROLLBACK_OP,
+        Some(audit_id),
+    )
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -682,6 +827,27 @@ mod tests {
         assert_eq!(preview.details["from"], "/data/old");
         assert_eq!(preview.details["to"], "/data/new");
         assert!(preview.rollback.contains("回退"));
+    }
+
+    #[test]
+    fn parses_only_plain_octal_modes() {
+        assert_eq!(parse_mode("755").unwrap(), 0o755);
+        assert_eq!(parse_mode("0755").unwrap(), 0o755);
+        assert_eq!(parse_mode("600").unwrap(), 0o600);
+        for bad in ["", "888", "1000", "u+rwx", "-1"] {
+            assert_eq!(parse_mode(bad).unwrap_err().code, "PREVIEW_FAILED", "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn chmod_preview_shows_both_modes_and_is_reversible() {
+        let preview = build_chmod_preview("p".into(), "/data/x", 0o644, 0o755, 7);
+        assert_eq!(preview.kind, "chmod");
+        assert!(preview.impact.contains("644"));
+        assert!(preview.impact.contains("755"));
+        assert!(!preview.irreversible);
+        assert_eq!(preview.details["previousMode"], 0o644);
+        assert_eq!(preview.details["mode"], 0o755);
     }
 
     #[test]

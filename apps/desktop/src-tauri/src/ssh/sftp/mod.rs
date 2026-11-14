@@ -1,5 +1,6 @@
 pub mod client;
 pub mod commands;
+pub mod delete;
 pub mod dto;
 pub mod list;
 pub mod path;

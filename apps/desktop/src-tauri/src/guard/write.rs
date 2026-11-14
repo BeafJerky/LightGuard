@@ -273,7 +273,7 @@ pub fn outcome_for(error: &SshError) -> &'static str {
 /// 落到远端之前的最后一道校验。预览与审计都来自本进程，这里防的是数据被改写后仍然
 /// 变成一个远端的 `mkdir`/`rmdir` 调用：只接受绝对、无 `..`、无空段的路径，并且
 /// 永远不接受 `/` 本身，回退不会把根目录当成"本应用创建的文件夹"。
-fn absolute_target(path: &str) -> Result<(), SshError> {
+pub(crate) fn absolute_target(path: &str) -> Result<(), SshError> {
     if !path.starts_with('/') || path == "/" || path.ends_with('/') {
         return Err(SshError::invalid_input("目标路径必须是绝对路径"));
     }
@@ -705,6 +705,122 @@ pub(crate) async fn rollback_chmod(
     .await
 }
 
+pub const DELETE_OP: &str = "fs.delete";
+
+pub fn build_delete_preview(
+    preview_id: String,
+    path: &str,
+    kind: &str,
+    stats: crate::ssh::sftp::delete::DeleteStats,
+    expires_at_ms: i64,
+) -> WritePreview {
+    let impact = if kind == "dir" {
+        let prefix = if stats.truncated { "至少 " } else { "" };
+        format!(
+            "将递归删除 {path}，{prefix}{} 项、{} 字节；删除后无法恢复",
+            stats.entries, stats.bytes
+        )
+    } else {
+        format!("将删除文件 {path}；删除后无法恢复")
+    };
+    build_preview(
+        preview_id,
+        "delete",
+        path,
+        "删除",
+        path,
+        impact,
+        "删除不可回退",
+        true,
+        serde_json::json!({
+            "path": path,
+            "kind": kind,
+            "entries": stats.entries,
+            "bytes": stats.bytes,
+            "truncated": stats.truncated,
+        }),
+        expires_at_ms,
+    )
+}
+
+pub(crate) async fn execute_delete(
+    state: &AppState,
+    db: &Database,
+    server_id: &str,
+    path: &str,
+    kind: &str,
+    permit_source: &str,
+) -> Result<WriteResult, SshError> {
+    absolute_target(path)?;
+    let started = Instant::now();
+    let server_name = db
+        .server_name(server_id)
+        .unwrap_or_else(|_| server_id.to_string());
+    let params = serde_json::json!({ "path": path, "kind": kind }).to_string();
+    let outcome = if kind == "dir" {
+        let path_owned = path.to_string();
+        let client = client::acquire(state, server_id).await;
+        match client {
+            Ok(client) => crate::ssh::sftp::delete::remove_tree(
+                &client,
+                &path_owned,
+                crate::ssh::sftp::delete::MAX_DELETE_DEPTH,
+            )
+            .await
+            .map(|_| ()),
+            Err(error) => Err(error),
+        }
+    } else {
+        client::remove_file(state, server_id, path).await
+    };
+    match outcome {
+        Ok(()) => {
+            let audit_id = record(
+                db,
+                server_id,
+                &server_name,
+                DELETE_OP,
+                &params,
+                "success",
+                started,
+                permit_source,
+                None,
+            )
+            .map_err(|audit| audit_lost_after_success("删除已完成", &audit))?;
+            Ok(WriteResult {
+                audit_id,
+                path: path.to_string(),
+            })
+        }
+        Err(error) => {
+            let result = outcome_for(&error);
+            let operation_error = if result == "unknown" {
+                failed_unknown("删除", &error)
+            } else {
+                failed("删除", &error)
+            };
+            match record(
+                db,
+                server_id,
+                &server_name,
+                DELETE_OP,
+                &params,
+                result,
+                started,
+                permit_source,
+                None,
+            ) {
+                Ok(_) => Err(operation_error),
+                Err(audit) => Err(audit_write_failed(
+                    operation_error,
+                    &audit,
+                    result == "unknown",
+                )),
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -848,6 +964,21 @@ mod tests {
         assert!(!preview.irreversible);
         assert_eq!(preview.details["previousMode"], 0o644);
         assert_eq!(preview.details["mode"], 0o755);
+    }
+
+    #[test]
+    fn delete_preview_is_irreversible() {
+        let stats = crate::ssh::sftp::delete::DeleteStats {
+            entries: 12,
+            bytes: 34,
+            truncated: false,
+        };
+        let preview = build_delete_preview("p".into(), "/data/tmp", "dir", stats, 7);
+        assert_eq!(preview.kind, "delete");
+        assert!(preview.irreversible);
+        assert_eq!(preview.details["entries"], 12);
+        assert!(preview.impact.contains("12"));
+        assert!(preview.rollback.contains("不可回退"));
     }
 
     #[test]

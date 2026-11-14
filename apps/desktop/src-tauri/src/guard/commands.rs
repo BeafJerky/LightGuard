@@ -208,6 +208,51 @@ pub async fn write_preview(
                 expires_at_ms,
             ))
         }
+        "delete" => {
+            let path = payload_str(&payload, "path")?;
+            write::absolute_target(path)?;
+            let entry = client::stat_entry(state.inner(), &server_id, path)
+                .await
+                .map_err(preview_failed)?;
+            let kind = if entry.kind == crate::ssh::sftp::dto::FileKind::Dir {
+                "dir"
+            } else {
+                "file"
+            };
+            let stats = if kind == "dir" {
+                let client = client::acquire(state.inner(), &server_id)
+                    .await
+                    .map_err(preview_failed)?;
+                crate::ssh::sftp::delete::count_tree(
+                    &client,
+                    path,
+                    1000,
+                    crate::ssh::sftp::delete::MAX_DELETE_DEPTH,
+                    std::time::Duration::from_secs(5),
+                )
+                .await
+                .map_err(preview_failed)?
+            } else {
+                crate::ssh::sftp::delete::DeleteStats {
+                    entries: 1,
+                    bytes: entry.size,
+                    truncated: false,
+                }
+            };
+            let preview_id = guard.store_preview(
+                &server_id,
+                write::DELETE_OP,
+                serde_json::json!({ "path": path, "kind": kind }),
+            );
+            let expires_at_ms = crate::alerts::now_ms() + PREVIEW_TTL.as_millis() as i64;
+            Ok(write::build_delete_preview(
+                preview_id,
+                path,
+                kind,
+                stats,
+                expires_at_ms,
+            ))
+        }
         other => Err(SshError::invalid_input(format!("不支持的写操作：{other}"))),
     }
 }
@@ -287,6 +332,27 @@ pub async fn write_execute(
                 &permit_source,
                 write::CHMOD_OP,
                 None,
+            )
+            .await
+        }
+        write::DELETE_OP => {
+            let path = preview
+                .payload
+                .get("path")
+                .and_then(Value::as_str)
+                .ok_or_else(|| SshError::preview_failed("预览内容缺少删除目标"))?;
+            let kind = preview
+                .payload
+                .get("kind")
+                .and_then(Value::as_str)
+                .ok_or_else(|| SshError::preview_failed("预览内容缺少目标类型"))?;
+            write::execute_delete(
+                state.inner(),
+                &db,
+                &preview.server_id,
+                path,
+                kind,
+                &permit_source,
             )
             .await
         }

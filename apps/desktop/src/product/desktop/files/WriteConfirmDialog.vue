@@ -99,6 +99,17 @@ const mayHaveRun = computed(() => props.failure?.kind === 'lost-audit');
           {{ failure ? '重新预览' : '预览' }}
         </LgButton>
         <LgButton
+          v-else-if="expired"
+          size="small"
+          type="primary"
+          data-action="repreview"
+          :loading="busy"
+          :disabled="busy"
+          @click="emit('preview')"
+        >
+          重新预览
+        </LgButton>
+        <LgButton
           v-else
           size="small"
           type="primary"
@@ -107,7 +118,7 @@ const mayHaveRun = computed(() => props.failure?.kind === 'lost-audit');
           :disabled="!canConfirm"
           @click="emit('confirm')"
         >
-          {{ expired ? '预览已过期' : '确认执行' }}
+          确认执行
         </LgButton>
       </div>
     </template>

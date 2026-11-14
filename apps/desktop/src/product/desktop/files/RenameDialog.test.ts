@@ -22,7 +22,7 @@ describe('RenameDialog', () => {
         kind: 'rename',
         path: '/data/old',
         operation: '重命名',
-        target: '/data/new',
+        target: '/data/old → /data/new',
         impact: '将把 /data/old 重命名为 /data/new',
         rollback: '可回退',
         irreversible: false,

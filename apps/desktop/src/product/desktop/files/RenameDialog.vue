@@ -21,8 +21,10 @@ const emit = defineEmits<{
 
 const name = ref(props.currentName);
 const parent = props.path.slice(0, props.path.lastIndexOf('/')) || '/';
-const expectedTarget = () =>
+const targetPath = () =>
   parent === '/' ? `/${name.value.trim()}` : `${parent}/${name.value.trim()}`;
+// 后端预览的 target 是「旧 → 新」的展示串，匹配时必须用同一形状。
+const expectedTarget = () => `${props.path} → ${targetPath()}`;
 
 const { preview, busy, failure, expired, remaining, runPreview, runExecute, reset } =
   useWriteFlow(() => props.serverId, 'rename', expectedTarget);

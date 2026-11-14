@@ -246,6 +246,93 @@ pub async fn remove_dir(state: &AppState, server_id: &str, path: &str) -> Result
     .await
 }
 
+/// 写原语的统一前置校验：必须是绝对路径，且不含空段、`.` 或 `..`。
+/// 与 `guard::write::absolute_target` 同口径；放这里是为了让 SFTP 层即使被
+/// 其他调用方复用也不会接受相对路径。
+fn require_absolute(path: &str) -> Result<(), SshError> {
+    super::path::validate_remote_path(path)?;
+    if !path.starts_with('/') {
+        return Err(SshError::path_invalid("路径必须是绝对路径"));
+    }
+    if path == "/" || path.ends_with('/') {
+        return Err(SshError::path_invalid("路径不能是根目录或以 / 结尾"));
+    }
+    if path
+        .split('/')
+        .skip(1)
+        .any(|segment| segment.is_empty() || segment == "." || segment == "..")
+    {
+        return Err(SshError::path_invalid("路径不能包含空段、. 或 .."));
+    }
+    Ok(())
+}
+
+/// 变更类原语不重试：第一次请求可能已经在服务器上生效，重试会把“已成
+/// 功但通道断了”误报成失败，也会让回退/审计对不上。
+pub async fn rename(
+    state: &AppState,
+    server_id: &str,
+    from: &str,
+    to: &str,
+) -> Result<(), SshError> {
+    require_absolute(from)?;
+    require_absolute(to)?;
+    let client = acquire(state, server_id).await?;
+    with_timeout(OP_TIMEOUT, "重命名超时", async {
+        client
+            .rename(from, to)
+            .await
+            .map_err(|error| map_error(error, from))
+    })
+    .await
+}
+
+pub async fn remove_file(
+    state: &AppState,
+    server_id: &str,
+    path: &str,
+) -> Result<(), SshError> {
+    require_absolute(path)?;
+    let client = acquire(state, server_id).await?;
+    with_timeout(OP_TIMEOUT, "删除文件超时", async {
+        client
+            .remove_file(path)
+            .await
+            .map_err(|error| map_error(error, path))
+    })
+    .await
+}
+
+pub async fn set_permissions(
+    state: &AppState,
+    server_id: &str,
+    path: &str,
+    mode: u32,
+) -> Result<(), SshError> {
+    require_absolute(path)?;
+    let client = acquire(state, server_id).await?;
+    with_timeout(OP_TIMEOUT, "修改权限超时", async {
+        let mut attrs = client
+            .symlink_metadata(path)
+            .await
+            .map_err(|error| map_error(error, path))?;
+        attrs.permissions = Some(mode & 0o7777);
+        client
+            .set_metadata(path, attrs)
+            .await
+            .map_err(|error| map_error(error, path))
+    })
+    .await
+}
+
+pub async fn stat_entry(
+    state: &AppState,
+    server_id: &str,
+    path: &str,
+) -> Result<super::dto::FileEntry, SshError> {
+    super::list::stat(state, server_id, path).await
+}
+
 /// Session id plus shared handle, read under both locks without holding the
 /// session map guard across the entry lock or any channel work.
 async fn session_snapshot(
@@ -644,5 +731,22 @@ mod tests {
             while matches!(server_side.read(&mut sink).await, Ok(read) if read > 0) {}
         });
         SftpSession::new(client_side).await.expect("fake sftp handshake")
+    }
+
+    #[tokio::test]
+    async fn write_primitives_reject_relative_paths_before_io() {
+        let state = crate::test_support::headless_state(std::path::PathBuf::from("."));
+        assert_eq!(
+            rename(&state, "srv", "relative", "/abs").await.unwrap_err().code,
+            "PATH_INVALID"
+        );
+        assert_eq!(
+            remove_file(&state, "srv", "/abs/../x").await.unwrap_err().code,
+            "PATH_INVALID"
+        );
+        assert_eq!(
+            set_permissions(&state, "srv", "relative", 0o644).await.unwrap_err().code,
+            "PATH_INVALID"
+        );
     }
 }

@@ -186,7 +186,7 @@ pub async fn write_preview(
             if entry.kind == crate::ssh::sftp::dto::FileKind::Symlink {
                 return Err(SshError::preview_failed("不支持修改符号链接的权限"));
             }
-            let previous_mode = entry.mode & 0o777;
+            let previous_mode = entry.mode & 0o7777;
             if previous_mode == mode {
                 return Err(SshError::preview_failed("目标权限与当前一致"));
             }

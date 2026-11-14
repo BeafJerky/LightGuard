@@ -228,7 +228,7 @@ pub fn build_chmod_preview(
         path,
         format!(
             "将把 {path} 的权限从 {:03o} 改为 {mode:03o}",
-            previous_mode & 0o777
+            previous_mode & 0o7777
         ),
         "执行后可在审计中恢复原权限",
         false,
@@ -697,7 +697,7 @@ pub(crate) async fn rollback_chmod(
         server_id,
         path,
         previous_mode,
-        current.mode & 0o777,
+        current.mode & 0o7777,
         permit_source,
         CHMOD_ROLLBACK_OP,
         Some(audit_id),

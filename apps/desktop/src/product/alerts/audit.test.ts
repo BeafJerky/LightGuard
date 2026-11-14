@@ -29,7 +29,25 @@ describe('audit helpers', () => {
   it('labels known operations and keeps unknown codes', () => {
     expect(auditOpLabel('fs.mkdir')).toBe('新建文件夹');
     expect(auditOpLabel('fs.mkdir.rollback')).toBe('删除文件夹（回退）');
+    expect(auditOpLabel('fs.rename')).toBe('重命名');
+    expect(auditOpLabel('fs.chmod')).toBe('修改权限');
+    expect(auditOpLabel('fs.delete')).toBe('删除');
     expect(auditOpLabel('fs.custom')).toBe('fs.custom');
+  });
+
+  it('allows rollback for rename and chmod but not delete', () => {
+    const rename = row({ id: 1, op: 'fs.rename' });
+    expect(canRollback(rename, [rename])).toBe(true);
+    const chmod = row({ id: 2, op: 'fs.chmod' });
+    expect(canRollback(chmod, [chmod])).toBe(true);
+    const remove = row({ id: 3, op: 'fs.delete' });
+    expect(canRollback(remove, [remove])).toBe(false);
+    expect(rollbackLabel('fs.rename')).toContain('原名称');
+    expect(rollbackLabel('fs.chmod')).toContain('原权限');
+  });
+
+  it('summarises rename params as from → to', () => {
+    expect(auditParamsSummary('{"from":"/data/a","to":"/data/b"}')).toBe('/data/a → /data/b');
   });
 
   it('extracts the path from params and falls back safely', () => {

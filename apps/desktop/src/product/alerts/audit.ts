@@ -3,6 +3,11 @@ import type { AuditEntry } from '../ssh';
 const OP_LABELS: Record<string, string> = {
   'fs.mkdir': '新建文件夹',
   'fs.mkdir.rollback': '删除文件夹（回退）',
+  'fs.rename': '重命名',
+  'fs.rename.rollback': '重命名（回退）',
+  'fs.chmod': '修改权限',
+  'fs.chmod.rollback': '恢复权限（回退）',
+  'fs.delete': '删除',
   'docker.container.start': '启动容器',
   'docker.container.stop': '停止容器',
   'docker.container.restart': '重启容器',
@@ -16,7 +21,13 @@ const OP_LABELS: Record<string, string> = {
   'docker.daemon.update': '更新 Docker 配置',
 };
 
-const ROLLBACKABLE = new Set(['fs.mkdir', 'docker.container.start', 'docker.container.stop']);
+const ROLLBACKABLE = new Set([
+  'fs.mkdir',
+  'fs.rename',
+  'fs.chmod',
+  'docker.container.start',
+  'docker.container.stop',
+]);
 
 const RESULT_LABELS: Record<AuditEntry['result'], string> = {
   success: '成功',
@@ -34,6 +45,9 @@ export function auditParamsSummary(params: string): string {
   try {
     const value = JSON.parse(params) as Record<string, unknown>;
     if (typeof value.path === 'string') return value.path;
+    if (typeof value.from === 'string' && typeof value.to === 'string') {
+      return `${value.from} → ${value.to}`;
+    }
     if (typeof value.containerId === 'string') {
       const id = value.containerId;
       const short = id.slice(0, 12);
@@ -71,5 +85,7 @@ export function canRollback(row: AuditEntry, rows: AuditEntry[]): boolean {
 
 /** 审计回退按钮的文案：容器启停与实际删除空目录语义不同。 */
 export function rollbackLabel(op: string): string {
+  if (op === 'fs.rename') return '回退（改回原名称）';
+  if (op === 'fs.chmod') return '回退（恢复原权限）';
   return op.startsWith('docker.container.') ? '回退（启动/停止互换）' : '回退（删除空目录）';
 }

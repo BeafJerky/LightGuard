@@ -711,6 +711,7 @@ onBeforeUnmount(() => {
 .term-overlay {
   position: absolute;
   inset: 36px 1px 1px;
+  z-index: 20;
   display: flex;
   flex-direction: column;
   align-items: center;

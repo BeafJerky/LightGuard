@@ -232,11 +232,41 @@ pub struct DockerTerminalHandle {
     pub title: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComposeProject {
+    pub name: String,
+    pub status: String,
+    pub config_files: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DockerNetworkSummary {
+    pub id: String,
+    pub name: String,
+    pub driver: String,
+    pub scope: String,
+    pub internal: bool,
+    pub containers: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DockerVolumeSummary {
+    pub name: String,
+    pub driver: String,
+    pub mountpoint: String,
+    pub used_by: Vec<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DockerWriteInput {
     pub kind: String,
     pub target: String,
+    #[serde(default)]
+    pub payload: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Deserialize)]

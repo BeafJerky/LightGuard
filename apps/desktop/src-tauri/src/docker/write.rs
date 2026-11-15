@@ -13,7 +13,7 @@ use crate::docker::dto::{
     DockerContainer, DockerImage, DockerPreview, DockerWriteInput, DockerWriteResult,
 };
 use crate::docker::exec::{self, ExecOptions};
-use crate::docker::read::classify;
+use crate::docker::read::{self, classify};
 use crate::docker::{parse, validate};
 use crate::guard::preview::PREVIEW_TTL;
 use crate::guard::write::{audit_lost_after_success, audit_write_failed, outcome_for, record};
@@ -37,6 +37,9 @@ pub struct WritePayload {
     pub display: String,
     /// 审计 op，例如 `docker.container.stop`。
     pub audit_op: String,
+    /// 额外、已校验的参数（如网络驱动）；不进入审计凭据。
+    #[serde(default)]
+    pub extra: serde_json::Value,
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +60,14 @@ pub fn verb_for(kind: &str) -> &'static str {
         "container.remove" => "删除容器",
         "image.pull" => "拉取镜像",
         "image.remove" => "删除镜像",
+        "compose.start" => "启动 Compose 项目",
+        "compose.stop" => "停止 Compose 项目",
+        "network.create" => "创建网络",
+        "network.remove" => "删除网络",
+        "network.prune" => "清理未使用网络",
+        "volume.create" => "创建数据卷",
+        "volume.remove" => "删除数据卷",
+        "volume.prune" => "清理未使用数据卷",
         _ => "Docker 操作",
     }
 }
@@ -188,8 +199,9 @@ pub async fn preview(
     handle: &Handle<ClientHandler>,
     server_id: &str,
     input: &DockerWriteInput,
+    elevated: bool,
 ) -> Result<(WritePayload, PreviewView), SshError> {
-    let (view, target) = match input.kind.as_str() {
+    let (view, target, extra) = match input.kind.as_str() {
         "container.start" | "container.stop" | "container.restart" | "container.remove" => {
             let container_id = validate::container_id(&input.target)?;
             let output = exec::run(
@@ -200,6 +212,7 @@ pub async fn preview(
                     max_bytes: 4 * 1024 * 1024,
                     stdin: None,
                     cancel: None,
+                    elevated,
                 },
                 |_| {},
             )
@@ -212,11 +225,15 @@ pub async fn preview(
                 .iter()
                 .find(|row| row.id == container_id)
                 .ok_or_else(|| SshError::docker_failed("容器不存在或已变化"))?;
-            (evaluate_container(&input.kind, row)?, container_id)
+            (
+                evaluate_container(&input.kind, row)?,
+                container_id,
+                serde_json::json!({}),
+            )
         }
         "image.pull" => {
             let reference = validate::image_reference(&input.target)?;
-            (evaluate_pull(&reference), reference)
+            (evaluate_pull(&reference), reference, serde_json::json!({}))
         }
         "image.remove" => {
             let reference = validate::image_reference(&input.target)?;
@@ -228,6 +245,7 @@ pub async fn preview(
                     max_bytes: 4 * 1024 * 1024,
                     stdin: None,
                     cancel: None,
+                    elevated,
                 },
                 |_| {},
             )
@@ -239,8 +257,174 @@ pub async fn preview(
             // 把预览时看到的镜像冻结成全 ID：执行时标签再被重指向也只删这一张。
             let image = resolve_image(&reference, &rows)
                 .ok_or_else(|| SshError::docker_failed("镜像不存在或已变化"))?;
-            (evaluate_image_remove(&reference, &rows)?, image.id.clone())
+            (
+                evaluate_image_remove(&reference, &rows)?,
+                image.id.clone(),
+                serde_json::json!({}),
+            )
         }
+        "compose.start" | "compose.stop" => {
+            let name = validate::docker_name(&input.target, "Compose 项目名")?;
+            let projects = read::compose_projects(handle, elevated).await?;
+            let project = projects
+                .iter()
+                .find(|project| project.name == name)
+                .ok_or_else(|| SshError::docker_failed("Compose 项目不存在或已变化"))?;
+            let running = project.status.to_ascii_lowercase().contains("running");
+            let starting = input.kind == "compose.start";
+            if starting && running {
+                return Err(SshError::docker_failed("Compose 项目已在运行"));
+            }
+            if !starting && !running {
+                return Err(SshError::docker_failed("Compose 项目未运行"));
+            }
+            (
+                PreviewView {
+                    operation: if starting {
+                        "启动 Compose 项目"
+                    } else {
+                        "停止 Compose 项目"
+                    }
+                    .to_string(),
+                    target: name.clone(),
+                    impact: if starting {
+                        format!("将启动 Compose 项目 {name} 的全部服务")
+                    } else {
+                        format!("将停止 Compose 项目 {name} 的全部服务，相关进程会被终止")
+                    },
+                    rollback: if starting {
+                        "不提供回退；可在 Compose 页面手动启动".to_string()
+                    } else {
+                        "不提供回退；可在 Compose 页面手动停止".to_string()
+                    },
+                    irreversible: false,
+                    details: vec![format!("状态：{}", project.status)],
+                },
+                name,
+                serde_json::json!({}),
+            )
+        }
+        "network.create" => {
+            let name = validate::docker_name(&input.target, "网络名")?;
+            let driver = validate::network_driver(
+                input
+                    .payload
+                    .get("driver")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("bridge"),
+            )?;
+            let rows = read::networks(handle, elevated).await?;
+            if rows.iter().any(|row| row.name == name) {
+                return Err(SshError::docker_failed("网络已存在"));
+            }
+            (
+                PreviewView {
+                    operation: "创建网络".to_string(),
+                    target: name.clone(),
+                    impact: format!("将创建 Docker 网络 {name}（驱动 {driver}）"),
+                    rollback: "不提供回退；可在网络页面手动删除".to_string(),
+                    irreversible: false,
+                    details: vec![format!("驱动：{driver}")],
+                },
+                name,
+                serde_json::json!({ "driver": driver }),
+            )
+        }
+        "network.remove" => {
+            let name = validate::docker_name(&input.target, "网络名")?;
+            let rows = read::networks(handle, elevated).await?;
+            let row = rows
+                .iter()
+                .find(|row| row.name == name)
+                .ok_or_else(|| SshError::docker_failed("网络不存在或已变化"))?;
+            if !row.containers.is_empty() {
+                return Err(SshError::docker_failed(format!(
+                    "网络仍有 {} 个容器连接，不能删除",
+                    row.containers.len()
+                )));
+            }
+            (
+                PreviewView {
+                    operation: "删除网络".to_string(),
+                    target: name.clone(),
+                    impact: format!("将删除 Docker 网络 {name}，不可恢复"),
+                    rollback: "删除不可回退".to_string(),
+                    irreversible: true,
+                    details: vec![format!("驱动：{}", row.driver)],
+                },
+                name,
+                serde_json::json!({}),
+            )
+        }
+        "network.prune" => (
+            PreviewView {
+                operation: "清理未使用网络".to_string(),
+                target: "未使用网络".to_string(),
+                impact: "将删除所有未被容器使用的自定义网络".to_string(),
+                rollback: "删除不可回退".to_string(),
+                irreversible: true,
+                details: Vec::new(),
+            },
+            String::new(),
+            serde_json::json!({}),
+        ),
+        "volume.create" => {
+            let name = validate::docker_name(&input.target, "数据卷名")?;
+            let rows = read::volumes(handle, elevated).await?;
+            if rows.iter().any(|row| row.name == name) {
+                return Err(SshError::docker_failed("数据卷已存在"));
+            }
+            (
+                PreviewView {
+                    operation: "创建数据卷".to_string(),
+                    target: name.clone(),
+                    impact: format!("将创建 Docker 数据卷 {name}"),
+                    rollback: "不提供回退；可在数据卷页面手动删除".to_string(),
+                    irreversible: false,
+                    details: Vec::new(),
+                },
+                name,
+                serde_json::json!({}),
+            )
+        }
+        "volume.remove" => {
+            let name = validate::docker_name(&input.target, "数据卷名")?;
+            let rows = read::volumes(handle, elevated).await?;
+            let row = rows
+                .iter()
+                .find(|row| row.name == name)
+                .ok_or_else(|| SshError::docker_failed("数据卷不存在或已变化"))?;
+            if !row.used_by.is_empty() {
+                return Err(SshError::docker_failed(format!(
+                    "数据卷仍被 {} 个容器使用，不能删除",
+                    row.used_by.len()
+                )));
+            }
+            (
+                PreviewView {
+                    operation: "删除数据卷".to_string(),
+                    target: name.clone(),
+                    impact: format!("将删除 Docker 数据卷 {name}，其中数据不可恢复"),
+                    rollback: "删除不可回退".to_string(),
+                    irreversible: true,
+                    details: vec![format!("挂载点：{}", row.mountpoint)],
+                },
+                name,
+                serde_json::json!({}),
+            )
+        }
+        "volume.prune" => (
+            PreviewView {
+                operation: "清理未使用数据卷".to_string(),
+                target: "未使用数据卷".to_string(),
+                impact: "将删除所有未被容器使用的数据卷，其中数据不可恢复".to_string(),
+                rollback: "删除不可回退".to_string(),
+                irreversible: true,
+                details: Vec::new(),
+            },
+            String::new(),
+            serde_json::json!({}),
+        ),
         _ => return Err(SshError::invalid_input("不支持的 Docker 操作")),
     };
     let payload = WritePayload {
@@ -249,6 +433,7 @@ pub async fn preview(
         target,
         display: view.target.clone(),
         audit_op: audit_op(&input.kind),
+        extra,
     };
     Ok((payload, view))
 }
@@ -287,6 +472,24 @@ pub fn action_script(payload: &WritePayload) -> String {
         "container.remove" => format!("docker rm {quoted}"),
         "image.pull" => format!("docker pull {quoted}"),
         "image.remove" => format!("docker image rm {quoted}"),
+        "compose.start" => format!("docker compose -p {quoted} start"),
+        "compose.stop" => format!("docker compose -p {quoted} stop"),
+        "network.create" => {
+            let driver = payload
+                .extra
+                .get("driver")
+                .and_then(|value| value.as_str())
+                .unwrap_or("bridge");
+            format!(
+                "docker network create --driver {} {quoted}",
+                shell_quote(driver)
+            )
+        }
+        "network.remove" => format!("docker network rm {quoted}"),
+        "network.prune" => "docker network prune -f".to_string(),
+        "volume.create" => format!("docker volume create {quoted}"),
+        "volume.remove" => format!("docker volume rm {quoted}"),
+        "volume.prune" => "docker volume prune -f".to_string(),
         _ => String::new(),
     }
 }
@@ -298,6 +501,15 @@ pub fn audit_params(payload: &WritePayload) -> String {
             "action": action,
             "containerId": payload.target,
             "name": payload.display,
+        })
+        .to_string()
+    } else if payload.kind.starts_with("compose.")
+        || payload.kind.starts_with("network.")
+        || payload.kind.starts_with("volume.")
+    {
+        serde_json::json!({
+            "action": payload.kind,
+            "target": payload.display,
         })
         .to_string()
     } else {
@@ -333,6 +545,7 @@ pub(crate) async fn execute(
         .server_name(&payload.server_id)
         .unwrap_or_else(|_| payload.server_id.clone());
     let handle = client::session_handle(state, &payload.server_id).await?;
+    let elevated = crate::ssh::session::docker_elevated(state, &payload.server_id).await;
     // 预览与执行之间目标可能已经变化：先按实时状态重校验，再决定发不发命令。
     verify_target(&handle, payload).await?;
     let script = action_script(payload);
@@ -349,6 +562,7 @@ pub(crate) async fn execute(
             max_bytes: 4 * 1024 * 1024,
             stdin: None,
             cancel,
+            elevated,
         },
         on_line,
     )
@@ -474,6 +688,14 @@ async fn verify_target(
     if payload.kind == "image.pull" {
         return Ok(());
     }
+    if payload.kind.starts_with("compose.")
+        || payload.kind.starts_with("network.")
+        || payload.kind.starts_with("volume.")
+    {
+        // 项目/网络/卷的名称在预览与执行间由 Docker 命令自身复核；
+        // 这些操作不针对需要冻结的容器全 ID。
+        return Ok(());
+    }
     if payload.kind.starts_with("container.") {
         let script = format!(
             "docker inspect --format '{{{{.Id}}}}|{{{{.State.Status}}}}' {}",
@@ -487,6 +709,7 @@ async fn verify_target(
                 max_bytes: 64 * 1024,
                 stdin: None,
                 cancel: None,
+                elevated: false,
             },
             |_| {},
         )
@@ -525,6 +748,7 @@ async fn verify_target(
             max_bytes: 4 * 1024 * 1024,
             stdin: None,
             cancel: None,
+            elevated: false,
         },
         |_| {},
     )
@@ -653,6 +877,7 @@ mod tests {
             target: "ghcr.io/acme/api:1.2".to_string(),
             display: "ghcr.io/acme/api:1.2".to_string(),
             audit_op: "docker.image.pull".to_string(),
+            extra: serde_json::json!({}),
         };
         let params = audit_params(&payload);
         assert_eq!(
@@ -670,7 +895,44 @@ mod tests {
             target: "nginx:1.27".to_string(),
             display: "nginx:1.27".to_string(),
             audit_op: "docker.image.pull".to_string(),
+            extra: serde_json::json!({}),
         };
         assert_eq!(action_script(&payload), "docker pull 'nginx:1.27'");
+    }
+
+    #[test]
+    fn compose_network_volume_scripts_are_fixed() {
+        let compose = WritePayload {
+            server_id: "srv".to_string(),
+            kind: "compose.start".to_string(),
+            target: "shop".to_string(),
+            display: "shop".to_string(),
+            audit_op: "docker.compose.start".to_string(),
+            extra: serde_json::json!({}),
+        };
+        assert_eq!(action_script(&compose), "docker compose -p 'shop' start");
+
+        let network = WritePayload {
+            server_id: "srv".to_string(),
+            kind: "network.create".to_string(),
+            target: "lg-net".to_string(),
+            display: "lg-net".to_string(),
+            audit_op: "docker.network.create".to_string(),
+            extra: serde_json::json!({ "driver": "bridge" }),
+        };
+        assert_eq!(
+            action_script(&network),
+            "docker network create --driver 'bridge' 'lg-net'"
+        );
+
+        let volume = WritePayload {
+            server_id: "srv".to_string(),
+            kind: "volume.remove".to_string(),
+            target: "lg-vol".to_string(),
+            display: "lg-vol".to_string(),
+            audit_op: "docker.volume.remove".to_string(),
+            extra: serde_json::json!({}),
+        };
+        assert_eq!(action_script(&volume), "docker volume rm 'lg-vol'");
     }
 }

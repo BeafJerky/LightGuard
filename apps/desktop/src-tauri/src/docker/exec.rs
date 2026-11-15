@@ -18,6 +18,8 @@ pub struct ExecOptions<'a> {
     pub max_bytes: usize,
     pub stdin: Option<&'a [u8]>,
     pub cancel: Option<Arc<AtomicBool>>,
+    /// 会话开启 Docker 提权时，用 `sudo -n sh -c '<script>'` 承载整段脚本。
+    pub elevated: bool,
 }
 
 pub struct ExecOutput {
@@ -48,8 +50,16 @@ pub async fn run(
         .channel_open_session()
         .await
         .map_err(|error| SshError::docker_failed(error.to_string()))?;
+    let command = if options.elevated {
+        format!(
+            "sudo -n sh -c {}",
+            crate::ssh::sftp::path::shell_quote(script)
+        )
+    } else {
+        script.to_string()
+    };
     channel
-        .exec(true, script)
+        .exec(true, command)
         .await
         .map_err(|error| SshError::docker_failed(error.to_string()))?;
 

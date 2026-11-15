@@ -110,6 +110,7 @@ pub async fn probe(handle: &Handle<ClientHandler>) -> Result<SudoStatus, SshErro
             max_bytes: 16 * 1024,
             stdin: None,
             cancel: None,
+            elevated: false,
         },
         |_| {},
     )
@@ -126,6 +127,7 @@ pub async fn service_active(handle: &Handle<ClientHandler>) -> Result<bool, SshE
             max_bytes: 8 * 1024,
             stdin: None,
             cancel: None,
+            elevated: false,
         },
         |_| {},
     )
@@ -168,6 +170,7 @@ pub async fn run_sudo(
             Some(stdin.as_slice())
         },
         cancel: None,
+        elevated: false,
     };
     let result = exec::run(handle, &command, options, |_| {}).await;
     DockerState::wipe(&mut stdin);
@@ -307,6 +310,7 @@ pub async fn read_daemon(
             max_bytes: 256 * 1024,
             stdin: None,
             cancel: None,
+            elevated: false,
         },
         |_| {},
     )
@@ -337,7 +341,7 @@ pub async fn registry_config(
     handle: &Handle<ClientHandler>,
     password: Option<&[u8]>,
 ) -> Result<RegistryConfig, SshError> {
-    let capabilities = capability::detect(handle).await?;
+    let capabilities = capability::detect(handle, false).await?;
     match read_daemon(handle, password).await {
         Ok(text) => Ok(parse_registry(
             text.as_deref(),
@@ -452,7 +456,7 @@ pub async fn preview(
 ) -> Result<(SystemPayload, PreviewView), SshError> {
     match input.kind.as_str() {
         "service.start" | "service.stop" => {
-            let capabilities = capability::detect(handle).await?;
+            let capabilities = capability::detect(handle, false).await?;
             if !capabilities.installed {
                 return Err(SshError::docker_unavailable("未安装 Docker"));
             }
@@ -502,7 +506,7 @@ pub async fn preview(
                 return Err(SshError::docker_failed("配置没有变化"));
             }
             if merged.proxy_changed {
-                let capabilities = capability::detect(handle).await?;
+                let capabilities = capability::detect(handle, false).await?;
                 if !capabilities.proxy_supported {
                     return Err(SshError::docker_failed(
                         "当前 Docker 版本不支持代理配置（需要 23 及以上）",
@@ -639,6 +643,7 @@ pub async fn wait_health(handle: &Handle<ClientHandler>, timeout: Duration) -> b
                 max_bytes: 8 * 1024,
                 stdin: None,
                 cancel: None,
+                elevated: false,
             },
             |_| {},
         )

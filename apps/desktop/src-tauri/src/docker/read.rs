@@ -7,8 +7,9 @@ use russh::client::Handle;
 
 use crate::docker::capability;
 use crate::docker::dto::{
-    DockerCapabilities, DockerContainer, DockerContainerDetail, DockerImage, DockerOverview,
-    DockerStatsSample, RegistrySearchItem, RegistryTags,
+    ComposeProject, DockerCapabilities, DockerContainer, DockerContainerDetail, DockerImage,
+    DockerNetworkSummary, DockerOverview, DockerStatsSample, DockerVolumeSummary,
+    RegistrySearchItem, RegistryTags,
 };
 use crate::docker::exec::{self, ExecOptions, ExecOutput};
 use crate::docker::parse::{self, TagLookup};
@@ -22,15 +23,19 @@ const STATS_TIMEOUT: Duration = Duration::from_secs(8);
 const TAGS_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_OUTPUT: usize = 8 * 1024 * 1024;
 
-pub async fn capabilities(handle: &Handle<ClientHandler>) -> Result<DockerCapabilities, SshError> {
-    capability::detect(handle).await
+pub async fn capabilities(
+    handle: &Handle<ClientHandler>,
+    elevated: bool,
+) -> Result<DockerCapabilities, SshError> {
+    capability::detect(handle, elevated).await
 }
 
 pub async fn overview(
     handle: &Handle<ClientHandler>,
     include_df: bool,
+    elevated: bool,
 ) -> Result<DockerOverview, SshError> {
-    let capabilities = capability::detect(handle).await?;
+    let capabilities = capability::detect(handle, elevated).await?;
     if !capabilities.installed {
         return Err(SshError::docker_unavailable(capabilities.message.clone()));
     }
@@ -42,6 +47,7 @@ pub async fn overview(
             max_bytes: MAX_OUTPUT,
             stdin: None,
             cancel: None,
+            elevated: false,
         },
         |_| {},
     )
@@ -69,6 +75,7 @@ pub async fn overview(
                 max_bytes: MAX_OUTPUT,
                 stdin: None,
                 cancel: None,
+                elevated: false,
             },
             |_| {},
         )
@@ -87,12 +94,16 @@ pub async fn overview(
     })
 }
 
-pub async fn containers(handle: &Handle<ClientHandler>) -> Result<Vec<DockerContainer>, SshError> {
+pub async fn containers(
+    handle: &Handle<ClientHandler>,
+    elevated: bool,
+) -> Result<Vec<DockerContainer>, SshError> {
     let listing = run_read(
         handle,
         "docker ps -a --no-trunc --format '{{json .}}'",
         READ_TIMEOUT,
         "读取容器",
+        elevated,
     )
     .await?;
     let mut rows = parse::containers(&listing.stdout_text());
@@ -105,6 +116,7 @@ pub async fn containers(handle: &Handle<ClientHandler>) -> Result<Vec<DockerCont
                 max_bytes: MAX_OUTPUT,
                 stdin: None,
                 cancel: None,
+                elevated,
             },
             |_| {},
         )
@@ -121,29 +133,38 @@ pub async fn containers(handle: &Handle<ClientHandler>) -> Result<Vec<DockerCont
 pub async fn container_detail(
     handle: &Handle<ClientHandler>,
     container_id: &str,
+    elevated: bool,
 ) -> Result<DockerContainerDetail, SshError> {
     let script = format!("docker inspect {}", shell_quote(container_id));
-    let output = run_read(handle, &script, READ_TIMEOUT, "读取容器详情").await?;
+    let output = run_read(handle, &script, READ_TIMEOUT, "读取容器详情", elevated).await?;
     parse::container_detail(&output.stdout_text())
 }
 
-pub async fn stats(handle: &Handle<ClientHandler>) -> Result<Vec<DockerStatsSample>, SshError> {
+pub async fn stats(
+    handle: &Handle<ClientHandler>,
+    elevated: bool,
+) -> Result<Vec<DockerStatsSample>, SshError> {
     let output = run_read(
         handle,
         "docker stats --no-stream --format '{{json .}}'",
         STATS_TIMEOUT,
         "读取容器资源",
+        elevated,
     )
     .await?;
     Ok(parse::stats(&output.stdout_text()))
 }
 
-pub async fn images(handle: &Handle<ClientHandler>) -> Result<Vec<DockerImage>, SshError> {
+pub async fn images(
+    handle: &Handle<ClientHandler>,
+    elevated: bool,
+) -> Result<Vec<DockerImage>, SshError> {
     let output = run_read(
         handle,
         "docker images --no-trunc --format '{{json .}}'",
         READ_TIMEOUT,
         "读取镜像",
+        elevated,
     )
     .await?;
     Ok(parse::images(&output.stdout_text()))
@@ -153,12 +174,14 @@ pub async fn registry_search(
     handle: &Handle<ClientHandler>,
     term: &str,
     limit: u32,
+    elevated: bool,
 ) -> Result<Vec<RegistrySearchItem>, SshError> {
     let output = run_read(
         handle,
         &search_script(term, limit),
         Duration::from_secs(30),
         "搜索镜像仓库",
+        elevated,
     )
     .await
     .map_err(search_failure)?;
@@ -189,15 +212,16 @@ pub fn search_script(term: &str, limit: u32) -> String {
 pub async fn registry_tags(
     handle: &Handle<ClientHandler>,
     input: &str,
+    elevated: bool,
 ) -> Result<RegistryTags, SshError> {
     let repo = validate::repo_name(input)?;
-    let mirrors = registry_mirrors(handle).await?;
+    let mirrors = registry_mirrors(handle, elevated).await?;
     let mut not_found = false;
     let mut last: Option<SshError> = None;
     for mirror in mirrors.iter().take(3) {
         let url = tags_url(mirror, &repo);
         let output =
-            match run_read(handle, &tags_script(&url), TAGS_TIMEOUT, "查询镜像版本").await {
+            match run_read(handle, &tags_script(&url), TAGS_TIMEOUT, "查询镜像版本", elevated).await {
                 Ok(output) => output,
                 Err(error) => {
                     last = Some(tags_transport_failure(mirror, error));
@@ -230,12 +254,16 @@ pub async fn registry_tags(
 }
 
 /// 生效的加速源来自 `docker info`：与 `docker pull` 实际使用的是同一份，且不需要系统授权。
-async fn registry_mirrors(handle: &Handle<ClientHandler>) -> Result<Vec<String>, SshError> {
+async fn registry_mirrors(
+    handle: &Handle<ClientHandler>,
+    elevated: bool,
+) -> Result<Vec<String>, SshError> {
     let output = run_read(
         handle,
         "docker info --format '{{json .RegistryConfig.Mirrors}}'",
         READ_TIMEOUT,
         "读取加速源",
+        elevated,
     )
     .await?;
     let text = output.stdout_text();
@@ -304,11 +332,183 @@ else echo '__LG_NO_HTTP__' >&2; exit 3; fi",
     )
 }
 
+pub async fn compose_projects(
+    handle: &Handle<ClientHandler>,
+    elevated: bool,
+) -> Result<Vec<ComposeProject>, SshError> {
+    let output = run_read(
+        handle,
+        "docker compose ls --format json",
+        READ_TIMEOUT,
+        "读取 Compose 项目",
+        elevated,
+    )
+    .await?;
+    let text = output.stdout_text();
+    let mut projects = Vec::new();
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(text.trim()) {
+        if let Some(items) = value.as_array() {
+            for item in items {
+                let name = item.get("Name").and_then(|v| v.as_str()).unwrap_or("");
+                if name.is_empty() {
+                    continue;
+                }
+                let config = item
+                    .get("ConfigFiles")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                projects.push(ComposeProject {
+                    name: name.to_string(),
+                    status: item
+                        .get("Status")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    config_files: config
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_string)
+                        .collect(),
+                });
+            }
+        }
+    }
+    projects.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(projects)
+}
+
+pub async fn compose_logs(
+    handle: &Handle<ClientHandler>,
+    project: &str,
+    tail: u32,
+    elevated: bool,
+) -> Result<String, SshError> {
+    let project = validate::docker_name(project, "Compose 项目名")?;
+    let script = format!(
+        "docker compose -p {} logs --tail {} --no-color",
+        shell_quote(&project),
+        tail.clamp(10, 500)
+    );
+    let output = run_read(handle, &script, READ_TIMEOUT, "读取 Compose 日志", elevated).await?;
+    Ok(output.stdout_text())
+}
+
+pub async fn networks(
+    handle: &Handle<ClientHandler>,
+    elevated: bool,
+) -> Result<Vec<DockerNetworkSummary>, SshError> {
+    let output = run_read(
+        handle,
+        "ids=$(docker network ls -q); if [ -z \"$ids\" ]; then echo '[]'; else docker network inspect $ids; fi",
+        READ_TIMEOUT,
+        "读取网络",
+        elevated,
+    )
+    .await?;
+    let value: serde_json::Value = serde_json::from_str(output.stdout_text().trim())
+        .map_err(|_| SshError::docker_failed("无法解析 Docker 网络列表"))?;
+    let mut rows = Vec::new();
+    if let Some(items) = value.as_array() {
+        for item in items {
+            rows.push(DockerNetworkSummary {
+                id: item.get("Id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                name: item
+                    .get("Name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                driver: item
+                    .get("Driver")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                scope: item
+                    .get("Scope")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                internal: item
+                    .get("Internal")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
+                containers: item
+                    .get("Containers")
+                    .and_then(|v| v.as_object())
+                    .map(|map| {
+                        map.values()
+                            .filter_map(|entry| entry.get("Name").and_then(|v| v.as_str()))
+                            .map(str::to_string)
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            });
+        }
+    }
+    rows.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(rows)
+}
+
+pub async fn volumes(
+    handle: &Handle<ClientHandler>,
+    elevated: bool,
+) -> Result<Vec<DockerVolumeSummary>, SshError> {
+    let output = run_read(
+        handle,
+        "docker volume ls --format '{{json .}}'",
+        READ_TIMEOUT,
+        "读取数据卷",
+        elevated,
+    )
+    .await?;
+    let mut rows: Vec<DockerVolumeSummary> = output
+        .stdout_text()
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line.trim()).ok())
+        .filter_map(|item| {
+            let name = item.get("Name").and_then(|v| v.as_str())?.to_string();
+            Some(DockerVolumeSummary {
+                name,
+                driver: item
+                    .get("Driver")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                mountpoint: item
+                    .get("Mountpoint")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                used_by: Vec::new(),
+            })
+        })
+        .collect();
+    // 只对前 20 个卷查询挂载容器，避免大主机上 N 次额外命令。
+    for row in rows.iter_mut().take(20) {
+        let script = format!(
+            "docker ps -a --filter volume={} --format '{{{{.Names}}}}'",
+            shell_quote(&row.name)
+        );
+        if let Ok(output) = run_read(handle, &script, STATS_TIMEOUT, "读取卷使用方", elevated).await {
+            row.used_by = output
+                .stdout_text()
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(str::to_string)
+                .collect();
+        }
+    }
+    rows.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(rows)
+}
+
 pub(crate) async fn run_read(
     handle: &Handle<ClientHandler>,
     script: &str,
     timeout: Duration,
     action: &str,
+    elevated: bool,
 ) -> Result<ExecOutput, SshError> {
     let output = exec::run(
         handle,
@@ -318,6 +518,7 @@ pub(crate) async fn run_read(
             max_bytes: MAX_OUTPUT,
             stdin: None,
             cancel: None,
+            elevated: false,
         },
         |_| {},
     )

@@ -46,6 +46,34 @@ pub fn search_term(value: &str) -> Result<String, SshError> {
     Ok(trimmed.to_string())
 }
 
+/// Docker 对象名（网络、卷、Compose 项目）：字母数字开头，允许 `. _ -`，最长 63。
+pub fn docker_name(value: &str, label: &str) -> Result<String, SshError> {
+    let trimmed = value.trim();
+    let valid = trimmed.len() <= 63
+        && trimmed
+            .chars()
+            .next()
+            .map(|ch| ch.is_ascii_alphanumeric())
+            .unwrap_or(false)
+        && trimmed
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-'));
+    if valid {
+        Ok(trimmed.to_string())
+    } else {
+        Err(SshError::invalid_input(format!("{label}无效")))
+    }
+}
+
+pub fn network_driver(value: &str) -> Result<String, SshError> {
+    match value.trim() {
+        "bridge" | "host" | "overlay" | "macvlan" | "ipvlan" | "none" => {
+            Ok(value.trim().to_string())
+        }
+        _ => Err(SshError::invalid_input("不支持的 Docker 网络驱动")),
+    }
+}
+
 /// 仓库名归一化成 `<namespace>/<name>`：用户可能贴整条引用（带协议、docker.io、
 /// 标签或 digest），而 `tags/list` 只认仓库路径；单段名字补 `library/`。
 pub fn repo_name(value: &str) -> Result<String, SshError> {

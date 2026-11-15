@@ -402,6 +402,25 @@ pub async fn snapshot(entry: &mut SessionEntry) -> Result<ServerSnapshot, SshErr
     collect_and_map(entry).await
 }
 
+/// 当前会话请求并实际生效的提权状态；会话不存在时视为全关。
+pub async fn elevation_of(
+    state: &crate::ssh::state::AppState,
+    server_id: &str,
+) -> crate::ssh::dto::ElevateStatus {
+    let session = {
+        let sessions = state.sessions.lock().await;
+        sessions.get(server_id).cloned()
+    };
+    match session {
+        Some(session) => session.lock().await.elevation.clone(),
+        None => crate::ssh::dto::ElevateStatus::default(),
+    }
+}
+
+pub async fn docker_elevated(state: &crate::ssh::state::AppState, server_id: &str) -> bool {
+    elevation_of(state, server_id).await.docker_active()
+}
+
 async fn collect_and_map(entry: &mut SessionEntry) -> Result<ServerSnapshot, SshError> {
     match collector::collect(&entry.handle, &mut entry.collector, entry.elevation.collect_active()).await {
         Ok(snapshot) => Ok(snapshot),

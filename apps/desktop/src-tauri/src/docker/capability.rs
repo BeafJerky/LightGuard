@@ -23,7 +23,10 @@ docker version --format '{{.Server.Version}}|{{.Server.APIVersion}}' 2>&1
 echo "LG_INFO_EXIT=$?"
 "#;
 
-pub async fn detect(handle: &Handle<ClientHandler>) -> Result<DockerCapabilities, SshError> {
+pub async fn detect(
+    handle: &Handle<ClientHandler>,
+    elevated: bool,
+) -> Result<DockerCapabilities, SshError> {
     let output = exec::run(
         handle,
         PROBE_SCRIPT,
@@ -32,6 +35,7 @@ pub async fn detect(handle: &Handle<ClientHandler>) -> Result<DockerCapabilities
             max_bytes: 64 * 1024,
             stdin: None,
             cancel: None,
+            elevated,
         },
         |_| {},
     )

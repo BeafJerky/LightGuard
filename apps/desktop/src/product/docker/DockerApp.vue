@@ -6,13 +6,23 @@ import { toast } from '../ui';
 import { openPermitPanel, permitOf } from '../guard/store';
 import OverviewPage from './OverviewPage.vue';
 import ContainersPage from './ContainersPage.vue';
+import ComposePage from './ComposePage.vue';
 import ImagesPage from './ImagesPage.vue';
+import NetworksPage from './NetworksPage.vue';
 import RegistryPage from './RegistryPage.vue';
+import VolumesPage from './VolumesPage.vue';
 import './docker.css';
 
 const props = defineProps<{ server: Server }>();
 
-type PageKey = 'overview' | 'containers' | 'compose' | 'images' | 'registry' | 'network';
+type PageKey =
+  | 'overview'
+  | 'containers'
+  | 'compose'
+  | 'images'
+  | 'registry'
+  | 'network'
+  | 'volumes';
 
 interface NavItem {
   key: PageKey;
@@ -24,10 +34,11 @@ interface NavItem {
 const nav: NavItem[] = [
   { key: 'overview', label: '概览', icon: 'grid' },
   { key: 'containers', label: '容器', icon: 'cartridge' },
-  { key: 'compose', label: 'Compose', icon: 'menu', soon: true },
+  { key: 'compose', label: 'Compose', icon: 'menu' },
   { key: 'images', label: '本地镜像', icon: 'image' },
   { key: 'registry', label: '镜像仓库', icon: 'globe' },
-  { key: 'network', label: '网络', icon: 'network', soon: true },
+  { key: 'network', label: '网络', icon: 'network' },
+  { key: 'volumes', label: '数据卷', icon: 'database' },
 ];
 
 const page = ref<PageKey>('overview');
@@ -88,6 +99,9 @@ function select(item: NavItem) {
       </div>
       <OverviewPage v-if="page === 'overview'" :server="server" />
       <ContainersPage v-else-if="page === 'containers'" :server="server" />
+      <ComposePage v-else-if="page === 'compose'" :server="server" />
+      <NetworksPage v-else-if="page === 'network'" :server="server" />
+      <VolumesPage v-else-if="page === 'volumes'" :server="server" />
       <ImagesPage v-else-if="page === 'images'" :server="server" />
       <RegistryPage v-else-if="page === 'registry'" :server="server" />
     </main>

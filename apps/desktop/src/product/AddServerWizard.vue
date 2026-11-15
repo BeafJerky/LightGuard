@@ -413,7 +413,7 @@ function onShow(value: boolean) {
             <label><input v-model="form.elevateCollect" type="checkbox" /> 采集 / 登录日志</label>
             <label><input v-model="form.elevateTerminal" type="checkbox" /> 终端</label>
             <label><input v-model="form.elevateFiles" type="checkbox" /> 文件管理</label>
-            <label><input v-model="form.elevateDocker" type="checkbox" disabled /> Docker（0.17.0）</label>
+            <label><input v-model="form.elevateDocker" type="checkbox" /> Docker</label>
           </div>
           <span class="wizard__hint">
             提权后 root 可修改任意文件；采集提权会增加 sudo 审计日志。失败项自动降级。

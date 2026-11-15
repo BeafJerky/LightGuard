@@ -59,6 +59,7 @@ fn docker_rollback_payload(row: &AuditRow) -> Option<WritePayload> {
         target: container_id,
         display,
         audit_op: format!("{}.rollback", row.op),
+        extra: serde_json::json!({}),
     })
 }
 

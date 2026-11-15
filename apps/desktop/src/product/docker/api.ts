@@ -190,6 +190,29 @@ export interface SudoStatus {
 export interface DockerWriteInput {
   kind: string;
   target: string;
+  payload?: Record<string, unknown>;
+}
+
+export interface ComposeProject {
+  name: string;
+  status: string;
+  configFiles: string[];
+}
+
+export interface DockerNetworkSummary {
+  id: string;
+  name: string;
+  driver: string;
+  scope: string;
+  internal: boolean;
+  containers: string[];
+}
+
+export interface DockerVolumeSummary {
+  name: string;
+  driver: string;
+  mountpoint: string;
+  usedBy: string[];
 }
 
 export interface DockerSystemInput {
@@ -218,6 +241,10 @@ export interface DockerApi {
   containerDetail(serverId: string, containerId: string): Promise<DockerContainerDetail>;
   stats(serverId: string): Promise<DockerStatsSample[]>;
   images(serverId: string): Promise<DockerImage[]>;
+  composeProjects(serverId: string): Promise<ComposeProject[]>;
+  composeLogs(serverId: string, project: string, tail?: number): Promise<string>;
+  networks(serverId: string): Promise<DockerNetworkSummary[]>;
+  volumes(serverId: string): Promise<DockerVolumeSummary[]>;
   registryConfig(serverId: string): Promise<RegistryConfig>;
   registrySearch(serverId: string, term: string, limit?: number): Promise<RegistrySearchItem[]>;
   registryTags(serverId: string, repo: string): Promise<RegistryTags>;
@@ -254,6 +281,18 @@ export function createTauriDockerApi(): DockerApi {
     },
     images(serverId) {
       return call('docker_images', { serverId });
+    },
+    composeProjects(serverId) {
+      return call('docker_compose_projects', { serverId });
+    },
+    composeLogs(serverId, project, tail = 200) {
+      return call('docker_compose_logs', { serverId, project, tail });
+    },
+    networks(serverId) {
+      return call('docker_networks', { serverId });
+    },
+    volumes(serverId) {
+      return call('docker_volumes', { serverId });
     },
     registryConfig(serverId) {
       return call('docker_registry_config', { serverId });
@@ -332,6 +371,10 @@ export function createUnsupportedDockerApi(): DockerApi {
     containerDetail: reject,
     stats: reject,
     images: reject,
+    composeProjects: reject,
+    composeLogs: reject,
+    networks: reject,
+    volumes: reject,
     registryConfig: reject,
     registrySearch: reject,
     registryTags: reject,

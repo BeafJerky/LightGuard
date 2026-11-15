@@ -1595,3 +1595,74 @@
   font-size: var(--lg-fs-label);
   line-height: 1.4;
 }
+
+.lgdocker-reslist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.lgdocker-resrow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--lg-border);
+  border-radius: var(--lg-radius-md);
+  background: var(--lg-surface);
+}
+
+.lgdocker-resrow__main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: var(--lg-fs-sm);
+}
+
+.lgdocker-resrow__main span {
+  color: var(--lg-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.lgdocker-resrow__muted {
+  font-size: var(--lg-fs-xs, 12px);
+}
+
+.lgdocker-resrow__actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.lgdocker-select {
+  height: 30px;
+  padding: 0 8px;
+  border: var(--lg-border-width) solid var(--lg-border);
+  border-radius: var(--lg-radius-sm);
+  background: var(--lg-surface);
+  color: var(--lg-text);
+  font: inherit;
+  font-size: var(--lg-fs-sm);
+}
+
+.lgdocker-logs {
+  width: min(720px, calc(100vw - 40px));
+}
+
+.lgdocker-logs__body {
+  margin: 0;
+  padding: 12px;
+  max-height: 60vh;
+  overflow: auto;
+  border-radius: var(--lg-radius-sm);
+  background: var(--lg-bg);
+  color: var(--lg-text);
+  font-family: var(--lg-font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

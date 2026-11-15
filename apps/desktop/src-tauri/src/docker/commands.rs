@@ -43,7 +43,8 @@ pub async fn docker_capabilities(
     server_id: String,
 ) -> Result<DockerCapabilities, SshError> {
     let handle = handle_for(state.inner(), &server_id).await?;
-    read::capabilities(&handle).await
+    let elevated = crate::ssh::session::docker_elevated(state.inner(), &server_id).await;
+    read::capabilities(&handle, elevated).await
 }
 
 #[tauri::command]
@@ -53,7 +54,8 @@ pub async fn docker_overview(
     include_df: Option<bool>,
 ) -> Result<DockerOverview, SshError> {
     let handle = handle_for(state.inner(), &server_id).await?;
-    read::overview(&handle, include_df.unwrap_or(true)).await
+    let elevated = crate::ssh::session::docker_elevated(state.inner(), &server_id).await;
+    read::overview(&handle, include_df.unwrap_or(true), elevated).await
 }
 
 #[tauri::command]
@@ -62,7 +64,8 @@ pub async fn docker_containers(
     server_id: String,
 ) -> Result<Vec<DockerContainer>, SshError> {
     let handle = handle_for(state.inner(), &server_id).await?;
-    read::containers(&handle).await
+    let elevated = crate::ssh::session::docker_elevated(state.inner(), &server_id).await;
+    read::containers(&handle, elevated).await
 }
 
 #[tauri::command]
@@ -73,7 +76,8 @@ pub async fn docker_container_detail(
 ) -> Result<DockerContainerDetail, SshError> {
     let container_id = validate::container_id(&container_id)?;
     let handle = handle_for(state.inner(), &server_id).await?;
-    read::container_detail(&handle, &container_id).await
+    let elevated = crate::ssh::session::docker_elevated(state.inner(), &server_id).await;
+    read::container_detail(&handle, &container_id, elevated).await
 }
 
 #[tauri::command]
@@ -82,7 +86,8 @@ pub async fn docker_stats(
     server_id: String,
 ) -> Result<Vec<DockerStatsSample>, SshError> {
     let handle = handle_for(state.inner(), &server_id).await?;
-    read::stats(&handle).await
+    let elevated = crate::ssh::session::docker_elevated(state.inner(), &server_id).await;
+    read::stats(&handle, elevated).await
 }
 
 #[tauri::command]
@@ -91,7 +96,8 @@ pub async fn docker_images(
     server_id: String,
 ) -> Result<Vec<DockerImage>, SshError> {
     let handle = handle_for(state.inner(), &server_id).await?;
-    read::images(&handle).await
+    let elevated = crate::ssh::session::docker_elevated(state.inner(), &server_id).await;
+    read::images(&handle, elevated).await
 }
 
 #[tauri::command]
@@ -103,7 +109,8 @@ pub async fn docker_registry_search(
 ) -> Result<Vec<RegistrySearchItem>, SshError> {
     let term = validate::search_term(&term)?;
     let handle = handle_for(state.inner(), &server_id).await?;
-    read::registry_search(&handle, &term, limit.unwrap_or(25)).await
+    let elevated = crate::ssh::session::docker_elevated(state.inner(), &server_id).await;
+    read::registry_search(&handle, &term, limit.unwrap_or(25), elevated).await
 }
 
 #[tauri::command]
@@ -113,7 +120,51 @@ pub async fn docker_registry_tags(
     repo: String,
 ) -> Result<RegistryTags, SshError> {
     let handle = handle_for(state.inner(), &server_id).await?;
-    read::registry_tags(&handle, &repo).await
+    let elevated = crate::ssh::session::docker_elevated(state.inner(), &server_id).await;
+    read::registry_tags(&handle, &repo, elevated).await
+}
+
+
+#[tauri::command]
+pub async fn docker_compose_projects(
+    state: State<'_, Arc<AppState>>,
+    server_id: String,
+) -> Result<Vec<crate::docker::dto::ComposeProject>, SshError> {
+    let handle = handle_for(state.inner(), &server_id).await?;
+    let elevated = crate::ssh::session::docker_elevated(state.inner(), &server_id).await;
+    read::compose_projects(&handle, elevated).await
+}
+
+#[tauri::command]
+pub async fn docker_compose_logs(
+    state: State<'_, Arc<AppState>>,
+    server_id: String,
+    project: String,
+    tail: Option<u32>,
+) -> Result<String, SshError> {
+    let handle = handle_for(state.inner(), &server_id).await?;
+    let elevated = crate::ssh::session::docker_elevated(state.inner(), &server_id).await;
+    read::compose_logs(&handle, &project, tail.unwrap_or(200), elevated).await
+}
+
+#[tauri::command]
+pub async fn docker_networks(
+    state: State<'_, Arc<AppState>>,
+    server_id: String,
+) -> Result<Vec<crate::docker::dto::DockerNetworkSummary>, SshError> {
+    let handle = handle_for(state.inner(), &server_id).await?;
+    let elevated = crate::ssh::session::docker_elevated(state.inner(), &server_id).await;
+    read::networks(&handle, elevated).await
+}
+
+#[tauri::command]
+pub async fn docker_volumes(
+    state: State<'_, Arc<AppState>>,
+    server_id: String,
+) -> Result<Vec<crate::docker::dto::DockerVolumeSummary>, SshError> {
+    let handle = handle_for(state.inner(), &server_id).await?;
+    let elevated = crate::ssh::session::docker_elevated(state.inner(), &server_id).await;
+    read::volumes(&handle, elevated).await
 }
 
 fn database(state: &State<'_, DbState>) -> Result<Arc<crate::db::Database>, SshError> {
@@ -139,7 +190,9 @@ pub async fn docker_write_preview(
     validate_server_id(&server_id)?;
     guard.require_permit(&server_id)?;
     let handle = handle_for(state.inner(), &server_id).await?;
-    let (payload, view) = write::preview(&handle, &server_id, &input).await?;
+    let elevated = crate::ssh::session::docker_elevated(state.inner(), &server_id).await;
+    let elevated = crate::ssh::session::docker_elevated(state.inner(), &server_id).await;
+    let (payload, view) = write::preview(&handle, &server_id, &input, elevated).await?;
     let payload =
         serde_json::to_value(&payload).map_err(|error| SshError::internal(error.to_string()))?;
     let preview_id = guard.store_preview(&server_id, &write::audit_op(&input.kind), payload);
@@ -273,6 +326,7 @@ pub async fn docker_sudo_status(
 ) -> Result<SudoStatus, SshError> {
     validate_server_id(&server_id)?;
     let handle = handle_for(state.inner(), &server_id).await?;
+    let elevated = crate::ssh::session::docker_elevated(state.inner(), &server_id).await;
     let status = system::probe(&handle).await?;
     state
         .docker
@@ -287,6 +341,7 @@ pub async fn docker_registry_config(
 ) -> Result<RegistryConfig, SshError> {
     validate_server_id(&server_id)?;
     let handle = handle_for(state.inner(), &server_id).await?;
+    let elevated = crate::ssh::session::docker_elevated(state.inner(), &server_id).await;
     let secret = PendingSecret(state.docker.password_copy(&server_id));
     system::registry_config(&handle, secret.as_deref()).await
 }
@@ -301,6 +356,7 @@ pub async fn docker_system_preview(
 ) -> Result<DockerPreview, SshError> {
     validate_server_id(&server_id)?;
     let handle = handle_for(state.inner(), &server_id).await?;
+    let elevated = crate::ssh::session::docker_elevated(state.inner(), &server_id).await;
     let mut secret = auth_for(&handle, state.inner(), &server_id, password).await?;
     if let Some(bytes) = secret.as_deref() {
         if let Err(error) = system::verify_sudo(&handle, Some(bytes)).await {
@@ -402,6 +458,7 @@ pub fn container_title(container_name: &str, server_name: &str) -> String {
 async fn probe_shell(
     handle: &russh::client::Handle<crate::ssh::session::ClientHandler>,
     container_id: &str,
+    elevated: bool,
 ) -> Result<&'static str, SshError> {
     for shell in ["/bin/sh", "/bin/bash"] {
         let script = format!(
@@ -417,6 +474,7 @@ async fn probe_shell(
                 max_bytes: 64 * 1024,
                 stdin: None,
                 cancel: None,
+                elevated,
             },
             |_| {},
         )
@@ -441,6 +499,7 @@ pub async fn docker_container_terminal_open(
     let container_id = validate::container_id(&input.container_id)?;
 
     let handle = handle_for(state.inner(), &input.server_id).await?;
+    let elevated = crate::ssh::session::docker_elevated(state.inner(), &input.server_id).await;
     {
         let terminals = state.terminals.lock().await;
         let count = terminals
@@ -465,6 +524,7 @@ pub async fn docker_container_terminal_open(
             max_bytes: 64 * 1024,
             stdin: None,
             cancel: None,
+            elevated,
         },
         |_| {},
     )
@@ -488,8 +548,13 @@ pub async fn docker_container_terminal_open(
         .unwrap_or_else(|| input.server_id.clone());
     let title = container_title(&name, &server_name);
 
-    let shell = probe_shell(&handle, &container_id).await?;
+    let shell = probe_shell(&handle, &container_id, elevated).await?;
     let command = terminal::exec_command(&container_id, shell);
+    let command = if elevated {
+        format!("sudo -n {command}")
+    } else {
+        command
+    };
     let (term, reader) = terminal::open_exec(
         &handle,
         &input.server_id,

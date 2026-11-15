@@ -21,6 +21,14 @@ const OP_LABELS: Record<string, string> = {
   'docker.service.start': '启动 Docker 服务',
   'docker.service.stop': '停止 Docker 服务',
   'docker.daemon.update': '更新 Docker 配置',
+  'docker.compose.start': '启动 Compose 项目',
+  'docker.compose.stop': '停止 Compose 项目',
+  'docker.network.create': '创建网络',
+  'docker.network.remove': '删除网络',
+  'docker.network.prune': '清理未使用网络',
+  'docker.volume.create': '创建数据卷',
+  'docker.volume.remove': '删除数据卷',
+  'docker.volume.prune': '清理未使用数据卷',
 };
 
 const ROLLBACKABLE = new Set([
@@ -60,6 +68,7 @@ export function auditParamsSummary(params: string): string {
       return name ? `${name}（${short}）` : short;
     }
     if (typeof value.image === 'string') return value.image;
+    if (typeof value.target === 'string') return value.target;
     if (typeof value.file === 'string') return value.file;
     if (typeof value.service === 'string') {
       return `${value.service} · ${typeof value.action === 'string' ? value.action : '操作'}`;

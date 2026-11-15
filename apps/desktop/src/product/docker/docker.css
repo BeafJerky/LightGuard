@@ -1666,3 +1666,24 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+.lgdocker-filelink {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--lg-radius-sm);
+  background: none;
+  color: var(--lg-text);
+  font: inherit;
+  font-size: var(--lg-fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.lgdocker-filelink:hover {
+  background: var(--lg-surface);
+}

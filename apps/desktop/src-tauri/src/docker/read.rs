@@ -480,11 +480,16 @@ pub async fn volumes(
                     .unwrap_or("")
                     .to_string(),
                 used_by: Vec::new(),
+                usage_known: true,
             })
         })
         .collect();
     // 只对前 20 个卷查询挂载容器，避免大主机上 N 次额外命令。
-    for row in rows.iter_mut().take(20) {
+    for (index, row) in rows.iter_mut().enumerate() {
+        if index >= 20 {
+            row.usage_known = false;
+            continue;
+        }
         let script = format!(
             "docker ps -a --filter volume={} --format '{{{{.Names}}}}'",
             shell_quote(&row.name)

@@ -213,6 +213,22 @@ export interface DockerVolumeSummary {
   driver: string;
   mountpoint: string;
   usedBy: string[];
+  usageKnown: boolean;
+}
+
+export interface ContainerFileEntry {
+  name: string;
+  path: string;
+  kind: string;
+  size: number;
+  mode: string;
+  mtime: string;
+}
+
+export interface ContainerFilePreview {
+  content: string;
+  binary: boolean;
+  truncated: boolean;
 }
 
 export interface DockerSystemInput {
@@ -245,6 +261,23 @@ export interface DockerApi {
   composeLogs(serverId: string, project: string, tail?: number): Promise<string>;
   networks(serverId: string): Promise<DockerNetworkSummary[]>;
   volumes(serverId: string): Promise<DockerVolumeSummary[]>;
+  containerLogs(
+    serverId: string,
+    containerId: string,
+    tail: number,
+    onLine: (line: string) => void,
+  ): Promise<void>;
+  cancelContainerLogs(serverId: string): Promise<boolean>;
+  containerFiles(
+    serverId: string,
+    containerId: string,
+    path: string,
+  ): Promise<ContainerFileEntry[]>;
+  containerFile(
+    serverId: string,
+    containerId: string,
+    path: string,
+  ): Promise<ContainerFilePreview>;
   registryConfig(serverId: string): Promise<RegistryConfig>;
   registrySearch(serverId: string, term: string, limit?: number): Promise<RegistrySearchItem[]>;
   registryTags(serverId: string, repo: string): Promise<RegistryTags>;
@@ -293,6 +326,21 @@ export function createTauriDockerApi(): DockerApi {
     },
     volumes(serverId) {
       return call('docker_volumes', { serverId });
+    },
+    async containerLogs(serverId, containerId, tail, onLine) {
+      const { Channel } = await import('@tauri-apps/api/core');
+      const channel = new Channel<string>();
+      channel.onmessage = (line) => onLine(line);
+      return call('docker_container_logs', { serverId, containerId, tail, onEvent: channel });
+    },
+    cancelContainerLogs(serverId) {
+      return call('docker_container_logs_cancel', { serverId });
+    },
+    containerFiles(serverId, containerId, path) {
+      return call('docker_container_files', { serverId, containerId, path });
+    },
+    containerFile(serverId, containerId, path) {
+      return call('docker_container_file', { serverId, containerId, path });
     },
     registryConfig(serverId) {
       return call('docker_registry_config', { serverId });
@@ -375,6 +423,10 @@ export function createUnsupportedDockerApi(): DockerApi {
     composeLogs: reject,
     networks: reject,
     volumes: reject,
+    containerLogs: reject,
+    cancelContainerLogs: reject,
+    containerFiles: reject,
+    containerFile: reject,
     registryConfig: reject,
     registrySearch: reject,
     registryTags: reject,

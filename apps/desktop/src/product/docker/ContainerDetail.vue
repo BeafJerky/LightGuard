@@ -4,7 +4,12 @@ import { LgIcon } from '@lightguard/lightui';
 import type { Server } from '../types';
 import { toSshError } from '../ssh';
 import { toast } from '../ui';
-import { dockerApi, type DockerContainerDetail, type DockerStatsSample } from './api';
+import {
+  dockerApi,
+  type ContainerFileEntry,
+  type DockerContainerDetail,
+  type DockerStatsSample,
+} from './api';
 import { dockerTime, percent, portLabel, stateLabel, stateTone } from './format';
 
 const props = defineProps<{ server: Server; containerId: string; containerName: string }>();
@@ -16,6 +21,16 @@ const readings = ref(0);
 const loading = ref(true);
 const error = ref('');
 const closeRef = ref<HTMLButtonElement | null>(null);
+const logsOpen = ref(false);
+const logsLines = ref<string[]>([]);
+const logsBusy = ref(false);
+const filesOpen = ref(false);
+const filePath = ref('/');
+const fileEntries = ref<ContainerFileEntry[]>([]);
+const filePreview = ref('');
+const fileNotice = ref('');
+const filesLoading = ref(false);
+const logsText = computed(() => logsLines.value.join(String.fromCharCode(10)));
 let timer: number | null = null;
 let disposed = false;
 let sampling = false;
@@ -70,6 +85,78 @@ function openTerminal(): void {
   if (detail.value) emit('terminal', detail.value);
 }
 
+async function openLogs(): Promise<void> {
+  logsOpen.value = true;
+  logsLines.value = [];
+  logsBusy.value = true;
+  try {
+    await dockerApi.containerLogs(props.server.id, props.containerId, 300, (line) => {
+      logsLines.value = [...logsLines.value, line].slice(-500);
+    });
+  } catch (caught) {
+    fileNotice.value = toSshError(caught).message;
+  } finally {
+    logsBusy.value = false;
+  }
+}
+
+function closeLogs(): void {
+  logsOpen.value = false;
+  void dockerApi.cancelContainerLogs(props.server.id).catch(() => {});
+}
+
+async function loadFiles(path: string): Promise<void> {
+  filesLoading.value = true;
+  fileNotice.value = '';
+  filePreview.value = '';
+  try {
+    fileEntries.value = await dockerApi.containerFiles(
+      props.server.id,
+      props.containerId,
+      path,
+    );
+    filePath.value = path;
+  } catch (caught) {
+    fileNotice.value = toSshError(caught).message;
+    fileEntries.value = [];
+  } finally {
+    filesLoading.value = false;
+  }
+}
+
+async function openFiles(): Promise<void> {
+  filesOpen.value = true;
+  await loadFiles('/');
+}
+
+function fileParent(): void {
+  if (filePath.value === '/') return;
+  const parent = filePath.value.slice(0, filePath.value.lastIndexOf('/')) || '/';
+  void loadFiles(parent);
+}
+
+async function openEntry(entry: ContainerFileEntry): Promise<void> {
+  if (entry.kind === 'dir') {
+    await loadFiles(entry.path);
+    return;
+  }
+  filesLoading.value = true;
+  try {
+    const preview = await dockerApi.containerFile(props.server.id, props.containerId, entry.path);
+    filePreview.value = preview.binary
+      ? '二进制文件，暂不预览。'
+      : preview.truncated
+        ? `${preview.content}
+
+…（已截断，最多显示 512 KB）`
+        : preview.content;
+  } catch (caught) {
+    fileNotice.value = toSshError(caught).message;
+  } finally {
+    filesLoading.value = false;
+  }
+}
+
 function onKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape') emit('close');
 }
@@ -91,6 +178,7 @@ onBeforeUnmount(() => {
   disposed = true;
   document.removeEventListener('keydown', onKeydown);
   if (timer !== null) window.clearInterval(timer);
+  if (logsOpen.value) void dockerApi.cancelContainerLogs(props.server.id).catch(() => {});
 });
 </script>
 
@@ -108,6 +196,19 @@ onBeforeUnmount(() => {
           <strong>{{ containerName }}</strong>
           <span>{{ containerId.slice(0, 12) }}</span>
         </div>
+        <button type="button" class="lgdocker-btn is-small" @click="openLogs()">
+          <LgIcon name="file-text" :size="12" />
+          日志
+        </button>
+        <button
+          v-if="detail && detail.state === 'running'"
+          type="button"
+          class="lgdocker-btn is-small"
+          @click="openFiles()"
+        >
+          <LgIcon name="folder" :size="12" />
+          文件
+        </button>
         <button
           v-if="detail && detail.state === 'running'"
           type="button"
@@ -232,5 +333,46 @@ onBeforeUnmount(() => {
         </template>
       </div>
     </aside>
+
+    <div v-if="logsOpen" class="lgdocker-modal" role="dialog" aria-modal="true" aria-label="容器日志">
+      <div class="lgdocker-modal__mask" @click="closeLogs()" />
+      <section class="lgdocker-modal__panel lgdocker-logs">
+        <header class="lgdocker-modal__head">
+          <div>
+            <strong>{{ containerName }}</strong>
+            <span>{{ logsBusy ? '实时跟随 · 最后 300 行' : '日志流已结束' }}</span>
+          </div>
+          <button type="button" class="lgdocker-btn" @click="closeLogs()">停止</button>
+        </header>
+        <pre class="lgdocker-logs__body">{{ logsText || (logsBusy ? '等待日志…' : '没有日志输出。') }}</pre>
+      </section>
+    </div>
+
+    <div v-if="filesOpen" class="lgdocker-modal" role="dialog" aria-modal="true" aria-label="容器文件">
+      <div class="lgdocker-modal__mask" @click="filesOpen = false" />
+      <section class="lgdocker-modal__panel lgdocker-logs">
+        <header class="lgdocker-modal__head">
+          <div>
+            <strong>容器文件（只读）</strong>
+            <span>{{ filePath }}</span>
+          </div>
+          <button type="button" class="lgdocker-btn" @click="filesOpen = false">关闭</button>
+        </header>
+        <div class="lgdocker-toolbar">
+          <button type="button" class="lgdocker-btn" @click="fileParent()">上级</button>
+        </div>
+        <div v-if="filesLoading" class="lgdocker-empty">正在读取…</div>
+        <div v-else-if="fileNotice" class="lgdocker-error" role="alert">{{ fileNotice }}</div>
+        <ul v-else class="lgdocker-list">
+          <li v-for="entry in fileEntries" :key="entry.path">
+            <button type="button" class="lgdocker-filelink" @click="openEntry(entry)">
+              <span>{{ entry.kind === 'dir' ? '📁' : '📄' }} {{ entry.name }}</span>
+              <span class="lgdocker-muted">{{ entry.mode }} · {{ entry.size }} B</span>
+            </button>
+          </li>
+        </ul>
+        <pre v-if="filePreview" class="lgdocker-logs__body">{{ filePreview }}</pre>
+      </section>
+    </div>
   </div>
 </template>

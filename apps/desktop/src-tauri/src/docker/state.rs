@@ -33,6 +33,7 @@ impl std::fmt::Debug for Secret {
 #[derive(Debug, Default)]
 pub struct DockerState {
     pulls: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    logs: Mutex<HashMap<String, Arc<AtomicBool>>>,
     passwords: Mutex<HashMap<String, Secret>>,
     passwordless: Mutex<HashMap<String, bool>>,
 }
@@ -63,6 +64,26 @@ impl DockerState {
 
     pub fn finish_pull(&self, server_id: &str) {
         self.lock_pulls().remove(server_id);
+    }
+
+    pub fn begin_logs(&self, server_id: &str) -> Arc<AtomicBool> {
+        let flag = Arc::new(AtomicBool::new(false));
+        self.lock_logs().insert(server_id.to_string(), Arc::clone(&flag));
+        flag
+    }
+
+    pub fn cancel_logs(&self, server_id: &str) -> bool {
+        match self.lock_logs().get(server_id) {
+            Some(flag) => {
+                flag.store(true, Ordering::Relaxed);
+                true
+            }
+            None => false,
+        }
+    }
+
+    pub fn finish_logs(&self, server_id: &str) {
+        self.lock_logs().remove(server_id);
     }
 
     /// 直接接管字节所有权，避免密码在多个 `String` 副本间流转。
@@ -107,6 +128,10 @@ impl DockerState {
         self.lock_pulls().clear();
         self.lock_passwords().clear();
         self.lock_passwordless().clear();
+    }
+
+    fn lock_logs(&self) -> std::sync::MutexGuard<'_, HashMap<String, Arc<AtomicBool>>> {
+        self.logs.lock().unwrap_or_else(|poison| poison.into_inner())
     }
 
     fn lock_pulls(&self) -> std::sync::MutexGuard<'_, HashMap<String, Arc<AtomicBool>>> {

@@ -258,6 +258,26 @@ pub struct DockerVolumeSummary {
     pub driver: String,
     pub mountpoint: String,
     pub used_by: Vec<String>,
+    pub usage_known: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerFileEntry {
+    pub name: String,
+    pub path: String,
+    pub kind: String,
+    pub size: u64,
+    pub mode: String,
+    pub mtime: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContainerFilePreview {
+    pub content: String,
+    pub binary: bool,
+    pub truncated: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]

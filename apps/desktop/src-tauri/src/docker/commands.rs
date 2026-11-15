@@ -447,7 +447,84 @@ pub async fn docker_system_execute(
     }
 }
 
-pub fn container_title(container_name: &str, server_name: &str) -> String {
+#[tauri::command]
+pub async fn docker_container_logs(
+    state: State<'_, Arc<AppState>>,
+    server_id: String,
+    container_id: String,
+    tail: Option<u32>,
+    on_event: tauri::ipc::Channel<String>,
+) -> Result<(), SshError> {
+    validate_server_id(&server_id)?;
+    let container_id = validate::container_id(&container_id)?;
+    let handle = handle_for(state.inner(), &server_id).await?;
+    let elevated = crate::ssh::session::docker_elevated(state.inner(), &server_id).await;
+    let cancel = state.docker.begin_logs(&server_id);
+    let script = format!(
+        "docker logs --tail {} -f {}",
+        tail.unwrap_or(300).clamp(1, 2000),
+        shell_quote(&container_id)
+    );
+    let result = exec::run(
+        &handle,
+        &script,
+        ExecOptions {
+            timeout: std::time::Duration::from_secs(3600),
+            max_bytes: 4 * 1024 * 1024,
+            stdin: None,
+            cancel: Some(cancel),
+            elevated,
+        },
+        |line| {
+            let _ = on_event.send(line.to_string());
+        },
+    )
+    .await;
+    state.docker.finish_logs(&server_id);
+    result.map(|_| ())
+}
+
+#[tauri::command]
+pub fn docker_container_logs_cancel(
+    state: State<'_, Arc<AppState>>,
+    server_id: String,
+) -> bool {
+    state.docker.cancel_logs(&server_id)
+}
+
+#[tauri::command]
+pub async fn docker_container_files(
+    state: State<'_, Arc<AppState>>,
+    server_id: String,
+    container_id: String,
+    path: String,
+) -> Result<Vec<crate::docker::dto::ContainerFileEntry>, SshError> {
+    validate_server_id(&server_id)?;
+    let container_id = validate::container_id(&container_id)?;
+    crate::docker::files::validate_path(&path)?;
+    let handle = handle_for(state.inner(), &server_id).await?;
+    let elevated = crate::ssh::session::docker_elevated(state.inner(), &server_id).await;
+    let shell = probe_shell(&handle, &container_id, elevated).await?;
+    crate::docker::files::list(&handle, &container_id, shell, &path, elevated).await
+}
+
+#[tauri::command]
+pub async fn docker_container_file(
+    state: State<'_, Arc<AppState>>,
+    server_id: String,
+    container_id: String,
+    path: String,
+) -> Result<crate::docker::dto::ContainerFilePreview, SshError> {
+    validate_server_id(&server_id)?;
+    let container_id = validate::container_id(&container_id)?;
+    crate::docker::files::validate_path(&path)?;
+    let handle = handle_for(state.inner(), &server_id).await?;
+    let elevated = crate::ssh::session::docker_elevated(state.inner(), &server_id).await;
+    let shell = probe_shell(&handle, &container_id, elevated).await?;
+    crate::docker::files::read(&handle, &container_id, shell, &path, elevated).await
+}
+
+fn container_title(container_name: &str, server_name: &str) -> String {
     if container_name.is_empty() {
         format!("容器终端 · {server_name}")
     } else {
@@ -455,7 +532,7 @@ pub fn container_title(container_name: &str, server_name: &str) -> String {
     }
 }
 
-async fn probe_shell(
+pub(crate) async fn probe_shell(
     handle: &russh::client::Handle<crate::ssh::session::ClientHandler>,
     container_id: &str,
     elevated: bool,

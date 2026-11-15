@@ -132,7 +132,13 @@ onMounted(load);
             {{ row.mountpoint }}
           </span>
           <span class="lgdocker-resrow__muted">
-            {{ row.usedBy.length ? `使用中：${row.usedBy.join('、')}` : '无容器使用' }}
+            {{
+              !row.usageKnown
+                ? '使用情况未检查（仅检查前 20 个卷）'
+                : row.usedBy.length
+                  ? `使用中：${row.usedBy.join('、')}`
+                  : '无容器使用'
+            }}
           </span>
         </div>
         <div class="lgdocker-resrow__actions">

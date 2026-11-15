@@ -5,6 +5,7 @@ pub mod commands;
 pub mod daemon;
 pub mod dto;
 pub mod exec;
+pub mod files;
 pub mod parse;
 pub mod read;
 pub mod state;

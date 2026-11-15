@@ -2,7 +2,7 @@
 
 面向个人与小型团队的服务器值守桌面客户端：真实 SSH、类 Windows 的服务器工作区、只读采集、文件管理、告警值守与写操作护栏。
 
-当前版本 **0.16.0**，Tauri 2 + Vue 3，Windows x64。
+当前版本 **0.16.1**，Tauri 2 + Vue 3，Windows x64。
 
 ## 它是什么
 
@@ -85,7 +85,7 @@ pnpm --filter @lightguard/desktop desktop:build # NSIS 安装包
 - 仅在 Windows 上验证；Web 形态只做界面预览。
 - 产品发起的文件写操作包含新建文件夹、上传、重命名、删除与改权限；上传一次最多 50 个文件，暂不支持目录递归上传与拖出到资源管理器。
 - 删除不可逆；覆盖上传不提供回退。递归搜索最多向下 8 层、500 条结果、15 秒。
-- Docker 管理需要目标服务器具备可用的 `docker` 命令与 sudo 权限；镜像搜索由 `docker search` 直连 Docker Hub，加速源只作用于拉取与标签查询；Compose 与网络页面后续开放。
+- Docker 管理需要目标服务器具备可用的 `docker` 命令与 sudo 权限；镜像搜索由 `docker search` 直连 Docker Hub，加速源只作用于拉取与标签查询；Compose 与网络页面后续开放。服务器级 sudo 提权当前覆盖采集、终端与文件管理，Docker 提权随 0.17.0 提供。
 - 应用完全退出期间不采样、不告警；系统通知在提示仍显示时支持点击定位到告警行，进入 Windows 操作中心后点击不再上报。
 - 登录监控依赖可读的 `journalctl` 或 `auth.log`，不可读时该规则不可用。
 - 更新包与安装包仍未做代码签名，Windows SmartScreen 会提示未知发布者。

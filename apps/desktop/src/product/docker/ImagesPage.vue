@@ -3,13 +3,14 @@ import { computed, inject, onBeforeUnmount, onMounted, ref, watch, type Ref } fr
 import { LgIcon } from '@lightguard/lightui';
 import type { Server } from '../types';
 import { toSshError } from '../ssh';
-import { toast } from '../ui';
+import { dismissToast, toast } from '../ui';
 import { dockerApi, type DockerImage } from './api';
 import { dockerTime } from './format';
 import { filterImages, imageReference, tagSummary } from './images';
 import { permissionHint } from './status';
 import { useDockerWrite } from './useDockerAction';
 import DockerActionDialog from './DockerActionDialog.vue';
+import BuildImageDialog from './BuildImageDialog.vue';
 
 const props = defineProps<{ server: Server }>();
 
@@ -22,6 +23,9 @@ const error = ref('');
 const errorCode = ref('');
 const keyword = ref('');
 const menuFor = ref('');
+const exporting = ref('');
+const checking = ref('');
+const buildOpen = ref(false);
 
 const action = useDockerWrite(props.server);
 const {
@@ -66,10 +70,129 @@ async function removeImage(image: DockerImage): Promise<void> {
   if (!ready) toast({ title: '无法删除镜像', message: actionError.value, tone: 'error' });
 }
 
+async function pushImage(image: DockerImage): Promise<void> {
+  if (image.dangling || image.tags.length === 0) return;
+  menuFor.value = '';
+  const ready = await askAction({ kind: 'image.push', target: imageReference(image) });
+  if (!ready) toast({ title: '无法推送镜像', message: actionError.value, tone: 'error' });
+}
+
+async function importImage(): Promise<void> {
+  try {
+    const path = await dockerApi.pickArchive();
+    if (!path) return;
+    const ready = await askAction({ kind: 'image.import', target: path });
+    if (!ready) toast({ title: '无法导入镜像', message: actionError.value, tone: 'error' });
+  } catch (caught) {
+    toast({ title: '无法选择归档', message: toSshError(caught).message, tone: 'error' });
+  }
+}
+
+async function pruneDangling(): Promise<void> {
+  if (dangling.value === 0) {
+    toast({ title: '没有悬空镜像', tone: 'info' });
+    return;
+  }
+  const ready = await askAction({ kind: 'image.prune', target: '' });
+  if (!ready) toast({ title: '无法清理镜像', message: actionError.value, tone: 'error' });
+}
+
+async function exportImage(image: DockerImage): Promise<void> {
+  menuFor.value = '';
+  if (exporting.value) return;
+  exporting.value = image.id;
+  const pending = toast({
+    title: '正在导出镜像',
+    message: imageReference(image),
+    duration: 0,
+  });
+  try {
+    const path = await dockerApi.exportImage(
+      props.server.id,
+      image.id,
+      `img-${Date.now()}`,
+      () => {},
+    );
+    toast({
+      title: '镜像已导出',
+      message: path,
+      tone: 'success',
+    });
+  } catch (caught) {
+    toast({ title: '导出失败', message: toSshError(caught).message, tone: 'error' });
+  } finally {
+    dismissToast(pending);
+    exporting.value = '';
+  }
+}
+
+async function checkUpdate(image: DockerImage): Promise<void> {
+  menuFor.value = '';
+  if (checking.value) return;
+  checking.value = image.id;
+  const pending = toast({
+    title: '正在检测更新',
+    message: imageReference(image),
+    duration: 0,
+  });
+  try {
+    const status = await dockerApi.imageUpdate(props.server.id, image.id);
+    const title =
+      status.state === 'current'
+        ? '已是最新'
+        : status.state === 'behind'
+          ? '发现新版本'
+          : '无法确认更新';
+    toast({
+      title,
+      message:
+        status.state === 'unknown'
+          ? status.message
+          : `${status.reference} ${status.message}`,
+      tone: status.state === 'behind' ? 'warning' : status.state === 'current' ? 'success' : 'info',
+    });
+  } catch (caught) {
+    toast({ title: '检测失败', message: toSshError(caught).message, tone: 'error' });
+  } finally {
+    dismissToast(pending);
+    checking.value = '';
+  }
+}
+
+async function buildImage(payload: {
+  contextPath: string;
+  tag: string;
+  dockerfile: string;
+}): Promise<void> {
+  buildOpen.value = false;
+  const ready = await askAction({
+    kind: 'image.build',
+    target: payload.tag,
+    payload: { contextPath: payload.contextPath, dockerfile: payload.dockerfile },
+  });
+  if (!ready) toast({ title: '无法构建镜像', message: actionError.value, tone: 'error' });
+}
+
 function closeAction(): void {
   const finished = actionDone.value;
+  const kind = actionPreview.value?.kind ?? '';
   closeActionState();
-  if (finished?.result === 'success') void load();
+  if (finished?.result === 'success') {
+    const title =
+      kind === 'image.build'
+        ? '镜像构建完成'
+        : kind === 'image.import'
+          ? '镜像已导入'
+          : kind === 'image.push'
+            ? '镜像已推送'
+            : kind === 'image.prune'
+              ? '悬空镜像已清理'
+              : kind === 'image.remove'
+                ? '镜像已删除'
+                : '操作完成';
+    toast({ title, message: finished.target, tone: 'success' });
+    void load();
+  }
 }
 
 function toggleMenu(id: string): void {
@@ -107,10 +230,30 @@ onBeforeUnmount(() => {
         <h2>镜像管理</h2>
         <p>{{ summary }}</p>
       </div>
-      <button type="button" class="lgdocker-btn" :disabled="loading" @click="load()">
-        <LgIcon name="refresh" :size="13" />
-        刷新
-      </button>
+      <div class="lgdocker-pagehead__actions">
+        <button type="button" class="lgdocker-btn" :disabled="loading" @click="importImage()">
+          <LgIcon name="download" :size="13" />
+          导入
+        </button>
+        <button type="button" class="lgdocker-btn" :disabled="loading" @click="buildOpen = true">
+          <LgIcon name="layers" :size="13" />
+          构建
+        </button>
+        <button
+          type="button"
+          class="lgdocker-btn"
+          :disabled="loading || dangling === 0"
+          :title="dangling === 0 ? '没有悬空镜像' : '删除未打标签且没有容器引用的镜像'"
+          @click="pruneDangling()"
+        >
+          <LgIcon name="trash" :size="13" />
+          清理悬空
+        </button>
+        <button type="button" class="lgdocker-btn" :disabled="loading" @click="load()">
+          <LgIcon name="refresh" :size="13" />
+          刷新
+        </button>
+      </div>
     </header>
 
     <div class="lgdocker-toolbar">
@@ -170,6 +313,25 @@ onBeforeUnmount(() => {
             <button
               type="button"
               role="menuitem"
+              :disabled="image.dangling || image.tags.length === 0"
+              @click.stop="pushImage(image)"
+            >
+              推送镜像
+            </button>
+            <button type="button" role="menuitem" @click.stop="exportImage(image)">
+              {{ exporting === image.id ? '正在导出…' : '导出为 tar.gz' }}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              :disabled="image.dangling || Boolean(checking)"
+              @click.stop="checkUpdate(image)"
+            >
+              {{ checking === image.id ? '正在检测…' : '检测更新' }}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
               :disabled="image.containers > 0"
               :title="image.containers > 0 ? '正在被容器使用' : '删除镜像'"
               @click.stop="removeImage(image)"
@@ -194,6 +356,10 @@ onBeforeUnmount(() => {
         @confirm="confirmAction()"
         @close="closeAction"
       />
+    </Teleport>
+
+    <Teleport v-if="buildOpen && dockerRoot" :to="dockerRoot">
+      <BuildImageDialog @close="buildOpen = false" @build="buildImage" />
     </Teleport>
   </section>
 </template>

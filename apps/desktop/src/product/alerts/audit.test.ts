@@ -55,6 +55,9 @@ describe('audit helpers', () => {
       params: '{"path":"/data/a","overwrite":true}',
     });
     expect(canRollback(overwrite, [overwrite])).toBe(false);
+    expect(canRollback(row({ id: 6, op: 'docker.compose.start' }), [])).toBe(true);
+    expect(canRollback(row({ id: 7, op: 'docker.network.create' }), [])).toBe(true);
+    expect(canRollback(row({ id: 8, op: 'docker.volume.create' }), [])).toBe(true);
     expect(rollbackLabel('fs.rename')).toContain('原名称');
     expect(rollbackLabel('fs.chmod')).toContain('原权限');
   });
@@ -91,6 +94,8 @@ describe('audit helpers', () => {
 
   it('labels the rollback button by operation kind', () => {
     expect(rollbackLabel('docker.container.start')).toBe('回退（启动/停止互换）');
+    expect(rollbackLabel('docker.compose.start')).toBe('回退（启动/停止互换）');
+    expect(rollbackLabel('docker.network.create')).toBe('回退（删除创建的对象）');
     expect(rollbackLabel('fs.mkdir')).toBe('回退（删除空目录）');
   });
 
@@ -99,6 +104,8 @@ describe('audit helpers', () => {
     expect(auditOpLabel('docker.container.stop')).toBe('停止容器');
     expect(auditOpLabel('docker.container.stop.rollback')).toBe('启动容器（回退）');
     expect(auditOpLabel('docker.image.pull')).toBe('拉取镜像');
+    expect(auditOpLabel('docker.image.build')).toBe('构建镜像');
+    expect(auditOpLabel('docker.registry.login')).toBe('登录镜像仓库');
     expect(auditOpLabel('docker.daemon.update')).toBe('更新 Docker 配置');
   });
 

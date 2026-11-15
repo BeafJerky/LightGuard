@@ -100,6 +100,20 @@ async function openLogs(): Promise<void> {
   }
 }
 
+async function exportContainer(): Promise<void> {
+  try {
+    const target = await dockerApi.exportContainer(
+      props.server.id,
+      props.containerId,
+      `export-${Date.now()}`,
+      () => {},
+    );
+    toast({ title: '容器已导出', message: target, tone: 'success' });
+  } catch (caught) {
+    toast({ title: '导出失败', message: toSshError(caught).message, tone: 'warning' });
+  }
+}
+
 function closeLogs(): void {
   logsOpen.value = false;
   void dockerApi.cancelContainerLogs(props.server.id).catch(() => {});
@@ -196,6 +210,9 @@ onBeforeUnmount(() => {
           <strong>{{ containerName }}</strong>
           <span>{{ containerId.slice(0, 12) }}</span>
         </div>
+        <button type="button" class="lgdocker-btn is-small" @click="exportContainer()">
+          导出
+        </button>
         <button type="button" class="lgdocker-btn is-small" @click="openLogs()">
           <LgIcon name="file-text" :size="12" />
           日志

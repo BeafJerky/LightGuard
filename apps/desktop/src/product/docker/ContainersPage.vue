@@ -15,6 +15,7 @@ import { useDockerWrite } from './useDockerAction';
 import ContainerCard from './ContainerCard.vue';
 import ContainerDetail from './ContainerDetail.vue';
 import DockerActionDialog from './DockerActionDialog.vue';
+import CreateContainerDialog from './CreateContainerDialog.vue';
 
 const props = defineProps<{ server: Server }>();
 
@@ -23,6 +24,7 @@ const loading = ref(true);
 const error = ref('');
 const errorCode = ref('');
 const keyword = ref('');
+const createOpen = ref(false);
 const selected = ref<DockerContainer | null>(null);
 // 抽屉挂到 Docker 应用根节点，避免随 .lgdocker-main 滚动或被其布局包含改写包含块。
 const dockerRoot = inject<Ref<HTMLElement | null>>('lg:docker-root', ref(null));
@@ -131,6 +133,11 @@ function openDetailTerminal(detail: DockerContainerDetail): void {
   });
 }
 
+async function onCreate(payload: Record<string, unknown>): Promise<void> {
+  createOpen.value = false;
+  await askAction({ kind: 'container.create', target: '', payload });
+}
+
 function closeAction(): void {
   const finished = actionDone.value;
   closeActionState();
@@ -157,10 +164,16 @@ onMounted(load);
       <div>
         <h2>容器</h2>
       </div>
-      <button type="button" class="lgdocker-btn" :disabled="loading" @click="load()">
-        <LgIcon name="refresh" :size="13" />
-        刷新
-      </button>
+      <div class="lgdocker-pagehead__actions">
+        <button type="button" class="lgdocker-btn is-primary" @click="createOpen = true">
+          <LgIcon name="plus" :size="13" />
+          新建容器
+        </button>
+        <button type="button" class="lgdocker-btn" :disabled="loading" @click="load()">
+          <LgIcon name="refresh" :size="13" />
+          刷新
+        </button>
+      </div>
     </header>
 
     <div class="lgdocker-toolbar">
@@ -215,6 +228,14 @@ onMounted(load);
         :container-name="selected.name || selected.shortId"
         @close="selected = null"
         @terminal="openDetailTerminal"
+      />
+    </Teleport>
+
+    <Teleport v-if="createOpen && dockerRoot" :to="dockerRoot">
+      <CreateContainerDialog
+        :server="server"
+        @close="createOpen = false"
+        @create="onCreate"
       />
     </Teleport>
 

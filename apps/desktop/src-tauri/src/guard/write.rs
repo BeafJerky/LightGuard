@@ -243,7 +243,15 @@ pub fn build_chmod_preview(
 
 pub fn rollback_block_reason(row: &AuditRow, has_rollback: bool) -> Option<&'static str> {
     let supported = matches!(row.op.as_str(), MKDIR_OP | RENAME_OP | CHMOD_OP | UPLOAD_OP)
-        || matches!(row.op.as_str(), "docker.container.start" | "docker.container.stop");
+        || matches!(
+            row.op.as_str(),
+            "docker.container.start"
+                | "docker.container.stop"
+                | "docker.compose.start"
+                | "docker.compose.stop"
+                | "docker.network.create"
+                | "docker.volume.create"
+        );
     if !supported {
         return Some("该操作不支持回退");
     }
@@ -944,6 +952,7 @@ pub(crate) async fn execute_upload(
         }
         let started = Instant::now();
         let part = crate::ssh::sftp::transfer::upload_part_path(&job.remote_path, transfer_id);
+        state.register_part(server_id, &part).await;
         let local = std::path::Path::new(&job.local_path);
         let outcome = crate::ssh::sftp::transfer::upload_file(
             &client,
@@ -967,6 +976,7 @@ pub(crate) async fn execute_upload(
         let finalized = match outcome {
             Ok(crate::ssh::sftp::transfer::TransferOutcome::Canceled { .. }) => {
                 failed += 1;
+                state.forget_part(server_id, &part).await;
                 let _ = record(
                     db,
                     server_id,
@@ -990,14 +1000,24 @@ pub(crate) async fn execute_upload(
                 if job.overwrite {
                     let _ = client.remove_file(&job.remote_path).await;
                 }
-                client
+                let renamed = client
                     .rename(&part, &job.remote_path)
                     .await
                     .map_err(|error| {
                         SshError::sftp_failed(format!("重命名上传文件失败：{error}"))
-                    })
+                    });
+                if renamed.is_ok() {
+                    state.forget_part(server_id, &part).await;
+                }
+                renamed
             }
-            Err(error) => Err(error),
+            Err(error) => {
+                // 连接还在时立即补删；连接已断则保留登记，等重连后清理。
+                if client.remove_file(&part).await.is_ok() {
+                    state.forget_part(server_id, &part).await;
+                }
+                Err(error)
+            }
         };
 
         match finalized {

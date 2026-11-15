@@ -65,6 +65,21 @@ pub fn docker_name(value: &str, label: &str) -> Result<String, SshError> {
     }
 }
 
+/// 仓库主机名（可带端口）：不接受协议、路径或凭据，避免拼进 `docker login` 的第二条命令。
+pub fn registry_host(value: &str) -> Result<String, SshError> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed.len() > 255 {
+        return Err(SshError::invalid_input("仓库地址无效"));
+    }
+    let valid = trimmed.chars().all(|ch| {
+        ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | ':' | '[' | ']' | '_')
+    });
+    if !valid || trimmed.contains("..") {
+        return Err(SshError::invalid_input("仓库地址只接受主机名或主机名:端口"));
+    }
+    Ok(trimmed.to_string())
+}
+
 pub fn network_driver(value: &str) -> Result<String, SshError> {
     match value.trim() {
         "bridge" | "host" | "overlay" | "macvlan" | "ipvlan" | "none" => {

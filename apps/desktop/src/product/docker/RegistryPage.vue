@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, type Ref } from 'vue';
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref, type Ref } from 'vue';
 import { LgIcon } from '@lightguard/lightui';
 import type { Server } from '../types';
 import { toSshError } from '../ssh';
@@ -48,6 +48,10 @@ const cancelBusy = ref(false);
 const settingsMenu = ref(false);
 const settingsOpen = ref(false);
 const settingsMode = ref<'mirrors' | 'proxy'>('mirrors');
+const loginOpen = ref(false);
+const loginBusy = ref(false);
+const loginError = ref('');
+const loginForm = reactive({ registry: 'docker.io', username: '', password: '' });
 
 const action = useDockerWrite(props.server);
 const {
@@ -309,6 +313,66 @@ function openSettings(mode: 'mirrors' | 'proxy'): void {
   settingsOpen.value = true;
 }
 
+function openLogin(): void {
+  loginError.value = '';
+  loginOpen.value = true;
+}
+
+function closeLogin(): void {
+  loginForm.password = '';
+  loginError.value = '';
+  loginOpen.value = false;
+}
+
+async function submitLogin(): Promise<void> {
+  if (loginBusy.value) return;
+  loginBusy.value = true;
+  loginError.value = '';
+  try {
+    const result = await dockerApi.registryLogin(
+      props.server.id,
+      loginForm.registry,
+      loginForm.username,
+      loginForm.password,
+      () => {},
+    );
+    if (result.result === 'success') {
+      toast({ title: '已登录仓库', message: result.target, tone: 'success' });
+      closeLogin();
+    } else {
+      loginError.value = result.message || '登录失败';
+    }
+  } catch (caught) {
+    loginError.value = toSshError(caught).message;
+  } finally {
+    loginBusy.value = false;
+    loginForm.password = '';
+  }
+}
+
+async function logoutRegistry(): Promise<void> {
+  if (loginBusy.value) return;
+  loginBusy.value = true;
+  loginError.value = '';
+  try {
+    const result = await dockerApi.registryLogout(
+      props.server.id,
+      loginForm.registry,
+      () => {},
+    );
+    if (result.result === 'success') {
+      toast({ title: '已退出仓库登录', message: result.target, tone: 'success' });
+      closeLogin();
+    } else {
+      loginError.value = result.message || '退出登录失败';
+    }
+  } catch (caught) {
+    loginError.value = toSshError(caught).message;
+  } finally {
+    loginBusy.value = false;
+  }
+}
+
 function onDocumentClick(event: MouseEvent): void {
   const target = event.target as HTMLElement | null;
   if (target?.closest('.lgdocker-settingsmenu')) return;
@@ -327,6 +391,10 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick));
         <p>搜索 Docker Hub，拉取到当前服务器</p>
       </div>
       <div class="lgdocker-pagehead__actions">
+        <button type="button" class="lgdocker-btn" @click="openLogin()">
+          <LgIcon name="lock" :size="13" />
+          登录仓库
+        </button>
         <div class="lgdocker-rowmenu lgdocker-settingsmenu">
           <button
             type="button"
@@ -604,6 +672,58 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocumentClick));
           <footer class="lgdocker-modal__foot">
             <button type="button" class="lgdocker-btn" @click="closePull">取消</button>
             <button type="submit" class="lgdocker-btn is-primary">检查并拉取</button>
+          </footer>
+        </form>
+      </div>
+    </Teleport>
+
+    <Teleport v-if="loginOpen && dockerRoot" :to="dockerRoot">
+      <div class="lgdocker-modal" role="dialog" aria-modal="true" aria-label="登录镜像仓库">
+        <div class="lgdocker-modal__mask" @click="closeLogin" />
+        <form class="lgdocker-modal__panel" @submit.prevent="submitLogin">
+          <header class="lgdocker-modal__head">
+            <div>
+              <strong>登录镜像仓库</strong>
+              <span>docker login --password-stdin</span>
+            </div>
+            <button type="button" class="lgdocker-btn is-small" aria-label="关闭登录对话框" @click="closeLogin">
+              <LgIcon name="x" :size="13" />
+            </button>
+          </header>
+          <div class="lgdocker-modal__body">
+            <label class="lgdocker-loginfield">
+              <span>仓库</span>
+              <input v-model="loginForm.registry" placeholder="docker.io" aria-label="仓库地址" />
+            </label>
+            <label class="lgdocker-loginfield">
+              <span>用户名</span>
+              <input v-model="loginForm.username" placeholder="用户名" aria-label="用户名" autocomplete="username" />
+            </label>
+            <label class="lgdocker-loginfield">
+              <span>密码 / 访问令牌</span>
+              <input
+                v-model="loginForm.password"
+                type="password"
+                placeholder="密码"
+                aria-label="密码或访问令牌"
+                autocomplete="current-password"
+              />
+            </label>
+            <p v-if="loginError" class="lgdocker-error">{{ loginError }}</p>
+            <p class="lgdocker-muted">
+              凭据只经加密通道传给服务器上的 docker login，LightGuard 不保存密码；
+              服务器只会保留 Docker 自己的配置。写操作仍需先解锁。
+            </p>
+          </div>
+          <footer class="lgdocker-modal__foot">
+            <button type="button" class="lgdocker-btn" :disabled="loginBusy" @click="logoutRegistry()">
+              退出该仓库
+            </button>
+            <span class="lgdocker-spacer" />
+            <button type="button" class="lgdocker-btn" @click="closeLogin">取消</button>
+            <button type="submit" class="lgdocker-btn is-primary" :disabled="loginBusy">
+              {{ loginBusy ? '登录中…' : '登录' }}
+            </button>
           </footer>
         </form>
       </div>

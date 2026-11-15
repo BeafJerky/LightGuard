@@ -426,6 +426,27 @@ async fn get_session(
         .ok_or_else(SshError::session_not_found)
 }
 
+async fn cleanup_pending_parts(state: &AppState, server_id: &str) {
+    let parts = state.take_parts(server_id).await;
+    if parts.is_empty() {
+        return;
+    }
+    let sftp = match super::sftp::client::acquire(state, server_id).await {
+        Ok(sftp) => sftp,
+        Err(_) => {
+            for part in parts {
+                state.register_part(server_id, &part).await;
+            }
+            return;
+        }
+    };
+    for part in parts {
+        if sftp.remove_file(&part).await.is_err() {
+            state.register_part(server_id, &part).await;
+        }
+    }
+}
+
 async fn replace_session(
     app: &AppHandle,
     state: &State<'_, Arc<AppState>>,
@@ -452,6 +473,12 @@ async fn replace_session(
         }
     }
     watch_session(app.clone(), state.inner().clone(), server_id.to_string(), session);
+    // 上次连接中断时可能留下 `.lgpart`：新会话建立后立刻补删，删不掉就留待下次。
+    let cleanup_state = state.inner().clone();
+    let cleanup_server = server_id.to_string();
+    tokio::spawn(async move {
+        cleanup_pending_parts(&cleanup_state, &cleanup_server).await;
+    });
     // 新连接：上一轮遗留的许可与预览一律作废，然后开始采样与登录监控。
     state.guard.clear_server(server_id);
     state.docker.clear_server(server_id);

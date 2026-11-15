@@ -42,10 +42,39 @@ fn preview_failed(error: SshError) -> SshError {
     SshError::preview_failed(error.message)
 }
 
-/// 容器启停的回退请求：只接受 start / stop，且必须能从审计参数还原容器全 ID。
+/// 回退请求：容器启停从审计参数还原全 ID；Compose/网络/卷按名称还原。
 fn docker_rollback_payload(row: &AuditRow) -> Option<WritePayload> {
     let (action, _) = docker_write::rollback_plan(&row.op)?;
     let params: Value = serde_json::from_str(&row.params).ok()?;
+    if row.op.starts_with("docker.compose.") {
+        let name = params.get("target")?.as_str()?;
+        let name = docker_validate::docker_name(name, "Compose 项目名").ok()?;
+        return Some(WritePayload {
+            server_id: row.server_id.clone(),
+            kind: format!("compose.{action}"),
+            target: name.clone(),
+            display: name,
+            audit_op: format!("{}.rollback", row.op),
+            extra: serde_json::json!({}),
+        });
+    }
+    if matches!(row.op.as_str(), "docker.network.create" | "docker.volume.create") {
+        let (prefix, label) = if row.op == "docker.network.create" {
+            ("network", "网络名")
+        } else {
+            ("volume", "数据卷名")
+        };
+        let name = params.get("target")?.as_str()?;
+        let name = docker_validate::docker_name(name, label).ok()?;
+        return Some(WritePayload {
+            server_id: row.server_id.clone(),
+            kind: format!("{prefix}.{action}"),
+            target: name.clone(),
+            display: name,
+            audit_op: format!("{}.rollback", row.op),
+            extra: serde_json::json!({}),
+        });
+    }
     let container_id = params.get("containerId")?.as_str()?;
     let container_id = docker_validate::container_id(container_id).ok()?;
     let display = params
@@ -522,9 +551,9 @@ pub async fn write_rollback(
     if let Some(reason) = write::rollback_block_reason(&row, has_rollback) {
         return Err(SshError::invalid_input(reason));
     }
-    if row.op.starts_with("docker.container.") {
+    if row.op.starts_with("docker.") {
         let payload = docker_rollback_payload(&row)
-            .ok_or_else(|| SshError::invalid_input("审计记录缺少容器信息"))?;
+            .ok_or_else(|| SshError::invalid_input("审计记录缺少回退所需的目标信息"))?;
         let minutes = guard.require_permit(&row.server_id)?;
         client::session_handle(state.inner(), &row.server_id).await?;
         let lock = guard.begin_write(&row.server_id)?;

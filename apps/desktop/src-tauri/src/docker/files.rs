@@ -7,7 +7,6 @@ use russh::client::Handle;
 
 use crate::docker::dto::{ContainerFileEntry, ContainerFilePreview};
 use crate::docker::exec::{self, ExecOptions};
-use crate::docker::validate;
 use crate::ssh::error::SshError;
 use crate::ssh::session::ClientHandler;
 use crate::ssh::sftp::path::shell_quote;

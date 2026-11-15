@@ -8,11 +8,180 @@ use std::time::{Duration, Instant};
 use russh::client::Handle;
 use serde::{Deserialize, Serialize};
 
+fn validate_port(value: &str) -> Result<String, SshError> {
+    let (spec, proto) = match value.split_once('/') {
+        Some((spec, proto)) => (spec, Some(proto)),
+        None => (value, None),
+    };
+    let (host, container) = spec
+        .split_once(':')
+        .ok_or_else(|| SshError::invalid_input("端口映射格式应为 宿主端口:容器端口"))?;
+    let parse_port = |input: &str| -> Result<u16, SshError> {
+        input
+            .parse::<u16>()
+            .ok()
+            .filter(|port| *port > 0)
+            .ok_or_else(|| SshError::invalid_input("端口必须是 1–65535"))
+    };
+    parse_port(host.trim())?;
+    parse_port(container.trim())?;
+    if let Some(proto) = proto {
+        if !matches!(proto, "tcp" | "udp") {
+            return Err(SshError::invalid_input("端口协议只支持 tcp 或 udp"));
+        }
+    }
+    Ok(value.trim().to_string())
+}
+
+fn validate_env(value: &str) -> Result<String, SshError> {
+    let (key, val) = value
+        .split_once('=')
+        .ok_or_else(|| SshError::invalid_input("环境变量格式应为 键=值"))?;
+    let key = key.trim();
+    if key.is_empty()
+        || !key
+            .chars()
+            .next()
+            .map(|ch| ch.is_ascii_alphabetic() || ch == '_')
+            .unwrap_or(false)
+        || !key
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+    {
+        return Err(SshError::invalid_input("环境变量名只能包含字母、数字与下划线"));
+    }
+    if val.chars().any(char::is_control) || val.len() > 4096 {
+        return Err(SshError::invalid_input("环境变量值包含非法字符或过长"));
+    }
+    Ok(format!("{key}={val}"))
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateSpec {
+    image: String,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    ports: Vec<String>,
+    #[serde(default)]
+    env: Vec<String>,
+    #[serde(default)]
+    restart: Option<String>,
+    #[serde(default)]
+    command: Option<String>,
+    /// 由 `command` 拆分得到，执行时逐参数引用，避免整串被当成一个程序名。
+    #[serde(skip)]
+    command_args: Vec<String>,
+}
+
+/// 按 POSIX shell 习惯拆分启动命令：空白分隔，支持单/双引号与反斜杠转义。
+fn split_command(input: &str) -> Result<Vec<String>, SshError> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    let mut started = false;
+    for character in input.chars() {
+        if escaped {
+            current.push(character);
+            escaped = false;
+            started = true;
+            continue;
+        }
+        match quote {
+            Some(mark) => {
+                if character == mark {
+                    quote = None;
+                } else if character == '\\' && mark == '"' {
+                    escaped = true;
+                } else {
+                    current.push(character);
+                }
+                started = true;
+            }
+            None => match character {
+                '\'' | '"' => {
+                    quote = Some(character);
+                    started = true;
+                }
+                '\\' => {
+                    escaped = true;
+                    started = true;
+                }
+                value if value.is_whitespace() => {
+                    if started {
+                        args.push(std::mem::take(&mut current));
+                        started = false;
+                    }
+                }
+                value => {
+                    current.push(value);
+                    started = true;
+                }
+            },
+        }
+    }
+    if escaped || quote.is_some() {
+        return Err(SshError::invalid_input("启动命令的引号或转义未闭合"));
+    }
+    if started {
+        args.push(current);
+    }
+    if args.len() > 64 {
+        return Err(SshError::invalid_input("启动命令参数过多"));
+    }
+    if args.iter().any(|arg: &String| arg.len() > 128) {
+        return Err(SshError::invalid_input("启动命令的单个参数过长"));
+    }
+    Ok(args)
+}
+
+fn parse_create_spec(input: &DockerWriteInput) -> Result<CreateSpec, SshError> {
+    let mut spec: CreateSpec = serde_json::from_value(input.payload.clone())
+        .map_err(|_| SshError::invalid_input("新建容器参数无效"))?;
+    spec.image = validate::image_reference(&spec.image)?;
+    if let Some(name) = &spec.name {
+        spec.name = Some(validate::docker_name(name, "容器名")?);
+    }
+    if spec.ports.len() > 20 || spec.env.len() > 50 {
+        return Err(SshError::invalid_input("端口或环境变量数量过多"));
+    }
+    spec.ports = spec
+        .ports
+        .iter()
+        .map(|port| validate_port(port))
+        .collect::<Result<_, _>>()?;
+    spec.env = spec
+        .env
+        .iter()
+        .map(|pair| validate_env(pair))
+        .collect::<Result<_, _>>()?;
+    spec.restart = match spec.restart.as_deref() {
+        None | Some("") | Some("no") => Some("no".to_string()),
+        Some("always") | Some("unless-stopped") | Some("on-failure") => {
+            spec.restart.clone()
+        }
+        Some(_) => return Err(SshError::invalid_input("不支持的重启策略")),
+    };
+    if let Some(command) = &spec.command {
+        if command.len() > 512 || command.chars().any(char::is_control) {
+            return Err(SshError::invalid_input("启动命令包含非法字符或过长"));
+        }
+        spec.command_args = split_command(command)?;
+        if spec.command_args.is_empty() {
+            spec.command = None;
+        }
+    }
+    Ok(spec)
+}
+
 use crate::db::Database;
 use crate::docker::dto::{
     DockerContainer, DockerImage, DockerPreview, DockerWriteInput, DockerWriteResult,
 };
 use crate::docker::exec::{self, ExecOptions};
+use crate::docker::image_ops;
 use crate::docker::read::{self, classify};
 use crate::docker::{parse, validate};
 use crate::guard::preview::PREVIEW_TTL;
@@ -58,8 +227,13 @@ pub fn verb_for(kind: &str) -> &'static str {
         "container.stop" => "停止容器",
         "container.restart" => "重启容器",
         "container.remove" => "删除容器",
+        "container.create" => "新建容器",
         "image.pull" => "拉取镜像",
         "image.remove" => "删除镜像",
+        "image.push" => "推送镜像",
+        "image.prune" => "清理悬空镜像",
+        "image.import" => "导入镜像",
+        "image.build" => "构建镜像",
         "compose.start" => "启动 Compose 项目",
         "compose.stop" => "停止 Compose 项目",
         "network.create" => "创建网络",
@@ -231,15 +405,185 @@ pub async fn preview(
                 serde_json::json!({}),
             )
         }
+        "container.create" => {
+            let spec = parse_create_spec(input)?;
+            let images = read::images(handle, elevated).await?;
+            let image = images
+                .iter()
+                .find(|image| {
+                    image.id == spec.image
+                        || image.short_id == spec.image
+                        || image.repo == spec.image
+                        || image
+                            .tags
+                            .iter()
+                            .any(|tag| format!("{}:{}", image.repo, tag) == spec.image)
+                })
+                .ok_or_else(|| SshError::docker_failed("本地镜像不存在，请先拉取镜像"))?;
+            if let Some(name) = &spec.name {
+                let containers = read::containers(handle, elevated).await?;
+                if containers.iter().any(|row| &row.name == name) {
+                    return Err(SshError::docker_failed("容器名已存在"));
+                }
+            }
+            let env_keys: Vec<String> = spec
+                .env
+                .iter()
+                .filter_map(|pair| pair.split_once('=').map(|(key, _)| key.to_string()))
+                .collect();
+            let mut details = vec![format!("镜像：{}", spec.image)];
+            if let Some(name) = &spec.name {
+                details.push(format!("名称：{name}"));
+            }
+            if !spec.ports.is_empty() {
+                details.push(format!("端口：{}", spec.ports.join(", ")));
+            }
+            if !env_keys.is_empty() {
+                details.push(format!("环境变量：{}", env_keys.join(", ")));
+            }
+            details.push(format!(
+                "重启策略：{}",
+                spec.restart.clone().unwrap_or_else(|| "no".to_string())
+            ));
+            if let Some(command) = &spec.command {
+                details.push(format!("启动命令：{command}"));
+            }
+            (
+                PreviewView {
+                    operation: "新建容器".to_string(),
+                    target: image.id.clone(),
+                    impact: format!(
+                        "将以后台模式创建并启动容器{}",
+                        spec.name
+                            .as_ref()
+                            .map(|name| format!(" {name}"))
+                            .unwrap_or_default()
+                    ),
+                    rollback: "不提供回退；可在容器页面手动删除".to_string(),
+                    irreversible: false,
+                    details,
+                },
+                image.id.clone(),
+                serde_json::json!({
+                    "name": spec.name,
+                    "ports": spec.ports,
+                    "env": spec.env,
+                    "restart": spec.restart,
+                    "command": spec.command,
+                    "args": spec.command_args,
+                }),
+            )
+        }
         "image.pull" => {
             let reference = validate::image_reference(&input.target)?;
             (evaluate_pull(&reference), reference, serde_json::json!({}))
+        }
+        "image.push" => {
+            let reference = validate::image_reference(&input.target)?;
+            let rows = read::images(handle, elevated).await?;
+            if resolve_image(&reference, &rows).is_none() {
+                return Err(SshError::docker_failed("镜像不存在或已变化"));
+            }
+            (
+                PreviewView {
+                    operation: "推送镜像".to_string(),
+                    target: reference.clone(),
+                    impact: format!("将把 {reference} 推送到远端仓库，可能覆盖同名远端标签"),
+                    rollback: "不提供回退；需要时重新推送旧标签".to_string(),
+                    irreversible: false,
+                    details: vec![
+                        format!("镜像：{reference}"),
+                        "需要已对该仓库执行登录".to_string(),
+                    ],
+                },
+                reference,
+                serde_json::json!({}),
+            )
+        }
+        "image.prune" => (
+            PreviewView {
+                operation: "清理悬空镜像".to_string(),
+                target: "悬空镜像".to_string(),
+                impact: "将删除所有未被打标签且没有容器引用的镜像层".to_string(),
+                rollback: "不可回退".to_string(),
+                irreversible: true,
+                details: vec!["不会删除有标签的镜像".to_string()],
+            },
+            String::new(),
+            serde_json::json!({}),
+        ),
+        "image.import" => {
+            let local = image_ops::validate_archive(&input.target)?;
+            let name = local
+                .file_name()
+                .map(|value| value.to_string_lossy().to_string())
+                .unwrap_or_else(|| "image.tar".to_string());
+            let size = std::fs::metadata(&local)
+                .map(|meta| meta.len())
+                .unwrap_or(0);
+            (
+                PreviewView {
+                    operation: "导入镜像".to_string(),
+                    target: name.clone(),
+                    impact: "将把本地归档上传到服务器并导入，可能新增多个镜像标签".to_string(),
+                    rollback: "不提供回退；可手动删除导入的镜像".to_string(),
+                    irreversible: false,
+                    details: vec![
+                        format!("归档：{name}"),
+                        format!("大小：{} MiB", size / 1024 / 1024),
+                        "归档经加密通道上传，导入后立即删除临时文件".to_string(),
+                    ],
+                },
+                String::new(),
+                serde_json::json!({
+                    "localPath": local.to_string_lossy(),
+                    "name": name,
+                }),
+            )
+        }
+        "image.build" => {
+            let tag = validate::image_reference(&input.target)?;
+            let context = input
+                .payload
+                .get("contextPath")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| SshError::invalid_input("请选择构建上下文目录"))?;
+            let dockerfile = input
+                .payload
+                .get("dockerfile")
+                .and_then(|value| value.as_str())
+                .unwrap_or("Dockerfile");
+            let root = image_ops::validate_context(context, Some(dockerfile))?;
+            let folder = root
+                .file_name()
+                .map(|value| value.to_string_lossy().to_string())
+                .unwrap_or_else(|| "context".to_string());
+            (
+                PreviewView {
+                    operation: "构建镜像".to_string(),
+                    target: tag.clone(),
+                    impact: format!("将用 {folder} 作为上下文构建并标记镜像 {tag}"),
+                    rollback: "不提供回退；可手动删除构建出的镜像".to_string(),
+                    irreversible: false,
+                    details: vec![
+                        format!("镜像标签：{tag}"),
+                        format!("上下文：{}", root.display()),
+                        format!("Dockerfile：{dockerfile}"),
+                        "上下文打包上传后经 stdin 构建，结束后删除临时归档".to_string(),
+                    ],
+                },
+                tag,
+                serde_json::json!({
+                    "contextPath": root.to_string_lossy(),
+                    "dockerfile": dockerfile,
+                }),
+            )
         }
         "image.remove" => {
             let reference = validate::image_reference(&input.target)?;
             let output = exec::run(
                 handle,
-                "docker images --no-trunc --format '{{json .}}'",
+                "docker images --all --no-trunc --format '{{json .}}'",
                 ExecOptions {
                     timeout: Duration::from_secs(20),
                     max_bytes: 4 * 1024 * 1024,
@@ -462,6 +806,11 @@ pub fn preview_ttl_ms() -> i64 {
 }
 
 pub fn action_script(payload: &WritePayload) -> String {
+    action_script_for(payload, None)
+}
+
+/// 导入/构建需要在执行前拿到上传后的远端归档路径，因此单独传入。
+pub fn action_script_for(payload: &WritePayload, archive: Option<&str>) -> String {
     // 用户输入在预览阶段已经过 `validate::*`，这里再统一走 shell 引用：
     // 任何 kind 都拼不出第二条命令。
     let quoted = shell_quote(&payload.target);
@@ -470,8 +819,86 @@ pub fn action_script(payload: &WritePayload) -> String {
         "container.stop" => format!("docker stop {quoted}"),
         "container.restart" => format!("docker restart {quoted}"),
         "container.remove" => format!("docker rm {quoted}"),
+        "container.create" => {
+            let mut args = vec!["docker run -d".to_string()];
+            if let Some(name) = payload.extra.get("name").and_then(|value| value.as_str()) {
+                args.push(format!("--name {}", shell_quote(name)));
+            }
+            if let Some(restart) = payload
+                .extra
+                .get("restart")
+                .and_then(|value| value.as_str())
+                .filter(|value| *value != "no")
+            {
+                args.push(format!("--restart {}", shell_quote(restart)));
+            }
+            if let Some(ports) = payload.extra.get("ports").and_then(|value| value.as_array()) {
+                for port in ports.iter().filter_map(|value| value.as_str()) {
+                    args.push(format!("-p {}", shell_quote(port)));
+                }
+            }
+            if let Some(env) = payload.extra.get("env").and_then(|value| value.as_array()) {
+                for pair in env.iter().filter_map(|value| value.as_str()) {
+                    args.push(format!("-e {}", shell_quote(pair)));
+                }
+            }
+            args.push(quoted.clone());
+            let mut command_args = payload
+                .extra
+                .get("args")
+                .and_then(|value| value.as_array())
+                .map(|values| {
+                    values
+                        .iter()
+                        .filter_map(|value| value.as_str())
+                        .map(str::to_string)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            if command_args.is_empty() {
+                // 兼容旧预览：仅有一个字符串命令时保持原样。
+                if let Some(command) = payload
+                    .extra
+                    .get("command")
+                    .and_then(|value| value.as_str())
+                    .filter(|value| !value.is_empty())
+                {
+                    command_args.push(command.to_string());
+                }
+            }
+            for argument in command_args {
+                args.push(shell_quote(&argument));
+            }
+            args.join(" ")
+        }
         "image.pull" => format!("docker pull {quoted}"),
         "image.remove" => format!("docker image rm {quoted}"),
+        "image.push" => format!("docker push {quoted}"),
+        "image.prune" => "docker image prune -f".to_string(),
+        "image.import" => {
+            let Some(remote) = archive else {
+                return String::new();
+            };
+            let remote = shell_quote(remote);
+            format!("docker image load -i {remote}; rm -f {remote}")
+        }
+        "image.build" => {
+            let Some(remote) = archive else {
+                return String::new();
+            };
+            let remote = shell_quote(remote);
+            let dockerfile = payload
+                .extra
+                .get("dockerfile")
+                .and_then(|value| value.as_str())
+                .unwrap_or("Dockerfile");
+            let mut script = format!("docker build -t {quoted}");
+            if dockerfile != "Dockerfile" {
+                script.push_str(&format!(" -f {}", shell_quote(dockerfile)));
+            }
+            script.push_str(&format!(" - < {remote}; rm -f {remote}"));
+            script
+        }
         "compose.start" => format!("docker compose -p {quoted} start"),
         "compose.stop" => format!("docker compose -p {quoted} stop"),
         "network.create" => {
@@ -496,7 +923,14 @@ pub fn action_script(payload: &WritePayload) -> String {
 
 /// 审计参数只放标识符：容器全 ID / 镜像引用与展示名，绝不包含密码或环境变量。
 pub fn audit_params(payload: &WritePayload) -> String {
-    if let Some(action) = payload.kind.strip_prefix("container.") {
+    if payload.kind == "container.create" {
+        serde_json::json!({
+            "action": "create",
+            "image": payload.target,
+            "name": payload.extra.get("name").and_then(|value| value.as_str()).unwrap_or(""),
+        })
+        .to_string()
+    } else if let Some(action) = payload.kind.strip_prefix("container.") {
         serde_json::json!({
             "action": action,
             "containerId": payload.target,
@@ -525,6 +959,10 @@ pub fn rollback_plan(op: &str) -> Option<(&'static str, &'static str)> {
     match op {
         "docker.container.start" => Some(("stop", "docker.container.stop")),
         "docker.container.stop" => Some(("start", "docker.container.start")),
+        "docker.compose.start" => Some(("stop", "docker.compose.stop")),
+        "docker.compose.stop" => Some(("start", "docker.compose.start")),
+        "docker.network.create" => Some(("remove", "docker.network.remove")),
+        "docker.volume.create" => Some(("remove", "docker.volume.remove")),
         _ => None,
     }
 }
@@ -547,19 +985,71 @@ pub(crate) async fn execute(
     let handle = client::session_handle(state, &payload.server_id).await?;
     let elevated = crate::ssh::session::docker_elevated(state, &payload.server_id).await;
     // 预览与执行之间目标可能已经变化：先按实时状态重校验，再决定发不发命令。
-    verify_target(&handle, payload).await?;
-    let script = action_script(payload);
-    let timeout = if payload.kind == "image.pull" {
-        Duration::from_secs(900)
-    } else {
-        Duration::from_secs(120)
+    verify_target(&handle, payload, elevated).await?;
+    // 导入/构建先把本地归档传到远端 /tmp；上传失败也要落一条失败审计。
+    let prepared = match payload.kind.as_str() {
+        "image.import" => {
+            let local = payload
+                .extra
+                .get("localPath")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| SshError::preview_failed("预览缺少本地归档路径"))?;
+            image_ops::prepare_import(state, &payload.server_id, local, on_line)
+                .await
+                .map(Some)
+        }
+        "image.build" => {
+            let context = payload
+                .extra
+                .get("contextPath")
+                .and_then(|value| value.as_str())
+                .ok_or_else(|| SshError::preview_failed("预览缺少构建上下文"))?;
+            let dockerfile = payload
+                .extra
+                .get("dockerfile")
+                .and_then(|value| value.as_str());
+            image_ops::prepare_build(state, &payload.server_id, context, dockerfile, on_line)
+                .await
+                .map(Some)
+        }
+        _ => Ok(None),
+    };
+    let archive = match prepared {
+        Ok(value) => value,
+        Err(error) => {
+            let params = audit_params(payload);
+            let audit_id = record(
+                db,
+                &payload.server_id,
+                &server_name,
+                &payload.audit_op,
+                &params,
+                "failed",
+                started,
+                permit_source,
+                rollback_of,
+            )
+            .map_err(|audit| audit_write_failed(error.clone(), &audit, false))?;
+            let _ = audit_id;
+            return Err(error);
+        }
+    };
+    let script = action_script_for(payload, archive.as_deref());
+    let timeout = match payload.kind.as_str() {
+        "image.pull" => Duration::from_secs(900),
+        "image.push" | "image.import" | "image.build" => Duration::from_secs(1800),
+        _ => Duration::from_secs(120),
     };
     let outcome = exec::run(
         &handle,
         &script,
         ExecOptions {
             timeout,
-            max_bytes: 4 * 1024 * 1024,
+            max_bytes: if matches!(payload.kind.as_str(), "image.import" | "image.build") {
+                8 * 1024 * 1024
+            } else {
+                4 * 1024 * 1024
+            },
             stdin: None,
             cancel,
             elevated,
@@ -567,6 +1057,9 @@ pub(crate) async fn execute(
         on_line,
     )
     .await;
+    if let Some(remote) = &archive {
+        image_ops::cleanup_remote(state, &payload.server_id, remote).await;
+    }
     let params = audit_params(payload);
     let verb = verb_for(&payload.kind);
 
@@ -683,12 +1176,17 @@ pub(crate) async fn execute(
 async fn verify_target(
     handle: &Handle<ClientHandler>,
     payload: &WritePayload,
+    elevated: bool,
 ) -> Result<(), SshError> {
-    // 拉取不针对任何已存在的本地对象，没有可重校验的目标。
-    if payload.kind == "image.pull" {
+    // 拉取不针对任何已存在的本地对象；导入/构建/清理的目标由命令自身决定。
+    if matches!(
+        payload.kind.as_str(),
+        "image.pull" | "image.import" | "image.build" | "image.prune"
+    ) {
         return Ok(());
     }
-    if payload.kind.starts_with("compose.")
+    if payload.kind == "container.create"
+        || payload.kind.starts_with("compose.")
         || payload.kind.starts_with("network.")
         || payload.kind.starts_with("volume.")
     {
@@ -709,7 +1207,7 @@ async fn verify_target(
                 max_bytes: 64 * 1024,
                 stdin: None,
                 cancel: None,
-                elevated: false,
+                elevated,
             },
             |_| {},
         )
@@ -742,13 +1240,13 @@ async fn verify_target(
     }
     let output = exec::run(
         handle,
-        "docker images --no-trunc --format '{{json .}}'",
+        "docker images --all --no-trunc --format '{{json .}}'",
         ExecOptions {
             timeout: Duration::from_secs(20),
             max_bytes: 4 * 1024 * 1024,
             stdin: None,
             cancel: None,
-            elevated: false,
+            elevated,
         },
         |_| {},
     )
@@ -824,6 +1322,14 @@ mod tests {
         assert_eq!(
             rollback_plan("docker.container.stop"),
             Some(("start", "docker.container.start"))
+        );
+        assert_eq!(
+            rollback_plan("docker.compose.start"),
+            Some(("stop", "docker.compose.stop"))
+        );
+        assert_eq!(
+            rollback_plan("docker.network.create"),
+            Some(("remove", "docker.network.remove"))
         );
         assert_eq!(rollback_plan("docker.container.remove"), None);
         assert_eq!(rollback_plan("docker.service.stop"), None);
@@ -934,5 +1440,88 @@ mod tests {
             extra: serde_json::json!({}),
         };
         assert_eq!(action_script(&volume), "docker volume rm 'lg-vol'");
+    }
+
+    #[test]
+    fn create_script_splits_command_into_separate_arguments() {
+        let payload = WritePayload {
+            server_id: "srv".to_string(),
+            kind: "container.create".to_string(),
+            target: "d9e853e87e55".to_string(),
+            display: "lg-create-test".to_string(),
+            audit_op: "docker.container.create".to_string(),
+            extra: serde_json::json!({
+                "name": "lg-create-test",
+                "restart": "no",
+                "ports": [],
+                "env": [],
+                "args": ["sleep", "60"],
+            }),
+        };
+        assert_eq!(
+            action_script(&payload),
+            "docker run -d --name 'lg-create-test' 'd9e853e87e55' 'sleep' '60'"
+        );
+    }
+
+    #[test]
+    fn split_command_handles_quotes_and_rejects_unbalanced_input() {
+        assert_eq!(
+            split_command("sh -c 'echo hi'").unwrap(),
+            vec!["sh".to_string(), "-c".to_string(), "echo hi".to_string()]
+        );
+        assert_eq!(
+            split_command(r#"echo "a b" c\ d"#).unwrap(),
+            vec!["echo".to_string(), "a b".to_string(), "c d".to_string()]
+        );
+        assert_eq!(split_command("   ").unwrap(), Vec::<String>::new());
+        assert!(split_command("echo 'x").is_err());
+    }
+
+    fn image_payload(kind: &str, target: &str, extra: serde_json::Value) -> WritePayload {
+        WritePayload {
+            server_id: "srv".to_string(),
+            kind: kind.to_string(),
+            target: target.to_string(),
+            display: target.to_string(),
+            audit_op: format!("docker.{kind}"),
+            extra,
+        }
+    }
+
+    #[test]
+    fn push_and_prune_scripts_are_fixed() {
+        assert_eq!(
+            action_script(&image_payload("image.push", "nginx:1.27", serde_json::json!({}))),
+            "docker push 'nginx:1.27'"
+        );
+        assert_eq!(
+            action_script(&image_payload("image.prune", "", serde_json::json!({}))),
+            "docker image prune -f"
+        );
+    }
+
+    #[test]
+    fn archive_scripts_consume_and_remove_the_remote_file() {
+        let import = image_payload(
+            "image.import",
+            "",
+            serde_json::json!({ "localPath": "C:/tmp/a.tar" }),
+        );
+        assert_eq!(
+            action_script_for(&import, Some("/tmp/lightguard-import-1.tar")),
+            "docker image load -i '/tmp/lightguard-import-1.tar'; rm -f '/tmp/lightguard-import-1.tar'"
+        );
+        assert_eq!(action_script(&import), "");
+
+        let build = image_payload(
+            "image.build",
+            "lg/demo:1",
+            serde_json::json!({ "contextPath": "C:/ctx", "dockerfile": "docker/Dockerfile" }),
+        );
+        assert_eq!(
+            action_script_for(&build, Some("/tmp/ctx.tar.gz")),
+            "docker build -t 'lg/demo:1' -f 'docker/Dockerfile' - < '/tmp/ctx.tar.gz'; rm -f '/tmp/ctx.tar.gz'"
+        );
     }
 }

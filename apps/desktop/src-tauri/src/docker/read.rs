@@ -161,7 +161,7 @@ pub async fn images(
 ) -> Result<Vec<DockerImage>, SshError> {
     let output = run_read(
         handle,
-        "docker images --no-trunc --format '{{json .}}'",
+        "docker images --all --no-trunc --format '{{json .}}'",
         READ_TIMEOUT,
         "读取镜像",
         elevated,
@@ -523,7 +523,7 @@ pub(crate) async fn run_read(
             max_bytes: MAX_OUTPUT,
             stdin: None,
             cancel: None,
-            elevated: false,
+            elevated,
         },
         |_| {},
     )

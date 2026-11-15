@@ -189,6 +189,18 @@ pub struct RegistryTags {
     pub tags: Vec<String>,
 }
 
+/// 镜像更新检测：本地 RepoDigest 与仓库 manifest 的 digest 对比。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageUpdateStatus {
+    pub reference: String,
+    /// `current` / `behind` / `unknown`
+    pub state: String,
+    pub local_digest: String,
+    pub remote_digest: String,
+    pub message: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DockerPreview {

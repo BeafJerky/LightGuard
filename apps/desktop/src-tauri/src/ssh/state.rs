@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -16,6 +16,8 @@ pub struct AppState {
     pub terminals: Arc<Mutex<HashMap<String, TerminalEntry>>>,
     pub sftp: Mutex<HashMap<String, SftpHandle>>,
     pub transfers: Mutex<HashMap<String, TransferHandle>>,
+    /// 上传中断后尚未确认清理的远端 `.lgpart`：重连成功后统一补删。
+    pub pending_parts: Mutex<HashMap<String, HashSet<String>>>,
     pub transfer_slots: Arc<Semaphore>,
     /// 与 `manage` 给命令层的 `Arc<AlertService>` 是同一个实例：连接、断线、指纹
     /// 变更与清空数据这些生命周期钩子都直接调用它。
@@ -39,10 +41,39 @@ impl AppState {
             terminals: Arc::new(Mutex::new(HashMap::new())),
             sftp: Mutex::new(HashMap::new()),
             transfers: Mutex::new(HashMap::new()),
+            pending_parts: Mutex::new(HashMap::new()),
             transfer_slots: Arc::new(Semaphore::new(2)),
             alerts,
             guard,
             docker: crate::docker::state::DockerState::new(),
         })
+    }
+
+    pub async fn register_part(&self, server_id: &str, part: &str) {
+        self.pending_parts
+            .lock()
+            .await
+            .entry(server_id.to_string())
+            .or_default()
+            .insert(part.to_string());
+    }
+
+    pub async fn forget_part(&self, server_id: &str, part: &str) {
+        let mut parts = self.pending_parts.lock().await;
+        if let Some(set) = parts.get_mut(server_id) {
+            set.remove(part);
+            if set.is_empty() {
+                parts.remove(server_id);
+            }
+        }
+    }
+
+    pub async fn take_parts(&self, server_id: &str) -> Vec<String> {
+        self.pending_parts
+            .lock()
+            .await
+            .remove(server_id)
+            .map(|set| set.into_iter().collect())
+            .unwrap_or_default()
     }
 }

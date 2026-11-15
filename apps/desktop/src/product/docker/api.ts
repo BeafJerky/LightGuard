@@ -163,6 +163,14 @@ export interface RegistryTags {
   tags: string[];
 }
 
+export interface ImageUpdateStatus {
+  reference: string;
+  state: 'current' | 'behind' | 'unknown';
+  localDigest: string;
+  remoteDigest: string;
+  message: string;
+}
+
 export interface DockerPreview {
   previewId: string;
   kind: string;
@@ -257,6 +265,15 @@ export interface DockerApi {
   containerDetail(serverId: string, containerId: string): Promise<DockerContainerDetail>;
   stats(serverId: string): Promise<DockerStatsSample[]>;
   images(serverId: string): Promise<DockerImage[]>;
+  imageUpdate(serverId: string, imageId: string): Promise<ImageUpdateStatus>;
+  exportImage(
+    serverId: string,
+    imageId: string,
+    transferId: string,
+    onProgress: (transferred: number, total: number | null) => void,
+  ): Promise<string>;
+  pickArchive(): Promise<string | null>;
+  pickDirectory(): Promise<string | null>;
   composeProjects(serverId: string): Promise<ComposeProject[]>;
   composeLogs(serverId: string, project: string, tail?: number): Promise<string>;
   networks(serverId: string): Promise<DockerNetworkSummary[]>;
@@ -278,7 +295,25 @@ export interface DockerApi {
     containerId: string,
     path: string,
   ): Promise<ContainerFilePreview>;
+  exportContainer(
+    serverId: string,
+    containerId: string,
+    transferId: string,
+    onProgress: (transferred: number, total: number | null) => void,
+  ): Promise<string>;
   registryConfig(serverId: string): Promise<RegistryConfig>;
+  registryLogin(
+    serverId: string,
+    registry: string,
+    username: string,
+    password: string,
+    onLine: (line: string) => void,
+  ): Promise<DockerWriteResult>;
+  registryLogout(
+    serverId: string,
+    registry: string,
+    onLine: (line: string) => void,
+  ): Promise<DockerWriteResult>;
   registrySearch(serverId: string, term: string, limit?: number): Promise<RegistrySearchItem[]>;
   registryTags(serverId: string, repo: string): Promise<RegistryTags>;
   writePreview(serverId: string, input: DockerWriteInput): Promise<DockerPreview>;
@@ -315,6 +350,28 @@ export function createTauriDockerApi(): DockerApi {
     images(serverId) {
       return call('docker_images', { serverId });
     },
+    imageUpdate(serverId, imageId) {
+      return call('docker_image_update', { serverId, imageId });
+    },
+    async exportImage(serverId, imageId, transferId, onProgress) {
+      const { Channel } = await import('@tauri-apps/api/core');
+      const channel = new Channel<{ type: string; transferred: number; total: number | null }>();
+      channel.onmessage = (event) => {
+        if (event.type === 'progress') onProgress(event.transferred, event.total);
+      };
+      return call('docker_image_export', {
+        serverId,
+        imageId,
+        transferId,
+        onEvent: channel,
+      });
+    },
+    pickArchive() {
+      return call('docker_pick_archive');
+    },
+    pickDirectory() {
+      return call('docker_pick_directory');
+    },
     composeProjects(serverId) {
       return call('docker_compose_projects', { serverId });
     },
@@ -342,8 +399,43 @@ export function createTauriDockerApi(): DockerApi {
     containerFile(serverId, containerId, path) {
       return call('docker_container_file', { serverId, containerId, path });
     },
+    async exportContainer(serverId, containerId, transferId, onProgress) {
+      const { Channel } = await import('@tauri-apps/api/core');
+      const channel = new Channel<{ type: string; transferred: number; total: number | null }>();
+      channel.onmessage = (event) => {
+        if (event.type === 'progress') onProgress(event.transferred, event.total);
+      };
+      return call('docker_container_export', {
+        serverId,
+        containerId,
+        transferId,
+        onEvent: channel,
+      });
+    },
     registryConfig(serverId) {
       return call('docker_registry_config', { serverId });
+    },
+    async registryLogin(serverId, registry, username, password, onLine) {
+      const { Channel } = await import('@tauri-apps/api/core');
+      const channel = new Channel<{ line: string }>();
+      channel.onmessage = (event) => {
+        if (event.line) onLine(event.line);
+      };
+      return call('docker_registry_login', {
+        serverId,
+        registry,
+        username,
+        password,
+        onEvent: channel,
+      });
+    },
+    async registryLogout(serverId, registry, onLine) {
+      const { Channel } = await import('@tauri-apps/api/core');
+      const channel = new Channel<{ line: string }>();
+      channel.onmessage = (event) => {
+        if (event.line) onLine(event.line);
+      };
+      return call('docker_registry_logout', { serverId, registry, onEvent: channel });
     },
     registrySearch(serverId, term, limit = 25) {
       return call('docker_registry_search', { serverId, term, limit });
@@ -419,6 +511,10 @@ export function createUnsupportedDockerApi(): DockerApi {
     containerDetail: reject,
     stats: reject,
     images: reject,
+    imageUpdate: reject,
+    exportImage: reject,
+    pickArchive: reject,
+    pickDirectory: reject,
     composeProjects: reject,
     composeLogs: reject,
     networks: reject,
@@ -427,7 +523,10 @@ export function createUnsupportedDockerApi(): DockerApi {
     cancelContainerLogs: reject,
     containerFiles: reject,
     containerFile: reject,
+    exportContainer: reject,
     registryConfig: reject,
+    registryLogin: reject,
+    registryLogout: reject,
     registrySearch: reject,
     registryTags: reject,
     writePreview: reject,

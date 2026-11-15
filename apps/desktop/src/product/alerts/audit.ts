@@ -18,15 +18,25 @@ const OP_LABELS: Record<string, string> = {
   'docker.container.stop.rollback': '启动容器（回退）',
   'docker.image.pull': '拉取镜像',
   'docker.image.remove': '删除镜像',
+  'docker.image.push': '推送镜像',
+  'docker.image.prune': '清理悬空镜像',
+  'docker.image.import': '导入镜像',
+  'docker.image.build': '构建镜像',
+  'docker.registry.login': '登录镜像仓库',
+  'docker.registry.logout': '退出镜像仓库',
   'docker.service.start': '启动 Docker 服务',
   'docker.service.stop': '停止 Docker 服务',
   'docker.daemon.update': '更新 Docker 配置',
   'docker.compose.start': '启动 Compose 项目',
   'docker.compose.stop': '停止 Compose 项目',
+  'docker.compose.start.rollback': '停止 Compose 项目（回退）',
+  'docker.compose.stop.rollback': '启动 Compose 项目（回退）',
   'docker.network.create': '创建网络',
+  'docker.network.create.rollback': '删除网络（回退）',
   'docker.network.remove': '删除网络',
   'docker.network.prune': '清理未使用网络',
   'docker.volume.create': '创建数据卷',
+  'docker.volume.create.rollback': '删除数据卷（回退）',
   'docker.volume.remove': '删除数据卷',
   'docker.volume.prune': '清理未使用数据卷',
 };
@@ -38,6 +48,10 @@ const ROLLBACKABLE = new Set([
   'fs.upload',
   'docker.container.start',
   'docker.container.stop',
+  'docker.compose.start',
+  'docker.compose.stop',
+  'docker.network.create',
+  'docker.volume.create',
 ]);
 
 const RESULT_LABELS: Record<AuditEntry['result'], string> = {
@@ -107,5 +121,11 @@ export function canRollback(row: AuditEntry, rows: AuditEntry[]): boolean {
 export function rollbackLabel(op: string): string {
   if (op === 'fs.rename') return '回退（改回原名称）';
   if (op === 'fs.chmod') return '回退（恢复原权限）';
-  return op.startsWith('docker.container.') ? '回退（启动/停止互换）' : '回退（删除空目录）';
+  if (op.startsWith('docker.compose.') || op.startsWith('docker.container.')) {
+    return '回退（启动/停止互换）';
+  }
+  if (op.startsWith('docker.network.') || op.startsWith('docker.volume.')) {
+    return '回退（删除创建的对象）';
+  }
+  return '回退（删除空目录）';
 }

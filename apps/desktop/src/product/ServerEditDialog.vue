@@ -255,7 +255,7 @@ function openCredentials() {
             <label><input v-model="form.elevateCollect" type="checkbox" /> 采集 / 登录日志</label>
             <label><input v-model="form.elevateTerminal" type="checkbox" /> 终端</label>
             <label><input v-model="form.elevateFiles" type="checkbox" /> 文件管理</label>
-            <label><input v-model="form.elevateDocker" type="checkbox" /> Docker</label>
+            <label><input v-model="form.elevateDocker" type="checkbox" disabled /> Docker（0.17.0）</label>
           </div>
           <span class="field__error">
             提权后 root 可修改任意文件；采集提权会明显增加 sudo 审计日志。失败项会自动降级。

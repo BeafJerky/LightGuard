@@ -1,5 +1,7 @@
 import { AUTH_LABELS, HISTORY_POINTS, round } from '../data';
+import { DEFAULT_ELEVATE } from '../types';
 import type {
+  ElevateConfig,
   PersistedServer,
   Server,
   ServerMetrics,
@@ -17,6 +19,22 @@ export interface ConnectMeta {
 
 function deviceType(kind: string) {
   return kind || '—';
+}
+
+export function parseElevate(raw: string | undefined): ElevateConfig {
+  if (!raw) return { ...DEFAULT_ELEVATE };
+  try {
+    const value = JSON.parse(raw) as Partial<ElevateConfig>;
+    return {
+      enabled: value.enabled === true,
+      collect: value.collect !== false,
+      terminal: value.terminal !== false,
+      files: value.files !== false,
+      docker: value.docker !== false,
+    };
+  } catch {
+    return { ...DEFAULT_ELEVATE };
+  }
 }
 
 function metricsOf(snapshot: ServerSnapshot): ServerMetrics {
@@ -187,6 +205,8 @@ export function newServer(meta: ConnectMeta, result: ConnectResult): Server {
     hostKeyState: result.hostKeyState,
     encryption: result.encryption ?? null,
     samples: seedSample(snapshot, metrics),
+    elevate: draft.elevate ?? { ...DEFAULT_ELEVATE },
+    elevation: result.elevation ?? null,
   };
 }
 
@@ -270,6 +290,7 @@ export function markConnected(server: Server, result: ConnectResult) {
   server.latency = result.latencyMs;
   server.authLabel = result.authLabel;
   server.lastSeen = '刚刚';
+  server.elevation = result.elevation ?? null;
 }
 
 export function toPersisted(server: Server): PersistedServer {
@@ -299,6 +320,7 @@ export function toPersisted(server: Server): PersistedServer {
     cpuModel: server.cpuModel,
     cpuFreq: server.cpuFreq,
     timezone: server.timezone,
+    elevate: JSON.stringify(server.elevate),
   };
 }
 
@@ -361,5 +383,7 @@ export function fromPersisted(saved: PersistedServer): Server {
     hostKeyState: '',
     encryption: null,
     samples: [],
+    elevate: parseElevate(saved.elevate),
+    elevation: null,
   };
 }

@@ -538,7 +538,11 @@ async function onRetry() {
         <span class="conn-bar__dot" :data-status="server.status" aria-hidden="true" />
         <span class="conn-bar__mode">SSH</span>
         <strong class="conn-bar__name">{{ server.name }}</strong>
-        <span class="conn-bar__addr">{{ server.user }}@{{ server.ip }}:{{ server.port }}</span>
+        <span class="conn-bar__addr">
+          {{ server.elevation?.terminal ? 'root' : server.user }}@{{ server.ip }}:{{ server.port }}
+          <template v-if="server.elevation?.terminal"> · sudo</template>
+          <template v-else-if="server.elevation?.requested"> · 提权部分不可用</template>
+        </span>
       </div>
       <div class="conn-bar__stats">
         <span class="conn-bar__meta">

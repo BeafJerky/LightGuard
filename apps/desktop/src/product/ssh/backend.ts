@@ -75,6 +75,24 @@ export interface ServerSnapshot {
   sampledAt: string;
 }
 
+export interface ElevateConfig {
+  enabled: boolean;
+  collect: boolean;
+  terminal: boolean;
+  files: boolean;
+  docker: boolean;
+}
+
+export interface ElevateStatus {
+  requested: boolean;
+  base: boolean;
+  collect: boolean;
+  terminal: boolean;
+  files: string | null;
+  docker: string | null;
+  reasons: string[];
+}
+
 export interface ConnectInput {
   serverId: string;
   host: string;
@@ -85,6 +103,7 @@ export interface ConnectInput {
   passphrase?: string;
   remember: boolean;
   verifyHostKey: boolean;
+  elevate?: ElevateConfig;
 }
 
 export interface ConnectResult {
@@ -96,6 +115,7 @@ export interface ConnectResult {
   latencyMs: number;
   snapshot: ServerSnapshot;
   encryption?: EncryptionInfo;
+  elevation?: ElevateStatus;
 }
 
 export interface ReconnectInput {
@@ -104,6 +124,7 @@ export interface ReconnectInput {
   port: number;
   user: string;
   verifyHostKey: boolean;
+  elevate?: ElevateConfig;
 }
 
 export interface CredentialStatus {

@@ -69,6 +69,32 @@ export interface ServerError {
   hint: string;
 }
 
+export interface ElevateConfig {
+  enabled: boolean;
+  collect: boolean;
+  terminal: boolean;
+  files: boolean;
+  docker: boolean;
+}
+
+export interface ElevateStatus {
+  requested: boolean;
+  base: boolean;
+  collect: boolean;
+  terminal: boolean;
+  files: string | null;
+  docker: string | null;
+  reasons: string[];
+}
+
+export const DEFAULT_ELEVATE: ElevateConfig = {
+  enabled: false,
+  collect: true,
+  terminal: true,
+  files: true,
+  docker: true,
+};
+
 export interface Server {
   id: string;
   name: string;
@@ -126,6 +152,8 @@ export interface Server {
   hostKeyState: 'new' | 'known' | '';
   encryption: EncryptionInfo | null;
   samples: ServerSample[];
+  elevate: ElevateConfig;
+  elevation: ElevateStatus | null;
 }
 
 export interface PersistedServer {
@@ -154,6 +182,7 @@ export interface PersistedServer {
   cpuModel: string;
   cpuFreq: string;
   timezone: string;
+  elevate?: string;
 }
 
 export interface LogEntry {
@@ -185,6 +214,7 @@ export interface ServerDraft {
   tags: string[];
   role: string;
   note: string;
+  elevate?: ElevateConfig;
 }
 
 export type CloseBehavior = 'ask' | 'tray' | 'quit';

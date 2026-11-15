@@ -41,8 +41,14 @@ pub async fn exec_script(
     script: &str,
     timeout: Duration,
     max_bytes: usize,
+    elevated: bool,
 ) -> Result<String, SshError> {
-    let command = format!("LC_ALL=C sh -c {}", shell_quote(script));
+    let command = if elevated {
+        let wrapped = format!("export LC_ALL=C; {script}");
+        format!("sudo -n sh -c {}", shell_quote(&wrapped))
+    } else {
+        format!("LC_ALL=C sh -c {}", shell_quote(script))
+    };
     let mut channel = handle
         .channel_open_session()
         .await
@@ -86,8 +92,9 @@ pub async fn exec_script(
 pub async fn collect_sample(
     handle: &russh::client::Handle<ClientHandler>,
     state: &mut CollectorState,
+    elevated: bool,
 ) -> Result<Sample, SshError> {
-    let text = exec_script(handle, SAMPLE_SCRIPT, SAMPLE_TIMEOUT, MAX_SAMPLE_BYTES).await?;
+    let text = exec_script(handle, SAMPLE_SCRIPT, SAMPLE_TIMEOUT, MAX_SAMPLE_BYTES, elevated).await?;
     Ok(parse_sample(&text, state, Instant::now()))
 }
 

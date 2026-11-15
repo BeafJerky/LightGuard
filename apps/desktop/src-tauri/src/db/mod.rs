@@ -18,7 +18,7 @@ pub use dto::{
 };
 
 const DB_FILE: &str = "lightguard.db";
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 const V1_SCHEMA: &str = r#"
 BEGIN;
@@ -146,6 +146,14 @@ CREATE TABLE IF NOT EXISTS login_sources (
   PRIMARY KEY (server_id, ip)
 );
 PRAGMA user_version = 2;
+COMMIT;
+"#;
+
+/// v3：服务器级提权配置（JSON 文本，空串表示全关）。
+const V3_SCHEMA: &str = r#"
+BEGIN;
+ALTER TABLE servers ADD COLUMN elevate TEXT NOT NULL DEFAULT '';
+PRAGMA user_version = 3;
 COMMIT;
 "#;
 
@@ -449,8 +457,14 @@ fn migrate(conn: &Connection) -> Result<(), DbError> {
             .map_err(DbError::unavailable)?;
     }
     if version < SCHEMA_VERSION {
-        conn.execute_batch(V2_SCHEMA)
-            .map_err(DbError::unavailable)?;
+        if version < 2 {
+            conn.execute_batch(V2_SCHEMA)
+                .map_err(DbError::unavailable)?;
+        }
+        if version < 3 {
+            conn.execute_batch(V3_SCHEMA)
+                .map_err(DbError::unavailable)?;
+        }
     }
     Ok(())
 }
@@ -572,11 +586,11 @@ fn upsert_server(
         "INSERT INTO servers (
            id, name, hostname, role, host, port, region, group_name, tags, note, user,
            auth, auth_label, fingerprint, last_sync, last_seen, cpu_cores, mem_total,
-           disk_total, os, kernel, arch, cpu_model, cpu_freq, timezone, sort_order,
+           disk_total, os, kernel, arch, cpu_model, cpu_freq, timezone, elevate, sort_order,
            created_at, updated_at
          ) VALUES (
            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
-           ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28
+           ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29
          )
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name,
@@ -603,6 +617,7 @@ fn upsert_server(
            cpu_model = excluded.cpu_model,
            cpu_freq = excluded.cpu_freq,
            timezone = excluded.timezone,
+           elevate = excluded.elevate,
            updated_at = excluded.updated_at",
         params![
             server.id,
@@ -630,6 +645,7 @@ fn upsert_server(
             server.cpu_model,
             server.cpu_freq,
             server.timezone,
+            server.elevate,
             sort_order,
             now,
             now,
@@ -644,7 +660,7 @@ fn load_servers(conn: &Connection) -> Result<Vec<PersistedServer>, DbError> {
         .prepare(
             "SELECT id, name, hostname, role, host, port, region, group_name, tags, note,
                     user, auth, auth_label, fingerprint, last_sync, last_seen, cpu_cores,
-                    mem_total, disk_total, os, kernel, arch, cpu_model, cpu_freq, timezone
+                    mem_total, disk_total, os, kernel, arch, cpu_model, cpu_freq, timezone, elevate
              FROM servers ORDER BY sort_order ASC, created_at ASC",
         )
         .map_err(DbError::write)?;
@@ -677,6 +693,7 @@ fn load_servers(conn: &Connection) -> Result<Vec<PersistedServer>, DbError> {
                 cpu_model: row.get(22)?,
                 cpu_freq: row.get(23)?,
                 timezone: row.get(24)?,
+                elevate: row.get(25)?,
             })
         })
         .map_err(DbError::write)?;
@@ -792,6 +809,7 @@ mod tests {
             cpu_model: "Xeon".to_string(),
             cpu_freq: "2.4 GHz".to_string(),
             timezone: "CST".to_string(),
+            elevate: String::new(),
         }
     }
 
@@ -1007,7 +1025,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, SCHEMA_VERSION);
         for table in ["alerts", "alert_mutes", "audit", "login_sources"] {
             let count: i64 = conn
                 .query_row(
@@ -1037,7 +1055,7 @@ mod tests {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, SCHEMA_VERSION);
     }
 
     #[test]

@@ -165,7 +165,12 @@ impl AlertService {
         }
     }
 
-    pub fn start(self: &Arc<Self>, server_id: String, handle: Arc<Handle<ClientHandler>>) {
+    pub fn start(
+        self: &Arc<Self>,
+        server_id: String,
+        handle: Arc<Handle<ClientHandler>>,
+        elevated: bool,
+    ) {
         lock_map(&self.connected).insert(server_id.clone());
         self.stop_sampling(&server_id);
         self.cancel_offline(&server_id);
@@ -182,7 +187,7 @@ impl AlertService {
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
                 ticker.tick().await;
-                match sampler::collect_sample(&handle, &mut state).await {
+                match sampler::collect_sample(&handle, &mut state, elevated).await {
                     Ok(sample) => {
                         failures = 0;
                         service.record_sample(&id, &server_name, &sample);
@@ -198,7 +203,7 @@ impl AlertService {
                 }
             }
         });
-        self.start_login(&server_id, login_handle);
+        self.start_login(&server_id, login_handle, elevated);
         lock_map(&self.samplers).insert(server_id, task);
     }
 
@@ -485,7 +490,12 @@ impl AlertService {
         }
     }
 
-    fn start_login(self: &Arc<Self>, server_id: &str, handle: Arc<Handle<ClientHandler>>) {
+    fn start_login(
+        self: &Arc<Self>,
+        server_id: &str,
+        handle: Arc<Handle<ClientHandler>>,
+        elevated: bool,
+    ) {
         if let Some(task) = lock_map(&self.logins).remove(server_id) {
             task.abort();
         }
@@ -501,6 +511,7 @@ impl AlertService {
                     login::LOGIN_SCRIPT,
                     Duration::from_secs(10),
                     256 * 1024,
+                    elevated,
                 )
                 .await
                 {

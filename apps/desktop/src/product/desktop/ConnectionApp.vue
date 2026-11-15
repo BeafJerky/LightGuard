@@ -51,7 +51,12 @@ async function copy(text: string, label: string) {
       <span class="lgapp-hero__avatar"><LgIcon name="key" :size="22" /></span>
       <div class="lgapp-hero__text">
         <h2>{{ server.name }} · SSH 会话</h2>
-        <p>{{ server.user }}@{{ server.ip }}:{{ server.port }} · {{ server.authLabel }}</p>
+        <p>
+          {{ server.elevation?.terminal ? 'root' : server.user }}@{{ server.ip }}:{{ server.port }}
+          · {{ server.authLabel }}
+          <template v-if="server.elevation?.terminal"> · sudo</template>
+          <template v-else-if="server.elevation?.requested"> · 提权部分不可用</template>
+        </p>
       </div>
       <LgStatusPill :label="statusLabel(server.status)" :tone="statusTone(server.status)" />
     </div>

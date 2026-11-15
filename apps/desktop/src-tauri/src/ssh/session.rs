@@ -84,6 +84,7 @@ pub struct SessionEntry {
     pub host: String,
     pub port: u16,
     pub user: String,
+    pub elevation: crate::ssh::dto::ElevateStatus,
 }
 
 pub struct ConnectOutcome {
@@ -99,6 +100,142 @@ pub fn client_config() -> russh::client::Config {
         nodelay: true,
         ..Default::default()
     }
+}
+
+/// 固定探测命令：只按退出码/输出判定，不拼接任何外部输入。
+const PROBE_SUDO: &str = "sudo -n true";
+const PROBE_SFTP: &str = "sh -c 'for p in /usr/libexec/openssh/sftp-server /usr/lib/openssh/sftp-server; do [ -x \"$p\" ] && { printf %s \"$p\"; exit 0; }; done; command -v sftp-server'";
+const PROBE_DOCKER: &str = "sh -c 'command -v docker'";
+
+async fn exec_probe(
+    handle: &russh::client::Handle<ClientHandler>,
+    command: &str,
+) -> (u32, String) {
+    use russh::ChannelMsg;
+
+    let mut channel = match handle.channel_open_session().await {
+        Ok(channel) => channel,
+        Err(error) => return (255, error.to_string()),
+    };
+    if let Err(error) = channel.exec(true, command).await {
+        return (255, error.to_string());
+    }
+    let mut output = Vec::new();
+    let mut code = None;
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(8);
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        match tokio::time::timeout(remaining, channel.wait()).await {
+            Ok(Some(ChannelMsg::Data { data })) => output.extend_from_slice(&data),
+            Ok(Some(ChannelMsg::ExtendedData { data, .. })) => output.extend_from_slice(&data),
+            Ok(Some(ChannelMsg::ExitStatus { exit_status })) => {
+                code = Some(exit_status);
+                break;
+            }
+            Ok(Some(ChannelMsg::Eof)) | Ok(Some(ChannelMsg::Close)) | Ok(None) => break,
+            Ok(Some(_)) => {}
+            Err(_) => break,
+        }
+    }
+    let code = settle_exit_status(&mut channel, code).await;
+    (
+        code.unwrap_or(255),
+        String::from_utf8_lossy(&output).trim().to_string(),
+    )
+}
+
+/// 部分服务器先发 EOF/Close，再补 ExitStatus；给一个短暂的收尾窗口，
+/// 否则 `sudo -n true` 这类无输出命令会被误判为失败。
+async fn settle_exit_status(
+    channel: &mut russh::Channel<russh::client::Msg>,
+    mut code: Option<u32>,
+) -> Option<u32> {
+    use russh::ChannelMsg;
+
+    if code.is_some() {
+        return code;
+    }
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(1);
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return code;
+        }
+        match tokio::time::timeout(remaining, channel.wait()).await {
+            Ok(Some(ChannelMsg::ExitStatus { exit_status })) => {
+                code = Some(exit_status);
+                return code;
+            }
+            Ok(Some(ChannelMsg::Data { .. }))
+            | Ok(Some(ChannelMsg::ExtendedData { .. }))
+            | Ok(Some(_)) => {}
+            Ok(None) => return code,
+            Err(_) => return code,
+        }
+    }
+}
+
+/// 认证后探测提权能力；任一失败只降级，不终止连接。总预算 8 秒。
+async fn probe_elevation(
+    handle: &russh::client::Handle<ClientHandler>,
+    config: &crate::ssh::dto::ElevateConfig,
+) -> crate::ssh::dto::ElevateStatus {
+    use crate::ssh::dto::{ElevateConfig, ElevateStatus};
+
+    if !config.enabled {
+        return ElevateStatus::default();
+    }
+    let mut status = ElevateStatus {
+        requested: true,
+        ..Default::default()
+    };
+    let probe = async {
+        let (base_code, _) = exec_probe(handle, PROBE_SUDO).await;
+        if base_code != 0 {
+            return (false, None, None, vec!["登录账户缺少免密 sudo".to_string()]);
+        }
+        let (sftp_code, sftp_path) = exec_probe(handle, PROBE_SFTP).await;
+        let (docker_code, docker_path) = exec_probe(handle, PROBE_DOCKER).await;
+        let mut reasons = Vec::new();
+        let files = if sftp_code == 0 && !sftp_path.is_empty() {
+            Some(sftp_path)
+        } else {
+            reasons.push("未找到 sftp-server".to_string());
+            None
+        };
+        let docker = if docker_code == 0 && !docker_path.is_empty() {
+            Some(docker_path)
+        } else {
+            reasons.push("未找到 docker 命令".to_string());
+            None
+        };
+        (true, files, docker, reasons)
+    };
+    let (base, files, docker, reasons) =
+        match tokio::time::timeout(std::time::Duration::from_secs(8), probe).await {
+            Ok(value) => value,
+            Err(_) => (false, None, None, vec!["提权探测超时".to_string()]),
+        };
+    status.base = base;
+    if base {
+        status.collect = ElevateConfig::child(config.collect);
+        status.terminal = ElevateConfig::child(config.terminal);
+        status.files = if ElevateConfig::child(config.files) {
+            files
+        } else {
+            None
+        };
+        status.docker = if ElevateConfig::child(config.docker) {
+            docker
+        } else {
+            None
+        };
+    }
+    status.reasons = reasons;
+    status
 }
 
 pub async fn connect(
@@ -161,6 +298,7 @@ pub async fn connect(
     };
 
     authenticate(&mut handle, &input).await?;
+    let elevation = probe_elevation(&handle, &input.elevate).await;
 
     let latency_ms = started.elapsed().as_millis() as u64;
     let auth_label = match input.auth {
@@ -185,6 +323,7 @@ pub async fn connect(
         host: input.host.clone(),
         port: input.port,
         user: input.user.clone(),
+        elevation: elevation.clone(),
     };
 
     let snapshot = match collect_and_map(&mut entry).await {
@@ -220,6 +359,7 @@ pub async fn connect(
         latency_ms: entry.latency_ms,
         snapshot,
         encryption: entry.encryption.clone(),
+        elevation: entry.elevation.clone(),
     };
     Ok(ConnectOutcome { entry, result })
 }
@@ -230,6 +370,7 @@ pub async fn reconnect(
     port: u16,
     user: String,
     verify_host_key: bool,
+    elevate: crate::ssh::dto::ElevateConfig,
     config_dir: &Path,
     store: &CredentialStore,
 ) -> Result<ConnectOutcome, SshError> {
@@ -249,6 +390,7 @@ pub async fn reconnect(
             passphrase: bundle.passphrase,
             remember: false,
             verify_host_key,
+            elevate,
         },
         config_dir,
         store,
@@ -261,7 +403,7 @@ pub async fn snapshot(entry: &mut SessionEntry) -> Result<ServerSnapshot, SshErr
 }
 
 async fn collect_and_map(entry: &mut SessionEntry) -> Result<ServerSnapshot, SshError> {
-    match collector::collect(&entry.handle, &mut entry.collector).await {
+    match collector::collect(&entry.handle, &mut entry.collector, entry.elevation.collect_active()).await {
         Ok(snapshot) => Ok(snapshot),
         Err(error) => {
             if entry.handle.is_closed() {
@@ -451,6 +593,7 @@ mod tests {
                 passphrase: None,
                 remember: false,
                 verify_host_key: false,
+                elevate: Default::default(),
             },
             dir.path(),
             &store,

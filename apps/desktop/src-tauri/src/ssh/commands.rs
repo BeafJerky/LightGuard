@@ -65,6 +65,7 @@ pub async fn ssh_reconnect(
         input.port,
         input.user.trim().to_string(),
         input.verify_host_key,
+        input.elevate,
         &state.config_dir,
         &store,
     )
@@ -253,21 +254,38 @@ pub async fn ssh_terminal_open(
         }
     }
 
-    let title = {
+    let (title, elevated) = {
         let entry = session.lock().await;
-        format!("{}@{}", entry.user, entry.host)
+        let title = if entry.elevation.terminal_active() {
+            format!("root@{} · sudo", entry.host)
+        } else {
+            format!("{}@{}", entry.user, entry.host)
+        };
+        (title, entry.elevation.terminal_active())
     };
 
     let (term, reader) = {
         let entry = session.lock().await;
-        terminal::open(
-            &entry.handle,
-            &input.server_id,
-            &title,
-            input.cols,
-            input.rows,
-        )
-        .await?
+        if elevated {
+            terminal::open_exec(
+                &entry.handle,
+                &input.server_id,
+                &title,
+                input.cols,
+                input.rows,
+                "sudo -n -i",
+            )
+            .await?
+        } else {
+            terminal::open(
+                &entry.handle,
+                &input.server_id,
+                &title,
+                input.cols,
+                input.rows,
+            )
+            .await?
+        }
     };
 
     let handle = TerminalHandle {
@@ -417,6 +435,7 @@ async fn replace_session(
     super::sftp::client::drop_for_server(state.inner(), server_id).await;
     close_server_terminals(state.inner(), server_id).await;
     let handle = entry.handle.clone();
+    let elevated = entry.elevation.collect_active();
     let session = Arc::new(Mutex::new(entry));
     let previous = {
         let mut sessions = state.sessions.lock().await;
@@ -436,7 +455,7 @@ async fn replace_session(
     // 新连接：上一轮遗留的许可与预览一律作废，然后开始采样与登录监控。
     state.guard.clear_server(server_id);
     state.docker.clear_server(server_id);
-    state.alerts.start(server_id.to_string(), handle);
+    state.alerts.start(server_id.to_string(), handle, elevated);
 }
 
 fn watch_session(

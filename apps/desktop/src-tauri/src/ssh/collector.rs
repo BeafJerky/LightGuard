@@ -78,8 +78,14 @@ impl CollectorState {
 pub async fn collect(
     handle: &russh::client::Handle<ClientHandler>,
     state: &mut CollectorState,
+    elevated: bool,
 ) -> Result<ServerSnapshot, SshError> {
-    let command = format!("LC_ALL=C sh -c {}", shell_quote(COLLECT_SCRIPT));
+    let script = format!("export LC_ALL=C; {COLLECT_SCRIPT}");
+    let command = if elevated {
+        format!("sudo -n sh -c {}", shell_quote(&script))
+    } else {
+        format!("LC_ALL=C sh -c {}", shell_quote(COLLECT_SCRIPT))
+    };
     let mut channel = handle
         .channel_open_session()
         .await

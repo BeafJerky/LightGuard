@@ -24,6 +24,11 @@ const form = reactive({
   role: '',
   tags: '',
   note: '',
+  elevateEnabled: false,
+  elevateCollect: true,
+  elevateTerminal: true,
+  elevateFiles: true,
+  elevateDocker: true,
 });
 const errors = reactive<Record<string, string>>({});
 const busy = ref(false);
@@ -71,6 +76,11 @@ watch(
       role: server.role,
       tags: server.tags.join(', '),
       note: server.note,
+      elevateEnabled: server.elevate.enabled,
+      elevateCollect: server.elevate.collect,
+      elevateTerminal: server.elevate.terminal,
+      elevateFiles: server.elevate.files,
+      elevateDocker: server.elevate.docker,
     });
     Object.keys(errors).forEach((key) => delete errors[key]);
     error.value = '';
@@ -113,6 +123,13 @@ async function onSave() {
       .filter(Boolean)
       .slice(0, 6),
     note: form.note.trim(),
+    elevate: {
+      enabled: form.elevateEnabled,
+      collect: form.elevateCollect,
+      terminal: form.elevateTerminal,
+      files: form.elevateFiles,
+      docker: form.elevateDocker,
+    },
   };
   const needsReconnect = connectionChanged.value && wasConnected.value;
   busy.value = true;
@@ -228,6 +245,22 @@ function openCredentials() {
             placeholder="可选，仅保存在本地配置中"
           />
         </label>
+
+        <div class="field span-2 elevate">
+          <label class="elevate__master">
+            <input v-model="form.elevateEnabled" type="checkbox" />
+            启用 sudo 提权（登录账户需具备免密 sudo）
+          </label>
+          <div v-if="form.elevateEnabled" class="elevate__grid">
+            <label><input v-model="form.elevateCollect" type="checkbox" /> 采集 / 登录日志</label>
+            <label><input v-model="form.elevateTerminal" type="checkbox" /> 终端</label>
+            <label><input v-model="form.elevateFiles" type="checkbox" /> 文件管理</label>
+            <label><input v-model="form.elevateDocker" type="checkbox" /> Docker</label>
+          </div>
+          <span class="field__error">
+            提权后 root 可修改任意文件；采集提权会明显增加 sudo 审计日志。失败项会自动降级。
+          </span>
+        </div>
       </div>
 
       <div v-if="reconnectHint" class="server-edit__note is-info">
@@ -272,6 +305,27 @@ function openCredentials() {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.elevate {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.elevate__master,
+.elevate__grid label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--lg-fs-sm);
+}
+
+.elevate__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 18px;
+  padding-left: 22px;
 }
 
 .server-edit__target {

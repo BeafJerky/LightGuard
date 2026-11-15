@@ -103,6 +103,49 @@ pub struct ServerSnapshot {
     pub sampled_at: String,
 }
 
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ElevateConfig {
+    pub enabled: bool,
+    pub collect: Option<bool>,
+    pub terminal: Option<bool>,
+    pub files: Option<bool>,
+    pub docker: Option<bool>,
+}
+
+impl ElevateConfig {
+    pub(crate) fn child(value: Option<bool>) -> bool {
+        value.unwrap_or(true)
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ElevateStatus {
+    pub requested: bool,
+    pub base: bool,
+    pub collect: bool,
+    pub terminal: bool,
+    pub files: Option<String>,
+    pub docker: Option<String>,
+    pub reasons: Vec<String>,
+}
+
+impl ElevateStatus {
+    pub fn collect_active(&self) -> bool {
+        self.collect
+    }
+    pub fn terminal_active(&self) -> bool {
+        self.terminal
+    }
+    pub fn files_path(&self) -> Option<&str> {
+        self.files.as_deref()
+    }
+    pub fn docker_active(&self) -> bool {
+        self.docker.is_some()
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectInput {
@@ -118,6 +161,8 @@ pub struct ConnectInput {
     pub remember: bool,
     #[serde(default = "default_true")]
     pub verify_host_key: bool,
+    #[serde(default)]
+    pub elevate: ElevateConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -129,6 +174,8 @@ pub struct ReconnectInput {
     pub user: String,
     #[serde(default = "default_true")]
     pub verify_host_key: bool,
+    #[serde(default)]
+    pub elevate: ElevateConfig,
 }
 
 fn default_true() -> bool {
@@ -147,6 +194,8 @@ pub struct ConnectResult {
     pub snapshot: ServerSnapshot,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub encryption: Option<EncryptionInfo>,
+    #[serde(default)]
+    pub elevation: ElevateStatus,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

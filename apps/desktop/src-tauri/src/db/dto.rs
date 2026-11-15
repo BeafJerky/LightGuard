@@ -58,6 +58,9 @@ pub struct PersistedServer {
     pub cpu_freq: String,
     #[serde(default)]
     pub timezone: String,
+    /// 提权配置 JSON；空串表示全关。
+    #[serde(default)]
+    pub elevate: String,
 }
 
 fn default_auth() -> String {

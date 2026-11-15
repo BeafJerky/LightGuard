@@ -63,6 +63,11 @@ const form = reactive({
   role: '自定义接入',
   tags: '',
   note: '',
+  elevateEnabled: false,
+  elevateCollect: true,
+  elevateTerminal: true,
+  elevateFiles: true,
+  elevateDocker: true,
 });
 const auth = ref<BackendAuth>('key');
 const secret = ref('');
@@ -223,6 +228,13 @@ function draft(): ServerDraft {
       .slice(0, 6),
     role: form.role.trim() || '自定义接入',
     note: form.note.trim(),
+    elevate: {
+      enabled: form.elevateEnabled,
+      collect: form.elevateCollect,
+      terminal: form.elevateTerminal,
+      files: form.elevateFiles,
+      docker: form.elevateDocker,
+    },
   };
 }
 
@@ -391,6 +403,22 @@ function onShow(value: boolean) {
           <span class="field__label">备注</span>
           <LgInput v-model:value="form.note" type="textarea" :rows="2" placeholder="可选，仅保存在本地配置中" />
         </label>
+
+        <div class="field span-2 elevate">
+          <label class="elevate__master">
+            <input v-model="form.elevateEnabled" type="checkbox" />
+            启用 sudo 提权（登录账户需具备免密 sudo）
+          </label>
+          <div v-if="form.elevateEnabled" class="elevate__grid">
+            <label><input v-model="form.elevateCollect" type="checkbox" /> 采集 / 登录日志</label>
+            <label><input v-model="form.elevateTerminal" type="checkbox" /> 终端</label>
+            <label><input v-model="form.elevateFiles" type="checkbox" /> 文件管理</label>
+            <label><input v-model="form.elevateDocker" type="checkbox" /> Docker</label>
+          </div>
+          <span class="wizard__hint">
+            提权后 root 可修改任意文件；采集提权会增加 sudo 审计日志。失败项自动降级。
+          </span>
+        </div>
       </div>
 
       <div class="wizard__note">
@@ -689,6 +717,32 @@ function onShow(value: boolean) {
   gap: 4px;
   color: var(--lg-danger);
   font-size: var(--lg-fs-sm);
+}
+
+.elevate {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.elevate__master,
+.elevate__grid label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--lg-fs-sm);
+}
+
+.elevate__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 18px;
+  padding-left: 22px;
+}
+
+.wizard__hint {
+  color: var(--lg-text-secondary);
+  font-size: var(--lg-fs-xs, 12px);
 }
 
 .wizard__note {

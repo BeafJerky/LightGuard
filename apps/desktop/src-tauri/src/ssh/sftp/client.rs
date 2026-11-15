@@ -136,16 +136,36 @@ pub async fn acquire(state: &AppState, server_id: &str) -> Result<Arc<SftpSessio
     if let Some(existing) = cached_client(state, server_id, &session_id).await {
         return Ok(existing);
     }
+    let elevate_path = {
+        let sessions = state.sessions.lock().await;
+        let Some(session) = sessions.get(server_id).cloned() else {
+            return Err(SshError::session_not_found());
+        };
+        let entry = session.lock().await;
+        entry.elevation.files_path().map(str::to_string)
+    };
 
     let client = with_timeout(HANDSHAKE_TIMEOUT, "SFTP 握手超时", async {
         let channel = handle
             .channel_open_session()
             .await
             .map_err(|error| SshError::sftp_failed(format!("打开 SFTP 通道失败：{error}")))?;
-        channel
-            .request_subsystem(true, "sftp")
-            .await
-            .map_err(|error| SshError::sftp_failed(format!("服务器未接受 SFTP 子系统：{error}")))?;
+        if let Some(path) = elevate_path {
+            let command = format!("sudo -n {}", super::path::shell_quote(&path));
+            channel
+                .exec(true, command.as_str())
+                .await
+                .map_err(|error| {
+                    SshError::sftp_failed(format!("提权 SFTP 启动失败：{error}"))
+                })?;
+        } else {
+            channel
+                .request_subsystem(true, "sftp")
+                .await
+                .map_err(|error| {
+                    SshError::sftp_failed(format!("服务器未接受 SFTP 子系统：{error}"))
+                })?;
+        }
         SftpSession::new(channel.into_stream())
             .await
             .map_err(|error| SshError::sftp_failed(format!("SFTP 握手失败：{error}")))

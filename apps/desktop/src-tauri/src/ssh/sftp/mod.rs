@@ -66,6 +66,7 @@ mod tests {
                 passphrase: None,
                 remember: false,
                 verify_host_key: false,
+                elevate: Default::default(),
             },
             dir.path(),
             &store,
@@ -390,6 +391,7 @@ mod tests {
                 passphrase: None,
                 remember: false,
                 verify_host_key: false,
+                elevate: Default::default(),
             },
             dir.path(),
             &store,
@@ -432,5 +434,313 @@ mod tests {
 
         assert_eq!(status, 0, "fixture cleanup failed: {output}");
         assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    /// 提权探测：只读列出非 root 账户、wheel 组、sudo 与 sftp-server 位置。
+    /// 带 `LG_SSH_*` 运行；不设置时跳过。
+    #[tokio::test]
+    async fn real_sudo_discovery() {
+        let Some((host, user, password, port)) = env() else {
+            eprintln!("skipping: LG_SSH_* not set");
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let store = CredentialStore::with_master_key(dir.path().to_path_buf(), [9u8; 32]);
+        let outcome = session::connect(
+            ConnectInput {
+                server_id: "sudo-probe".to_string(),
+                host,
+                port,
+                user,
+                auth: AuthKind::Password,
+                secret: password,
+                passphrase: None,
+                remember: false,
+                verify_host_key: false,
+                elevate: Default::default(),
+            },
+            dir.path(),
+            &store,
+        )
+        .await
+        .expect("connect");
+        let state = crate::test_support::headless_state(dir.path().to_path_buf());
+        state.sessions.lock().await.insert(
+            "sudo-probe".to_string(),
+            Arc::new(tokio::sync::Mutex::new(outcome.entry)),
+        );
+        let handle = client::session_handle(&state, "sudo-probe")
+            .await
+            .expect("handle");
+        let command = "id -u; \
+            getent passwd | awk -F: '$3>=1000 && $3<65534 {print \"user:\"$1}'; \
+            getent group wheel || true; \
+            for p in /usr/libexec/openssh/sftp-server /usr/lib/openssh/sftp-server; do [ -x \"$p\" ] && echo \"sftp:$p\"; done; \
+            sudo -n true; echo \"sudo:$?\"";
+        let (status, output) = exec(&handle, command).await;
+        eprintln!("probe status={status}\n{output}");
+        assert_eq!(status, 0, "{output}");
+        client::drop_for_server(&state, "sudo-probe").await;
+    }
+
+    /// 提权最小验证：以 wheel 账户 `beafjerky` 的身份，
+    /// 1) PTY + exec `sudo -n -i` 得到可交互 root shell；
+    /// 2) exec `sudo -n sftp-server` 承载 SFTP 握手与 /root 读写。
+    #[tokio::test]
+    async fn real_sudo_minimal_probe() {
+        use tokio::io::AsyncWriteExt;
+
+        let Some((host, user, password, port)) = env() else {
+            eprintln!("skipping: LG_SSH_* not set");
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let store = CredentialStore::with_master_key(dir.path().to_path_buf(), [9u8; 32]);
+        let outcome = session::connect(
+            ConnectInput {
+                server_id: "sudo-min".to_string(),
+                host,
+                port,
+                user,
+                auth: AuthKind::Password,
+                secret: password,
+                passphrase: None,
+                remember: false,
+                verify_host_key: false,
+                elevate: Default::default(),
+            },
+            dir.path(),
+            &store,
+        )
+        .await
+        .expect("connect");
+        let state = crate::test_support::headless_state(dir.path().to_path_buf());
+        state.sessions.lock().await.insert(
+            "sudo-min".to_string(),
+            Arc::new(tokio::sync::Mutex::new(outcome.entry)),
+        );
+        let handle = client::session_handle(&state, "sudo-min")
+            .await
+            .expect("handle");
+        // 默认用 root 的 sudo 验证通道机制；设置 LG_SSH_ELEVATE_USER 时切到该账户。
+        let elevate_user = std::env::var("LG_SSH_ELEVATE_USER").ok();
+        let (term_command, sftp_command) = match elevate_user.as_deref() {
+            Some(name) if !name.is_empty() => (
+                format!("sudo -n -u {name} sudo -n -i"),
+                format!("sudo -n -u {name} sudo -n /usr/libexec/openssh/sftp-server"),
+            ),
+            _ => (
+                "sudo -n -i".to_string(),
+                "sudo -n /usr/libexec/openssh/sftp-server".to_string(),
+            ),
+        };
+
+        // 1) PTY + exec：外层 sudo 切到 beafjerky，内层 sudo -i 以 wheel 免密提权。
+        let (terminal_entry, mut terminal_read) = crate::ssh::terminal::open_exec(
+            &handle,
+            "sudo-min",
+            "sudo -i",
+            100,
+            30,
+            &term_command,
+        )
+        .await
+        .expect("open elevated terminal");
+        crate::ssh::terminal::write(&terminal_entry, "echo LGUID:$(id -u)\n")
+            .await
+            .expect("write terminal");
+
+        let mut output = String::new();
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(12);
+        loop {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            match tokio::time::timeout(remaining, terminal_read.read.wait()).await {
+                Ok(Some(russh::ChannelMsg::Data { data })) => {
+                    output.push_str(&String::from_utf8_lossy(&data));
+                    if output.contains("LGUID:0") {
+                        break;
+                    }
+                }
+                Ok(Some(russh::ChannelMsg::Close)) | Ok(None) => break,
+                Ok(Some(_)) => {}
+                Err(_) => break,
+            }
+        }
+        let _ = crate::ssh::terminal::write(&terminal_entry, "exit\n").await;
+        crate::ssh::terminal::close(terminal_entry).await;
+        assert!(output.contains("LGUID:0"), "terminal output: {output}");
+
+        // 2) exec `sudo -n sftp-server`：直接交给 SftpSession 握手并在 /root 读写。
+        let channel = handle.channel_open_session().await.expect("channel");
+        channel
+            .exec(true, sftp_command.as_str())
+            .await
+            .expect("exec sftp-server");
+        let sftp = russh_sftp::client::SftpSession::new(channel.into_stream())
+            .await
+            .expect("sftp handshake");
+        assert_eq!(
+            sftp.canonicalize("/root").await.expect("canonicalize"),
+            "/root"
+        );
+        let probe = format!("/root/lg-sudo-probe-{}.txt", crate::alerts::now_ms());
+        let mut file = sftp.create(&probe).await.expect("create");
+        file.write_all(b"sudo-sftp-ok").await.expect("write");
+        file.close().await.expect("close");
+        let meta = sftp.metadata(&probe).await.expect("metadata");
+        assert_eq!(meta.uid, Some(0), "uploaded as root");
+        sftp.remove_file(&probe).await.expect("remove");
+
+        client::drop_for_server(&state, "sudo-min").await;
+    }
+
+    /// 临时 sudoers 验证：创建 → 以 beafjerky 验证 PTY/SFTP → 无条件删除。
+    /// 只在用户明确授权的测试机上运行；清理先于断言。
+    #[tokio::test]
+    async fn real_elevation_verify_temp_sudoers() {
+        use tokio::io::AsyncWriteExt;
+
+        if std::env::var("LG_ALLOW_TEMP_SUDOERS").ok().as_deref() != Some("1") {
+            eprintln!("skipping: LG_ALLOW_TEMP_SUDOERS not set");
+            return;
+        }
+        let Some((host, user, password, port)) = env() else {
+            eprintln!("skipping: LG_SSH_* not set");
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let store = CredentialStore::with_master_key(dir.path().to_path_buf(), [9u8; 32]);
+        let outcome = session::connect(
+            ConnectInput {
+                server_id: "elev-verify".to_string(),
+                host,
+                port,
+                user,
+                auth: AuthKind::Password,
+                secret: password,
+                passphrase: None,
+                remember: false,
+                verify_host_key: false,
+                elevate: Default::default(),
+            },
+            dir.path(),
+            &store,
+        )
+        .await
+        .expect("connect");
+        let state = crate::test_support::headless_state(dir.path().to_path_buf());
+        state.sessions.lock().await.insert(
+            "elev-verify".to_string(),
+            Arc::new(tokio::sync::Mutex::new(outcome.entry)),
+        );
+        let handle = client::session_handle(&state, "elev-verify")
+            .await
+            .expect("handle");
+
+        let setup = "printf '%s\\n' 'beafjerky ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/lightguard-test \
+            && chmod 0440 /etc/sudoers.d/lightguard-test \
+            && visudo -cf /etc/sudoers.d/lightguard-test";
+        let cleanup = "rm -f /etc/sudoers.d/lightguard-test";
+
+        let (setup_status, setup_output) = exec(&handle, setup).await;
+        let result: Result<(), String> = async {
+            if setup_status != 0 {
+                return Err(format!("sudoers setup failed: {setup_output}"));
+            }
+            let (status, output) = exec(
+                &handle,
+                "sudo -n -u beafjerky sudo -n true; echo ELEV:$?",
+            )
+            .await;
+            if status != 0 || !output.contains("ELEV:0") {
+                return Err(format!("non-root sudo failed: {output}"));
+            }
+
+            let (entry, mut reader) = crate::ssh::terminal::open_exec(
+                &handle,
+                "elev-verify",
+                "sudo -i",
+                100,
+                30,
+                "sudo -n -u beafjerky sudo -n -i",
+            )
+            .await
+            .map_err(|error| format!("open terminal: {error:?}"))?;
+            crate::ssh::terminal::write(&entry, "echo LGUID:$(id -u)\n")
+                .await
+                .map_err(|error| format!("write: {error:?}"))?;
+            let mut output = String::new();
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(12);
+            loop {
+                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                if remaining.is_zero() {
+                    break;
+                }
+                match tokio::time::timeout(remaining, reader.read.wait()).await {
+                    Ok(Some(russh::ChannelMsg::Data { data })) => {
+                        output.push_str(&String::from_utf8_lossy(&data));
+                        if output.contains("LGUID:0") {
+                            break;
+                        }
+                    }
+                    Ok(Some(russh::ChannelMsg::Close)) | Ok(None) => break,
+                    Ok(Some(_)) => {}
+                    Err(_) => break,
+                }
+            }
+            let _ = crate::ssh::terminal::write(&entry, "exit\n").await;
+            crate::ssh::terminal::close(entry).await;
+            if !output.contains("LGUID:0") {
+                return Err(format!("terminal output: {output}"));
+            }
+
+            let channel = handle
+                .channel_open_session()
+                .await
+                .map_err(|error| format!("channel: {error}"))?;
+            channel
+                .exec(
+                    true,
+                    "sudo -n -u beafjerky sudo -n /usr/libexec/openssh/sftp-server",
+                )
+                .await
+                .map_err(|error| format!("exec sftp-server: {error}"))?;
+            let sftp = russh_sftp::client::SftpSession::new(channel.into_stream())
+                .await
+                .map_err(|error| format!("sftp handshake: {error}"))?;
+            sftp.canonicalize("/root")
+                .await
+                .map_err(|error| format!("canonicalize: {error}"))?;
+            let probe = format!("/root/lg-elev-probe-{}.txt", crate::alerts::now_ms());
+            let mut file = sftp
+                .create(&probe)
+                .await
+                .map_err(|error| format!("create: {error}"))?;
+            file.write_all(b"elevation-ok")
+                .await
+                .map_err(|error| format!("write: {error}"))?;
+            file.close().await.map_err(|error| format!("close: {error}"))?;
+            let meta = sftp
+                .metadata(&probe)
+                .await
+                .map_err(|error| format!("metadata: {error}"))?;
+            sftp.remove_file(&probe)
+                .await
+                .map_err(|error| format!("remove: {error}"))?;
+            if meta.uid != Some(0) {
+                return Err(format!("uploaded uid mismatch: {:?}", meta.uid));
+            }
+            Ok(())
+        }
+        .await;
+
+        let (cleanup_status, cleanup_output) = exec(&handle, cleanup).await;
+        client::drop_for_server(&state, "elev-verify").await;
+
+        assert_eq!(cleanup_status, 0, "sudoers cleanup failed: {cleanup_output}");
+        result.unwrap();
     }
 }

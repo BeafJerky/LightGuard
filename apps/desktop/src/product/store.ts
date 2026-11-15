@@ -529,6 +529,7 @@ export async function connectAndAdd(
     passphrase: passphrase || undefined,
     remember: options.remember,
     verifyHostKey: options.verifyHostKey,
+    elevate: draft.elevate,
   });
   const server = newServer({ serverId, draft, auth }, result);
   state.servers.push(server);
@@ -602,6 +603,7 @@ export async function retryServer(id: string): Promise<Server | null> {
       port: server.port,
       user: server.user,
       verifyHostKey: state.settings.hostKey,
+      elevate: server.elevate,
     });
     markConnected(server, result);
     applySnapshot(server, result.snapshot);
@@ -659,6 +661,7 @@ export async function updateCredentials(
       passphrase: passphrase || undefined,
       remember: true,
       verifyHostKey: state.settings.hostKey,
+      elevate: server.elevate,
     });
     markConnected(server, result);
     applySnapshot(server, result.snapshot);
@@ -698,6 +701,7 @@ export interface ServerEditPatch {
   role: string;
   tags: string[];
   note: string;
+  elevate?: import('./types').ElevateConfig;
 }
 
 export interface ServerEditResult {
@@ -721,6 +725,7 @@ export async function editServer(id: string, patch: ServerEditPatch): Promise<Se
   server.role = patch.role;
   server.tags = patch.tags;
   server.note = patch.note;
+  if (patch.elevate) server.elevate = patch.elevate;
 
   if (!connectionChanged) {
     addLog({ serverId: id, action: '编辑服务器', status: 'success' });
@@ -762,6 +767,7 @@ export async function editServer(id: string, patch: ServerEditPatch): Promise<Se
       port: server.port,
       user: server.user,
       verifyHostKey: state.settings.hostKey,
+      elevate: server.elevate,
     });
     markConnected(server, result);
     applySnapshot(server, result.snapshot);

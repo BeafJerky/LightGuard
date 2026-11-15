@@ -1,12 +1,12 @@
 {
-  "version": "0.16.0",
-  "notes": "# LightGuard v0.16.0\n\n自 v0.15.7 起。文件管理写操作正式补齐。\n\n## 新增\n\n- 上传：多文件选择、逐文件进度、取消、失败汇总；同名冲突可选跳过 / 覆盖 / 自动改名；create / rename 项可在审计中回退。\n- 重命名：文件与目录，同目录改名，支持审计回退。\n- 删除：单文件与递归目录；预览展示条目数，明确不可逆并需勾选确认。\n- 改权限：八进制输入与 644 / 755 / 600 / 700 预设，支持恢复原权限。\n- 多选与批量下载：Ctrl / Shift 多选，一次选择保存目录，逐项下载并汇总进度。\n- 递归搜索：当前目录向下最多 8 层、500 条结果、15 秒上限。\n- 收藏与最近访问：按服务器保存在本机，可快速跳转。\n- 写操作审计：中文标签、失败原因与回退入口；覆盖上传不提供回退。\n\n## 修复\n\n- 终端断开遮罩「重连会话」按钮被 xterm 链接层遮挡（0.15.7）。\n- 修改权限只发送 permissions 字段，避免 OpenSSH 因回写目录 size 失败。\n\n## 重要说明\n\n- Windows x64 NSIS 安装包；当前未签名，SmartScreen 可能提示未知发布者。\n- Web 形态为预览，不随本 Release 发布。\n- 0.13.0 及更早版本不含 updater，需先手动安装一次新版本才能进入自动更新通道。\n- 已知限制：\n  - 上传一次最多 50 个文件；暂不支持目录递归上传与拖出到资源管理器。\n  - 删除不可逆；覆盖上传不提供回退。\n  - 0.15.0 更新链路除「无更新」外的部分人工场景（暂停 / 取消、镜像回退、跨重启、稍后安装、通知点击）仍缺实机证据，见 PRD §15.11「后续评估」。\n\n## 校验\n\n`LightGuard_0.16.0_x64-setup.exe`\nSHA256: `ffef3fe152f245cbad66efeaf98753f64645c7577ae5e05dd2d7e157b3b86ea0`\n\n## 完整变更\n\nhttps://github.com/BeafJerky/LightGuard/compare/v0.15.7...v0.16.0",
-  "pub_date": "2026-11-14T22:07:53.534Z",
+  "version": "0.16.1",
+  "notes": "# LightGuard v0.16.1\n\n自 v0.16.0 起。新增服务器级 sudo 提权。\n\n## 新增\n\n- 服务器级 sudo 提权：添加与编辑服务器均可开启，按采集 / 终端 / 文件分子开关；默认关闭，关闭时行为与 0.16.0 一致。\n- 连接时自动探测免密 sudo、sftp-server 与 docker 路径；失败项逐项降级，不阻塞连接，并在状态条显示 `root · sudo` 或「提权部分不可用」。\n- 提权采集 / 登录日志、提权终端（`sudo -n -i`）、提权文件管理（`sudo -n sftp-server`）。\n- 提权配置存入服务器记录（数据库 v3，旧库自动迁移且默认全关）。\n\n## 说明\n\n- 登录账户需具备免密 sudo；不保存 root 密码，不修改服务器配置。\n- 提权后 root 可修改任意文件；采集提权会增加 sudo 审计日志。\n- Docker 提权前缀尚未实现，开关标注 0.17.0 并禁用，将在 Docker 深化版本提供。\n\n## 重要说明\n\n- Windows x64 NSIS 安装包；当前未签名，SmartScreen 可能提示未知发布者。\n- Web 形态为预览，不随本 Release 发布。\n- 0.13.0 及更早版本不含 updater，需先手动安装一次新版本才能进入自动更新通道。\n- 已知限制：\n  - 上传一次最多 50 个文件；暂不支持目录递归上传与拖出到资源管理器。\n  - 删除不可逆；覆盖上传不提供回退。\n  - 0.15.0 更新链路除「无更新」外的部分人工场景（暂停 / 取消、镜像回退、跨重启、稍后安装、通知点击）仍缺实机证据，见 PRD §15.11「后续评估」。\n\n## 校验\n\n`LightGuard_0.16.1_x64-setup.exe`\nSHA256: `94a6ea6debd483ee549f49f8cf73170c797cfbc213c95c7e59a61554be9cea38`\n\n## 完整变更\n\nhttps://github.com/BeafJerky/LightGuard/compare/v0.16.0...v0.16.1",
+  "pub_date": "2026-11-15T04:15:48.689Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUVorSDFkZWthcndPVkhINVc4TXZLcjBpL1JQdUpXSXdhd2toWVJhNlY5cUE2K3oxOTFHZGNpOGNzYnFqRnhDeHpZU0ZmalEwbkZFLzlVb1M0MU9CaEpyUnlMaTlBekE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0Njk0MDEwCWZpbGU6TGlnaHRHdWFyZF8wLjE2LjBfeDY0LXNldHVwLmV4ZQl2ZXJzaW9uOjAuMTYuMApuUlBGWTJaT3NadUxld2JraTNaQitjMnk1cC9MN1lDc05HdGRqWmd2QmwxamNnVU9xYVByWVFhNUt2cHo3MlFlUXNOVCtrOUlDUzFodkdlSEI5WVVEdz09Cg==",
-      "url": "https://github.com/BeafJerky/LightGuard/releases/download/v0.16.0/LightGuard_0.16.0_x64-setup.exe",
-      "size": 7200450
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUUVorSDFkZWthcjFycEE3S0lJZ0hpb0tLUXYzb01LcEVvTGczSGNVOHVxRkJ5c3drNlJkK0Rhai9nNEpPM3ovWXNEQVF5YjFLR1plamdvbUlUVTJZSmxEZWRUeXdOWEF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0NzE2MDQ1CWZpbGU6TGlnaHRHdWFyZF8wLjE2LjFfeDY0LXNldHVwLmV4ZQl2ZXJzaW9uOjAuMTYuMQpJL0pCbDZqRmcvZ255RVl2YWJzT2FhbThuNFFhU0VUUWtKeU8xMktaWUhpN2FrSmQyT0Nxc3ZzcjVQbklWQlpJOHJHM1VjaU4wVm5vUTd1WTVtckRCUT09Cg==",
+      "url": "https://github.com/BeafJerky/LightGuard/releases/download/v0.16.1/LightGuard_0.16.1_x64-setup.exe",
+      "size": 7220104
     }
   }
 }

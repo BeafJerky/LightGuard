@@ -18,7 +18,7 @@ use crate::ssh::session::ClientHandler;
 pub const PROBE_SCRIPT: &str = r#"if command -v docker >/dev/null 2>&1; then echo LG_DOCKER=1; else echo LG_DOCKER=0; fi
 if command -v systemctl >/dev/null 2>&1; then echo LG_SYSTEMD=1; else echo LG_SYSTEMD=0; fi
 if command -v systemctl >/dev/null 2>&1; then echo "LG_ENABLED=$(systemctl is-enabled docker 2>/dev/null || true)"; else echo LG_ENABLED=; fi
-if command -v docker-compose >/dev/null 2>&1; then echo LG_COMPOSE=1; else echo LG_COMPOSE=0; fi
+if command -v docker-compose >/dev/null 2>&1 || docker compose version >/dev/null 2>&1; then echo LG_COMPOSE=1; else echo LG_COMPOSE=0; fi
 docker version --format '{{.Server.Version}}|{{.Server.APIVersion}}' 2>&1
 echo "LG_INFO_EXIT=$?"
 "#;

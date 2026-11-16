@@ -1,9 +1,11 @@
+import { chromeOf } from './chrome';
 import type { ThemeTokens } from './types';
 
 export type CssVars = Record<`--lg-${string}`, string>;
 
 export function toCssVars(theme: ThemeTokens): CssVars {
   const c = theme.color;
+  const chrome = chromeOf(theme);
   return {
     '--lg-bg': c.bg,
     '--lg-bg-soft': c.bgSoft,
@@ -68,5 +70,11 @@ export function toCssVars(theme: ThemeTokens): CssVars {
     '--lg-icon-stroke': theme.icon.stroke,
     '--lg-icon-linecap': theme.icon.linecap,
     '--lg-icon-linejoin': theme.icon.linejoin,
+    '--lg-chrome-menubar-height': chrome.metrics.menuBarHeight,
+    '--lg-chrome-window-radius': chrome.metrics.windowRadius,
+    '--lg-chrome-window-bar-height': chrome.metrics.windowBarHeight,
+    '--lg-chrome-traffic-size': chrome.metrics.trafficLightSize,
+    '--lg-chrome-dock-height': chrome.metrics.dockHeight,
+    '--lg-chrome-dock-scale': chrome.metrics.dockMagnification,
   };
 }

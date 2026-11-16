@@ -271,6 +271,21 @@ watch(canvas, async () => {
       >
         <div :style="{ height: `${totalContentHeight}px` }" />
       </div>
+      <div class="lg-virtual-table__sr-rows" role="rowgroup">
+        <div
+          v-for="entry in visibleRows"
+          :key="`sr-${entry.index}`"
+          role="row"
+          :aria-rowindex="entry.index + 2"
+          :aria-selected="entry.index === selected"
+        >
+          <span
+            v-for="column in columns"
+            :key="column.key"
+            role="gridcell"
+          >{{ entry.row[column.key] }}</span>
+        </div>
+      </div>
     </template>
 
     <div
@@ -396,6 +411,15 @@ watch(canvas, async () => {
 
 .lg-virtual-table__row .lg-virtual-table__cell[style*='right'] {
   font-family: var(--lg-font-mono);
+}
+
+.lg-virtual-table__sr-rows {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .lg-virtual-table__sr {

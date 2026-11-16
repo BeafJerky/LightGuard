@@ -28,6 +28,7 @@ export { RENDER_TIERS } from './render/types';
 
 export { themes, themeOptions, resolveTheme } from './theme/tokens';
 export { toCssVars } from './theme/css';
+export { chromeOf, WINDOWS_CHROME } from './theme/chrome';
 export { toNaiveOverrides } from './theme/naive';
 export { LG_SCOPE_KEY } from './theme/context';
 export type * from './theme/types';

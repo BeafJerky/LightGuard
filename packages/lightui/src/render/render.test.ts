@@ -59,22 +59,21 @@ describe('render tier metadata', () => {
 });
 
 describe('auto resolution', () => {
-  it('keeps the current DOM defaults', () => {
-    expect(resolve('app.background')).toBe('dom');
+  it('defaults every visual tier to Canvas or WebGL when available', () => {
+    expect(resolve('app.background')).toBe('webgl');
+    expect(resolve('app.background', 'inherit', { capabilities: { webgpu: true } })).toBe('webgpu');
     expect(resolve('desktop.effects')).toBe('dom');
-    expect(resolve('desktop.icons')).toBe('dom');
-    expect(resolve('console.charts')).toBe('dom');
-    expect(resolve('console.tables')).toBe('dom');
+    expect(resolve('desktop.icons')).toBe('canvas');
+    expect(resolve('console.charts')).toBe('canvas');
+    expect(resolve('console.tables')).toBe('canvas');
   });
 
-  it('switches charts at the 120-point threshold', () => {
-    expect(resolve('console.charts', 'inherit', { count: 119 })).toBe('dom');
-    expect(resolve('console.charts', 'inherit', { count: 120 })).toBe('canvas');
-  });
-
-  it('switches tables at the 2000-row threshold', () => {
-    expect(resolve('console.tables', 'inherit', { count: 1999 })).toBe('dom');
-    expect(resolve('console.tables', 'inherit', { count: 2000 })).toBe('canvas');
+  it('falls back from WebGPU to WebGL and Canvas', () => {
+    expect(resolve('app.background', 'webgpu')).toBe('webgl');
+    expect(resolve('app.background', 'webgpu', { capabilities: { webgl2: false } })).toBe('canvas');
+    expect(
+      resolve('app.background', 'webgpu', { capabilities: { webgl2: false, canvas2d: false } }),
+    ).toBe('dom');
   });
 
   it('prefers WebGL for the terminal when available', () => {

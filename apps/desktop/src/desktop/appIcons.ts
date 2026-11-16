@@ -45,6 +45,8 @@ const SCHEME_BY_THEME: Record<ThemeName, AppIconScheme> = {
   light: 'b',
   win11: 'b',
   'win11-dark': 'b',
+  macos: 'b',
+  'macos-dark': 'b',
   claude: 'a',
   pixel: 'a',
   nes: 'a',

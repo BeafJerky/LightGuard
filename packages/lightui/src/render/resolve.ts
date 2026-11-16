@@ -13,7 +13,7 @@ export const RENDER_TIER_META: Record<RenderTier, RenderTierMeta> = {
     id: 'app.background',
     label: '应用背景',
     description: '应用与桌面壁纸的底层绘制',
-    backends: ['dom', 'canvas', 'webgl'],
+    backends: ['dom', 'canvas', 'webgl', 'webgpu'],
   },
   'desktop.effects': {
     id: 'desktop.effects',
@@ -47,9 +47,6 @@ export const RENDER_TIER_META: Record<RenderTier, RenderTierMeta> = {
   },
 };
 
-const CHART_CANVAS_THRESHOLD = 120;
-const TABLE_CANVAS_THRESHOLD = 2000;
-
 function supports(tier: RenderTier, backend: RenderBackend): boolean {
   return RENDER_TIER_META[tier].backends.includes(backend);
 }
@@ -61,23 +58,31 @@ function autoBackend(
 ): RenderBackend {
   switch (tier) {
     case 'app.background':
-      return 'dom';
+      if (capabilities.webgpu) return 'webgpu';
+      return capabilities.webgl2 ? 'webgl' : capabilities.canvas2d ? 'canvas' : 'dom';
     case 'desktop.effects':
       return capabilities.canvas2d ? 'canvas' : 'dom';
     case 'desktop.icons':
-      return 'dom';
+      return capabilities.canvas2d ? 'canvas' : 'dom';
     case 'console.charts':
-      return capabilities.canvas2d && (hint?.count ?? 0) >= CHART_CANVAS_THRESHOLD ? 'canvas' : 'dom';
+      return capabilities.canvas2d ? 'canvas' : 'dom';
     case 'console.tables':
-      return capabilities.canvas2d && (hint?.count ?? 0) >= TABLE_CANVAS_THRESHOLD ? 'canvas' : 'dom';
+      return capabilities.canvas2d ? 'canvas' : 'dom';
     case 'terminal':
       return capabilities.webgl2 ? 'webgl' : 'dom';
   }
 }
 
 function coerce(tier: RenderTier, wanted: RenderBackend, capabilities: RenderCapabilities): RenderBackend {
+  if (wanted === 'webgpu' && !supports(tier, 'webgpu')) {
+    if (capabilities.webgl2 && supports(tier, 'webgl')) return 'webgl';
+    return capabilities.canvas2d && supports(tier, 'canvas') ? 'canvas' : 'dom';
+  }
   if (!supports(tier, wanted)) return 'dom';
   if (wanted === 'canvas' && !capabilities.canvas2d) return 'dom';
+  if (wanted === 'webgpu' && !capabilities.webgpu) {
+    return capabilities.webgl2 ? 'webgl' : capabilities.canvas2d ? 'canvas' : 'dom';
+  }
   if (wanted === 'webgl' && !capabilities.webgl2) {
     return tier === 'terminal' ? 'dom' : capabilities.canvas2d ? 'canvas' : 'dom';
   }

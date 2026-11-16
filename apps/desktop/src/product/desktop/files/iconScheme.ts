@@ -4,7 +4,7 @@ export type ResolvedIconScheme = 'line' | 'color';
 
 const STORAGE_KEY = 'lg.files.icons';
 
-const BASE_THEMES = new Set(['light', 'dark', 'win11', 'win11-dark']);
+const BASE_THEMES = new Set(['light', 'dark', 'win11', 'win11-dark', 'macos', 'macos-dark']);
 
 export function resolveIconScheme(setting: IconScheme, themeId: string): ResolvedIconScheme {
   if (setting === 'line' || setting === 'color') return setting;

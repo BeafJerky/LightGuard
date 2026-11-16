@@ -15,6 +15,7 @@ const props = defineProps<{
   startedAt: string;
   topInset?: number;
   bottomInset?: number;
+  windowControls?: 'windows' | 'macos';
 }>();
 
 const emit = defineEmits<{
@@ -272,9 +273,26 @@ onBeforeUnmount(() => {
 
     <header
       class="lgdesk-win__bar"
+      :class="{ 'is-macos-controls': windowControls === 'macos' }"
       @pointerdown="onTitlePointerDown"
       @dblclick="onTitleDoubleClick"
     >
+      <div v-if="windowControls === 'macos'" class="lgdesk-win__traffic" role="group" aria-label="窗口控制" data-win-drag-ignore>
+        <button type="button" class="lgdesk-win__light is-close" aria-label="关闭" @click.stop="emit('close')">
+          <span aria-hidden="true">×</span>
+        </button>
+        <button type="button" class="lgdesk-win__light is-min" aria-label="最小化" @click.stop="emit('minimize')">
+          <span aria-hidden="true">−</span>
+        </button>
+        <button
+          type="button"
+          class="lgdesk-win__light is-max"
+          :aria-label="win.maximized ? '还原' : '最大化'"
+          @click.stop="emit('maximize')"
+        >
+          <span aria-hidden="true">{{ win.maximized ? '−' : '+' }}</span>
+        </button>
+      </div>
       <span class="lgdesk-win__icon" :class="meta.tile" aria-hidden="true">
         <LgIcon :name="meta.icon" :size="14" />
       </span>
@@ -282,7 +300,7 @@ onBeforeUnmount(() => {
         {{ meta.title }}
         <span>{{ server.ip }}</span>
       </div>
-      <div class="lgdesk-win__controls">
+      <div v-if="windowControls !== 'macos'" class="lgdesk-win__controls">
         <button type="button" class="lgdesk-win__ctrl" aria-label="最小化" @click.stop="emit('minimize')">
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" /></svg>
         </button>
@@ -323,7 +341,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   overflow: hidden;
   border: var(--lg-border-width) solid var(--lg-border-strong);
-  border-radius: var(--lg-radius-md);
+  border-radius: var(--lg-chrome-window-radius, var(--lg-radius-md));
   background: var(--lg-bg);
   box-shadow: var(--lg-shadow-lg);
   outline: none;
@@ -352,7 +370,7 @@ onBeforeUnmount(() => {
   flex: 0 0 auto;
   align-items: center;
   gap: 8px;
-  height: 36px;
+  height: var(--lg-chrome-window-bar-height, 36px);
   padding: 0 6px 0 9px;
   border-bottom: var(--lg-border-width) solid var(--lg-border);
   background: var(--lg-surface-2);
@@ -371,6 +389,59 @@ onBeforeUnmount(() => {
   width: 22px;
   height: 22px;
   border-radius: 6px;
+}
+
+.lgdesk-win__bar.is-macos-controls {
+  gap: 10px;
+  padding-left: 12px;
+}
+
+.lgdesk-win__traffic {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.lgdesk-win__light {
+  display: grid;
+  place-items: center;
+  width: var(--lg-chrome-traffic-size, 12px);
+  height: var(--lg-chrome-traffic-size, 12px);
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  color: rgba(0, 0, 0, 0.55);
+  font-size: 9px;
+  line-height: 1;
+  cursor: default;
+}
+
+.lgdesk-win__light span {
+  opacity: 0;
+  transition: opacity var(--lg-dur-fast) var(--lg-ease);
+}
+
+.lgdesk-win__traffic:hover .lgdesk-win__light span,
+.lgdesk-win__light:focus-visible span {
+  opacity: 1;
+}
+
+.lgdesk-win__light.is-close {
+  background: #ff5f57;
+}
+
+.lgdesk-win__light.is-min {
+  background: #febc2e;
+}
+
+.lgdesk-win__light.is-max {
+  background: #28c840;
+}
+
+.lgdesk-win__light:focus-visible {
+  outline: 2px solid var(--lg-focus);
+  outline-offset: 2px;
 }
 
 .lgdesk-win__title {

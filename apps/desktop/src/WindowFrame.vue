@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { LgIcon, LG_SCOPE_KEY } from '@lightguard/lightui';
+import { LgIcon, LG_SCOPE_KEY, chromeOf } from '@lightguard/lightui';
 import BrandMark from './product/BrandMark.vue';
 import { findServer, flushSettings, state, updateSettings } from './product/store';
 import { route, routeTitle } from './product/router';
@@ -34,6 +34,12 @@ const pageLabel = computed(() => {
     return server ? `${server.name} · 服务器桌面` : '服务器桌面';
   }
   return routeTitle(name);
+});
+
+// 窗口框跟随当前作用域主题：macOS 主题用交通灯，其余主题保持 Windows 式控制。
+const isMacChrome = computed(() => {
+  const theme = scope?.value.theme;
+  return theme ? chromeOf(theme).windowControls === 'macos' : false;
 });
 
 if (framed && typeof document !== 'undefined') {
@@ -184,39 +190,67 @@ onBeforeUnmount(() => {
 
 <template>
   <div v-if="framed" class="window-frame" :class="{ 'is-maximized': maximized, 'is-fullscreen': isFullscreen }">
-    <header v-if="!isFullscreen" class="window-bar" data-tauri-drag-region>
-      <div class="window-bar__brand" data-tauri-drag-region>
-        <BrandMark class="window-bar__mark" :size="24" data-tauri-drag-region />
-        <strong data-tauri-drag-region>LightGuard</strong>
-        <span class="window-bar__page" data-tauri-drag-region>{{ pageLabel }}</span>
-      </div>
-      <div class="window-bar__spacer" data-tauri-drag-region />
-      <div class="window-bar__controls">
-        <button type="button" class="window-bar__control" aria-label="全屏" title="全屏 (F11)" @click="toggleFullscreen">
-          <LgIcon name="monitor" :size="12" />
-        </button>
-        <button type="button" class="window-bar__control" aria-label="最小化" title="最小化" @click="minimize">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" /></svg>
-        </button>
-        <button
-          type="button"
-          class="window-bar__control"
-          :aria-label="maximized ? '还原' : '最大化'"
-          :title="maximized ? '还原' : '最大化'"
-          @click="toggleMaximize"
-        >
-          <LgIcon :name="maximized ? 'copy' : 'maximize'" :size="12" />
-        </button>
-        <button
-          type="button"
-          class="window-bar__control is-close"
-          aria-label="关闭"
-          title="关闭"
-          @click="requestClose"
-        >
-          <LgIcon name="x" :size="12" />
-        </button>
-      </div>
+    <header
+      v-if="!isFullscreen"
+      class="window-bar"
+      :class="{ 'is-macos': isMacChrome }"
+      data-tauri-drag-region
+    >
+      <template v-if="isMacChrome">
+        <div class="window-bar__traffic" role="group" aria-label="窗口控制">
+          <button type="button" class="traffic traffic--close" aria-label="关闭" title="关闭" @click="requestClose">
+            <span class="traffic__dot"><span class="traffic__glyph" aria-hidden="true">×</span></span>
+          </button>
+          <button type="button" class="traffic traffic--min" aria-label="最小化" title="最小化" @click="minimize">
+            <span class="traffic__dot"><span class="traffic__glyph" aria-hidden="true">−</span></span>
+          </button>
+          <button
+            type="button"
+            class="traffic traffic--max"
+            :aria-label="maximized ? '还原' : '最大化'"
+            :title="maximized ? '还原' : '最大化'"
+            @click="toggleMaximize"
+          >
+            <span class="traffic__dot"><span class="traffic__glyph" aria-hidden="true">{{ maximized ? '−' : '+' }}</span></span>
+          </button>
+        </div>
+        <div class="window-bar__title" data-tauri-drag-region>{{ pageLabel }}</div>
+        <div class="window-bar__traffic-spacer" data-tauri-drag-region />
+      </template>
+      <template v-else>
+        <div class="window-bar__brand" data-tauri-drag-region>
+          <BrandMark class="window-bar__mark" :size="24" data-tauri-drag-region />
+          <strong data-tauri-drag-region>LightGuard</strong>
+          <span class="window-bar__page" data-tauri-drag-region>{{ pageLabel }}</span>
+        </div>
+        <div class="window-bar__spacer" data-tauri-drag-region />
+        <div class="window-bar__controls">
+          <button type="button" class="window-bar__control" aria-label="全屏" title="全屏 (F11)" @click="toggleFullscreen">
+            <LgIcon name="monitor" :size="12" />
+          </button>
+          <button type="button" class="window-bar__control" aria-label="最小化" title="最小化" @click="minimize">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" /></svg>
+          </button>
+          <button
+            type="button"
+            class="window-bar__control"
+            :aria-label="maximized ? '还原' : '最大化'"
+            :title="maximized ? '还原' : '最大化'"
+            @click="toggleMaximize"
+          >
+            <LgIcon :name="maximized ? 'copy' : 'maximize'" :size="12" />
+          </button>
+          <button
+            type="button"
+            class="window-bar__control is-close"
+            aria-label="关闭"
+            title="关闭"
+            @click="requestClose"
+          >
+            <LgIcon name="x" :size="12" />
+          </button>
+        </div>
+      </template>
     </header>
 
     <div class="window-body">
@@ -283,6 +317,99 @@ onBeforeUnmount(() => {
 .window-bar__spacer {
   flex: 1;
   align-self: stretch;
+}
+
+/* macOS 主题：无边框标题栏 + 自绘交通灯，标题居中，去掉 Windows 式控制区。 */
+.window-bar.is-macos {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 0;
+  padding: 0 12px 0 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--lg-border-strong) 60%, transparent);
+  background: color-mix(in srgb, var(--lg-surface) 72%, transparent);
+  backdrop-filter: blur(24px) saturate(1.5);
+}
+
+.window-bar__traffic {
+  display: flex;
+  align-items: center;
+  justify-self: start;
+}
+
+.traffic {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.traffic:focus-visible {
+  outline: 2px solid var(--lg-focus);
+  outline-offset: -3px;
+}
+
+.traffic__dot {
+  display: grid;
+  place-items: center;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 16%);
+  transition: filter 120ms var(--lg-ease);
+}
+
+.traffic--close .traffic__dot {
+  background: #ff5f57;
+}
+
+.traffic--min .traffic__dot {
+  background: #febc2e;
+}
+
+.traffic--max .traffic__dot {
+  background: #28c840;
+}
+
+.traffic:hover .traffic__dot {
+  filter: brightness(1.08) saturate(1.12);
+}
+
+.traffic:active .traffic__dot {
+  filter: brightness(0.9);
+}
+
+.traffic__glyph {
+  color: rgb(0 0 0 / 55%);
+  font: 700 9px/1 "Segoe UI", system-ui, sans-serif;
+  opacity: 0;
+  transition: opacity 100ms var(--lg-ease);
+}
+
+.traffic:hover .traffic__glyph,
+.traffic:focus-visible .traffic__glyph {
+  opacity: 1;
+}
+
+.window-bar__title {
+  min-width: 0;
+  max-width: min(52vw, 560px);
+  overflow: hidden;
+  color: var(--lg-text-secondary);
+  font-size: var(--lg-fs-sm);
+  font-weight: 600;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.window-bar__traffic-spacer {
+  width: 60px;
+  justify-self: end;
 }
 
 .window-bar__controls {

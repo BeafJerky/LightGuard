@@ -7,6 +7,7 @@ import {
   LgIcon,
   LgInput,
   LgStatusPill,
+  chromeOf,
   resolveTheme,
   themeOptions,
 } from '@lightguard/lightui';
@@ -57,11 +58,24 @@ const { width: shellWidth, height: shellHeight } = useElementSize(shell);
 
 const FULL_BAR_HEIGHT = 46;
 const fullBar = computed(() => state.settings.desktopBar === 'full');
-const barInset = computed(() => (fullBar.value ? FULL_BAR_HEIGHT : 0));
+const currentChrome = computed(() =>
+  chromeOf(resolveTheme(state.themes.desktop, prefersDark.value)),
+);
+const menuBarInset = computed(() => {
+  if (!currentChrome.value.menuBar) return 0;
+  const height = Number.parseFloat(currentChrome.value.metrics.menuBarHeight);
+  return Number.isFinite(height) ? height : 28;
+});
+// macOS 外壳把连接状态并入菜单栏，不再渲染悬浮状态条；窗口也不再为它让位。
+const barVisible = computed(() => !currentChrome.value.menuBar);
+const barInset = computed(() => (fullBar.value && barVisible.value ? FULL_BAR_HEIGHT : 0));
+const topInset = computed(() => barInset.value + menuBarInset.value);
 // 通栏时 Dock 占布局，窗口要让出 50px；悬浮时 Dock 覆盖在窗口之上，只留 6px 边距。
 const DOCK_FULL_HEIGHT = 50;
 const DOCK_FLOATING_INSET = 6;
-const dockFloating = computed(() => state.settings.desktopDock === 'floating');
+const dockFloating = computed(
+  () => state.settings.desktopDock === 'floating' || currentChrome.value.dock === 'macos',
+);
 const narrowShell = computed(
   () => (shellWidth.value || (typeof window === 'undefined' ? 1280 : window.innerWidth)) <= 719,
 );
@@ -93,11 +107,11 @@ const {
   fitToBounds,
 } = useDesktopWindows(
   bounds,
-  () => barInset.value,
+  () => topInset.value,
   () => dockInset.value,
 );
 
-watch([shellWidth, shellHeight, barInset, dockInset], () => fitToBounds());
+watch([shellWidth, shellHeight, topInset, dockInset], () => fitToBounds());
 
 // 容器终端在 Docker 应用里发起，但标签页属于终端应用；用注入把“打开应用”交给子组件。
 provide('lg:open-app', open);
@@ -106,6 +120,7 @@ const selectedIcon = ref(-1);
 const startOpen = ref(false);
 const trayOpen = ref(false);
 const startQuery = ref('');
+const menuOpen = ref<string | null>(null);
 
 const barEl = ref<HTMLElement | null>(null);
 const dockEl = ref<HTMLElement | null>(null);
@@ -113,9 +128,10 @@ const dockEl = ref<HTMLElement | null>(null);
 const hasMaximizedWindow = computed(() =>
   windows.value.some((win) => win.maximized && !win.minimized),
 );
-// 自动隐藏只服务于悬浮样式：通栏本来就占布局，隐藏它会让窗口跟着跳动。
+// 自动隐藏只服务于悬浮样式：通栏本来就占布局，隐藏它会让窗口跟着跳动；
+// macOS 菜单栏只有 28px 且不覆盖窗口，也无需隐藏。
 const barAutoHideActive = computed(
-  () => !fullBar.value && state.settings.desktopBarAutoHide && hasMaximizedWindow.value,
+  () => barVisible.value && !fullBar.value && state.settings.desktopBarAutoHide && hasMaximizedWindow.value,
 );
 const dockAutoHideActive = computed(
   () => dockFloating.value && state.settings.desktopDockAutoHide && hasMaximizedWindow.value,
@@ -220,6 +236,107 @@ const currentTheme = computed(
   () => themeOptions.find((option) => option.id === state.themes.desktop) ?? themeOptions[0],
 );
 
+const activeWindow = computed(() => windows.value.find((win) => win.app === active.value));
+const appTitle = computed(() => (active.value ? appMeta(active.value).title : '服务器桌面'));
+interface DesktopMenuItem {
+  label: string;
+  action: () => void;
+  disabled?: boolean;
+}
+interface DesktopMenuGroup {
+  id: string;
+  label: string;
+  items: DesktopMenuItem[];
+}
+const menuGroups = computed<DesktopMenuGroup[]>(() => [
+  {
+    id: 'app',
+    label: appTitle.value,
+    items: [
+      {
+        label: '关于 LightGuard',
+        action: () =>
+          toast({ title: 'LightGuard · 轻守卫', message: '服务器值守桌面 · v0.18.0', tone: 'info' }),
+      },
+      { label: '返回控制台', action: goConsole },
+      { label: '断开会话', action: onDisconnect },
+    ],
+  },
+  {
+    id: 'file',
+    label: '文件',
+    items: [
+      { label: '打开文件', disabled: !backendAvailable, action: () => open('files') },
+      {
+        label: '关闭窗口',
+        disabled: !active.value,
+        action: () => {
+          if (active.value) close(active.value);
+        },
+      },
+    ],
+  },
+  {
+    id: 'view',
+    label: '视图',
+    items: [
+      { label: isFullscreen.value ? '退出全屏' : '进入全屏', action: toggleFullscreen },
+      { label: '显示桌面', action: showDesktop },
+    ],
+  },
+  {
+    id: 'window',
+    label: '窗口',
+    items: [
+      {
+        label: '最小化',
+        disabled: !active.value,
+        action: () => {
+          if (active.value) minimize(active.value);
+        },
+      },
+      {
+        label: activeWindow.value?.maximized ? '还原' : '最大化',
+        disabled: !active.value,
+        action: () => {
+          if (active.value) toggleMaximize(active.value);
+        },
+      },
+    ],
+  },
+  {
+    id: 'help',
+    label: '帮助',
+    items: [
+      {
+        label: '快捷键与提示',
+        action: () =>
+          toast({
+            title: '快捷键',
+            message: 'F11 全屏 · Esc 关闭菜单 · 双击标题栏最大化 · 拖动标题栏移动窗口',
+            tone: 'info',
+          }),
+      },
+    ],
+  },
+]);
+
+function toggleMenu(id: string) {
+  menuOpen.value = menuOpen.value === id ? null : id;
+}
+
+function runMenu(item: DesktopMenuItem) {
+  if (item.disabled) return;
+  menuOpen.value = null;
+  item.action();
+}
+
+function closeMenusOnOutside(event: MouseEvent) {
+  const target = event.target as HTMLElement | null;
+  if (target?.closest('.desk-menubar')) return;
+  menuOpen.value = null;
+}
+
 const themeGlyphs: Record<string, string> = {
   system: 'monitor',
   dark: 'moon',
@@ -230,6 +347,8 @@ const themeGlyphs: Record<string, string> = {
   tech: 'spark',
   win11: 'dashboard',
   'win11-dark': 'dashboard',
+  macos: 'monitor',
+  'macos-dark': 'moon',
 };
 
 const themeSwatches = computed(() =>
@@ -252,6 +371,14 @@ const permitNow = ref(Date.now());
 // 上锁播报要区分来源：倒计时/到期算“自动”，用户点“立即上锁”不能也说自动。
 const lockNotice = ref<'' | 'auto' | 'manual'>('');
 const permitState = computed(() => permitVisual(permit.value, permitNow.value));
+const permitControlProps = computed(() => ({
+  serverId: props.server.id,
+  status: permit.value,
+  defaultMinutes: state.settings.permit.defaultMinutes,
+  writeActive: permit.value.writeActive,
+  nowMs: permitNow.value,
+  lockNotice: lockNotice.value,
+}));
 let refreshingPermit = false;
 let stopGuard: (() => void) | null = null;
 let disposed = false;
@@ -370,6 +497,7 @@ onMounted(() => {
   void refreshPermitOnce();
   stopGuard = subscribeGuard();
   document.addEventListener('keydown', onGlobalKey, true);
+  document.addEventListener('click', closeMenusOnOutside);
   timers.push(window.setInterval(() => (now.value = new Date()), 20000));
   if (reduced.value === 'reduce') {
     booting.value = false;
@@ -399,6 +527,7 @@ onBeforeUnmount(() => {
   if (lockNoticeTimer !== null) window.clearTimeout(lockNoticeTimer);
   lockNoticeTimer = null;
   document.removeEventListener('keydown', onGlobalKey, true);
+  document.removeEventListener('click', closeMenusOnOutside);
   for (const timer of timers) {
     window.clearTimeout(timer);
     window.clearInterval(timer);
@@ -408,7 +537,8 @@ onBeforeUnmount(() => {
 
 function onGlobalKey(event: KeyboardEvent) {
   if (event.key !== 'Escape') return;
-  if (startOpen.value) startOpen.value = false;
+  if (menuOpen.value) menuOpen.value = null;
+  else if (startOpen.value) startOpen.value = false;
   else if (trayOpen.value) trayOpen.value = false;
 }
 
@@ -525,12 +655,66 @@ async function onRetry() {
       'is-bar-hidden': barHidden,
       'is-dock-hidden': dockHidden,
       'is-permit-unlocked': !permit.locked,
+      'has-menubar': currentChrome.menuBar,
+      'is-macos-dock': currentChrome.dock === 'macos',
     }"
     @pointermove="onShellPointerMove"
   >
     <div class="desk-wallpaper" aria-hidden="true" @click="onWallpaperClick" />
 
-    <header ref="barEl" class="conn-bar" aria-label="SSH 会话状态">
+    <nav v-if="currentChrome.menuBar" class="desk-menubar" aria-label="全局菜单栏">
+      <div class="desk-menubar__left">
+        <button type="button" class="desk-menubar__brand" aria-label="LightGuard" aria-haspopup="menu" @click.stop="toggleMenu('app')">
+          <BrandMark :size="16" radius="4px" />
+        </button>
+        <div v-for="group in menuGroups" :key="group.id" class="desk-menubar__group">
+          <button
+            type="button"
+            class="desk-menubar__trigger"
+            :class="{ 'is-open': menuOpen === group.id }"
+            aria-haspopup="menu"
+            :aria-expanded="menuOpen === group.id"
+            @click.stop="toggleMenu(group.id)"
+          >
+            {{ group.label }}
+          </button>
+          <div v-if="menuOpen === group.id" class="desk-menubar__menu" role="menu">
+            <button
+              v-for="item in group.items"
+              :key="item.label"
+              type="button"
+              role="menuitem"
+              :disabled="item.disabled"
+              @click.stop="runMenu(item)"
+            >
+              {{ item.label }}
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="desk-menubar__right">
+        <span
+          class="desk-menubar__status"
+          :title="server.encryption ? `SSH 已加密 · ${server.encryption.cipher}` : 'SSH 直连'"
+        >
+          <span class="conn-bar__dot" :data-status="server.status" aria-hidden="true" />
+          {{ server.name }}
+        </span>
+        <span class="desk-menubar__meta" :title="`SSH 延迟 ${server.latency} ms`">
+          <LgIcon name="wifi" :size="11" />
+          {{ server.latency }} ms
+        </span>
+        <PermitControl
+          class="desk-menubar__permit"
+          v-bind="permitControlProps"
+          @unlock="onUnlockPermit"
+          @lock="onLockPermit"
+        />
+        <span class="desk-menubar__clock" :title="clockDate">{{ clockTime }}</span>
+      </div>
+    </nav>
+
+    <header v-if="barVisible" ref="barEl" class="conn-bar" aria-label="SSH 会话状态">
       <div class="conn-bar__identity">
         <button type="button" class="conn-bar__back" aria-label="返回控制台" @click="goConsole">
           <LgIcon name="chevron-left" :size="13" />
@@ -560,12 +744,7 @@ async function onRetry() {
       </div>
       <PermitControl
         class="conn-bar__permit"
-        :server-id="server.id"
-        :status="permit"
-        :default-minutes="state.settings.permit.defaultMinutes"
-        :write-active="permit.writeActive"
-        :now-ms="permitNow"
-        :lock-notice="lockNotice"
+        v-bind="permitControlProps"
         @unlock="onUnlockPermit"
         @lock="onLockPermit"
       />
@@ -608,7 +787,8 @@ async function onRetry() {
       :server="server"
       :session="session"
       :started-at="startedAt"
-      :top-inset="barInset"
+      :window-controls="currentChrome.windowControls"
+      :top-inset="topInset"
       :bottom-inset="dockInset"
       @focus="focus(win.app)"
       @minimize="minimize(win.app)"
@@ -2172,5 +2352,176 @@ async function onRetry() {
     width: 40px;
     height: 40px;
   }
+}
+
+/* macOS 外壳：顶部全局菜单栏、状态条下移与 Dock 材质。 */
+.desk-menubar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 235;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: var(--lg-chrome-menubar-height, 28px);
+  padding: 0 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--lg-border-strong) 70%, transparent);
+  background: color-mix(in srgb, var(--lg-surface) 64%, transparent);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(24px) saturate(1.5);
+  color: var(--lg-text);
+  font-size: 12px;
+  line-height: 1;
+  user-select: none;
+}
+
+.desk-menubar__left,
+.desk-menubar__right,
+.desk-menubar__status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.desk-menubar__right {
+  gap: 10px;
+}
+
+.desk-menubar__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--lg-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.desk-menubar__meta :deep(svg) {
+  opacity: 0.8;
+}
+
+.desk-menubar__clock {
+  color: var(--lg-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.desk-menubar__permit :deep(.permit-control__trigger) {
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 5px;
+}
+
+.desk-menubar__brand {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.desk-menubar__brand:hover,
+.desk-menubar__trigger:hover,
+.desk-menubar__trigger.is-open {
+  background: color-mix(in srgb, var(--lg-text) 9%, transparent);
+}
+
+.desk-menubar__group {
+  position: relative;
+}
+
+.desk-menubar__trigger {
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.desk-menubar__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  display: flex;
+  min-width: 184px;
+  flex-direction: column;
+  padding: 5px;
+  border: 1px solid color-mix(in srgb, var(--lg-border-strong) 76%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--lg-surface) 88%, transparent);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(28px) saturate(1.6);
+}
+
+.desk-menubar__menu button {
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--lg-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.desk-menubar__menu button:hover:not(:disabled) {
+  background: var(--lg-primary);
+  color: var(--lg-on-primary);
+}
+
+.desk-menubar__menu button:disabled {
+  color: var(--lg-text-muted);
+  cursor: default;
+  opacity: 0.55;
+}
+
+.desk-menubar__status {
+  max-width: 220px;
+  color: var(--lg-text-secondary);
+  white-space: nowrap;
+}
+
+.desk-menubar__status .conn-bar__dot {
+  width: 7px;
+  height: 7px;
+}
+
+.serverdesk.has-menubar {
+  --desk-bar-space: 0px;
+  --desk-max-top: var(--lg-chrome-menubar-height, 28px);
+}
+
+.serverdesk.has-menubar .desk-icons {
+  top: calc(var(--lg-chrome-menubar-height, 28px) + 12px);
+}
+
+.serverdesk.is-macos-dock .desk-taskbar {
+  height: var(--lg-chrome-dock-height, 64px);
+  padding: 0 14px;
+  border-color: color-mix(in srgb, var(--lg-border-strong) 70%, transparent);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--lg-surface) 58%, transparent);
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24);
+  backdrop-filter: blur(26px) saturate(1.6);
+}
+
+.serverdesk.is-macos-dock .desk-taskbar__app {
+  transition: transform 160ms var(--lg-ease);
+  transform-origin: bottom center;
+}
+
+.serverdesk.is-macos-dock .desk-taskbar__app:hover {
+  transform: scale(var(--lg-chrome-dock-scale, 1.22)) translateY(-2px);
 }
 </style>

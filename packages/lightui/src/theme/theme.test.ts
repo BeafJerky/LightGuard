@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { themes, themeOptions, resolveTheme } from './tokens';
 import { toCssVars } from './css';
+import { chromeOf } from './chrome';
 import { toNaiveOverrides } from './naive';
 import type { ThemeName, ThemeTokens } from './types';
 
@@ -51,7 +52,7 @@ const colorKeys: Array<keyof ThemeTokens['color']> = [
 ];
 
 describe('theme tokens', () => {
-  it('defines all 8 concrete themes plus system', () => {
+  it('defines all 10 concrete themes plus system', () => {
     expect(Object.keys(themes)).toEqual([
       'dark',
       'light',
@@ -61,10 +62,12 @@ describe('theme tokens', () => {
       'tech',
       'win11',
       'win11-dark',
+      'macos',
+      'macos-dark',
     ]);
-    expect(themeOptions).toHaveLength(9);
+    expect(themeOptions).toHaveLength(11);
     expect(themeOptions[0].id).toBe('system');
-    expect(new Set(themeOptions.map((option) => option.id)).size).toBe(9);
+    expect(new Set(themeOptions.map((option) => option.id)).size).toBe(11);
   });
 
   it.each(themeEntries)('%s has every color token', (_name, theme) => {
@@ -91,6 +94,8 @@ describe('theme tokens', () => {
       'tech',
       'win11',
       'win11-dark',
+      'macos',
+      'macos-dark',
     ] as const) {
       expect(resolveTheme(id, true)).toBe(themes[id]);
       expect(resolveTheme(id, false)).toBe(themes[id]);
@@ -119,6 +124,19 @@ describe('theme tokens', () => {
     expect(dark.color.primary).toBe('#60cdff');
     expect(dark.color.onPrimary).toBe('#000000');
     expect(light.motion.base).toBe('167ms');
+  });
+
+  it('ships a macOS pair with menu bar and traffic lights', () => {
+    const light = themes.macos;
+    const dark = themes['macos-dark'];
+    expect(light.mode).toBe('light');
+    expect(dark.mode).toBe('dark');
+    expect(light.pack).toBe('macos');
+    expect(chromeOf(light).menuBar).toBe(true);
+    expect(chromeOf(dark).windowControls).toBe('macos');
+    expect(chromeOf(dark).dock).toBe('macos');
+    expect(toCssVars(light)['--lg-chrome-menubar-height']).toBe('28px');
+    expect(chromeOf(themes.dark).menuBar).toBe(false);
   });
 
   it('keeps pixel themes square and stepped', () => {

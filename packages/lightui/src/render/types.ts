@@ -1,6 +1,6 @@
 import type { ThemeTokens } from '../theme/types';
 
-export type RenderBackend = 'dom' | 'canvas' | 'webgl';
+export type RenderBackend = 'dom' | 'canvas' | 'webgl' | 'webgpu';
 export type RenderPreference = 'inherit' | 'auto' | RenderBackend;
 
 export const RENDER_TIERS = [

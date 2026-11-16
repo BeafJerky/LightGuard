@@ -15,6 +15,8 @@ const expectedScheme: Record<string, 'a' | 'b'> = {
   light: 'b',
   win11: 'b',
   'win11-dark': 'b',
+  macos: 'b',
+  'macos-dark': 'b',
   claude: 'a',
   pixel: 'a',
   nes: 'a',
@@ -48,7 +50,7 @@ describe('scheme B palette', () => {
   const vivid = Object.values(themes).filter((theme) => appIconScheme(theme.id) === 'b');
 
   it('keeps glyph ink at or above 3:1 against both gradient ends', () => {
-    expect(vivid.length).toBe(4);
+    expect(vivid.length).toBe(6);
     for (const theme of vivid) {
       for (const app of DESKTOP_APPS) {
         const color = appTileColor(theme, app.tile);

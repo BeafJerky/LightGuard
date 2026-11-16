@@ -22,6 +22,7 @@ const backendLabel: Record<RenderBackend, string> = {
   dom: 'DOM',
   canvas: 'Canvas',
   webgl: 'WebGL',
+  webgpu: 'WebGPU',
 };
 
 const globalOptions = [
@@ -29,6 +30,7 @@ const globalOptions = [
   { label: 'DOM', value: 'dom' },
   { label: 'Canvas', value: 'canvas' },
   { label: 'WebGL', value: 'webgl' },
+  { label: 'WebGPU', value: 'webgpu' },
 ];
 
 const preferenceOptions = [
@@ -37,6 +39,7 @@ const preferenceOptions = [
   { label: 'DOM', value: 'dom' },
   { label: 'Canvas', value: 'canvas' },
   { label: 'WebGL', value: 'webgl' },
+  { label: 'WebGPU', value: 'webgpu' },
 ];
 
 const intensityOptions = [

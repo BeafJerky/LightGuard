@@ -18,7 +18,7 @@ export const DEFAULT_RENDER_SETTINGS: RenderSettings = {
   a11yForceDom: false,
 };
 
-const BACKENDS: readonly RenderBackend[] = ['dom', 'canvas', 'webgl'];
+const BACKENDS: readonly RenderBackend[] = ['dom', 'canvas', 'webgl', 'webgpu'];
 const INTENSITIES: readonly EffectIntensity[] = ['low', 'medium', 'high'];
 
 function isBackend(value: unknown): value is RenderBackend {

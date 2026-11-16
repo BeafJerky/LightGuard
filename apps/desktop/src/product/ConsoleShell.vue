@@ -44,6 +44,8 @@ const themeGlyphs: Record<string, string> = {
   tech: 'spark',
   win11: 'dashboard',
   'win11-dark': 'dashboard',
+  macos: 'monitor',
+  'macos-dark': 'moon',
 };
 
 const currentTheme = computed(

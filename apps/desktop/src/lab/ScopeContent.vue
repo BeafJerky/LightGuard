@@ -76,6 +76,8 @@ const packLabels: Record<string, string> = {
   nes: '红白机',
   tech: '科技',
   win11: 'WIN11',
+  macos: 'macOS',
+  'macos-dark': 'macOS 深色',
 };
 
 const statusLabel = computed(() =>

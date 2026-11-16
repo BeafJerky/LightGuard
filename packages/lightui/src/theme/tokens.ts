@@ -602,6 +602,156 @@ const win11Dark: ThemeTokens = {
   icon: { stroke: '1.5px', linecap: 'round', linejoin: 'round' },
 };
 
+
+const MAC_SANS =
+  '-apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", system-ui, sans-serif';
+const MAC_MONO = '"SF Mono", "SFMono-Regular", Menlo, Consolas, monospace';
+const macMotion = {
+  fast: '140ms',
+  base: '220ms',
+  slow: '340ms',
+  ease: 'cubic-bezier(0.25, 0.1, 0.25, 1)',
+  spring: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
+};
+
+const macos: ThemeTokens = {
+  id: 'macos',
+  label: 'macOS',
+  description: 'macOS 风格：交通灯窗口、全局菜单栏与冷灰材质',
+  mode: 'light',
+  pack: 'macos',
+  color: {
+    bg: '#f5f5f7',
+    bgSoft: '#ececf0',
+    surface: '#ffffff',
+    surface2: '#f7f7f9',
+    surface3: '#e8e8ed',
+    surfaceGlass: 'rgba(255, 255, 255, 0.72)',
+    border: 'rgba(0, 0, 0, 0.1)',
+    borderStrong: 'rgba(0, 0, 0, 0.2)',
+    borderWidth: '1px',
+    hover: 'rgba(0, 0, 0, 0.045)',
+    pressed: 'rgba(0, 0, 0, 0.08)',
+    text: '#1d1d1f',
+    textSecondary: '#515154',
+    textMuted: '#86868b',
+    primary: '#007aff',
+    primaryHover: '#3395ff',
+    primaryPressed: '#0066d6',
+    primarySoft: 'rgba(0, 122, 255, 0.12)',
+    onPrimary: '#ffffff',
+    success: '#28cd41',
+    successSoft: 'rgba(40, 205, 65, 0.12)',
+    accent: '#5856d6',
+    accentSoft: 'rgba(88, 86, 214, 0.12)',
+    warning: '#ff9f0a',
+    warningSoft: 'rgba(255, 159, 10, 0.14)',
+    danger: '#ff3b30',
+    dangerSoft: 'rgba(255, 59, 48, 0.12)',
+    info: '#5ac8fa',
+    infoSoft: 'rgba(90, 200, 250, 0.14)',
+    focus: '#0a84ff',
+    chartGrid: 'rgba(0, 0, 0, 0.08)',
+  },
+  radius: { sm: '7px', md: '10px', lg: '14px', xl: '18px', full: '999px' },
+  shadow: {
+    sm: '0 1px 3px rgba(0, 0, 0, 0.12)',
+    lg: '0 24px 60px rgba(0, 0, 0, 0.28)',
+    hard: 'none',
+    color: 'rgba(0, 0, 0, 0.42)',
+  },
+  font: { sans: MAC_SANS, mono: MAC_MONO, display: MAC_SANS },
+  motion: macMotion,
+  surface: {
+    panelBlur: '30px',
+    texture: 'none',
+    textureSize: 'auto',
+    textureOpacity: '0',
+    appBgImage:
+      'radial-gradient(900px 540px at 12% -10%, rgba(10, 132, 255, 0.12), transparent 62%), radial-gradient(760px 460px at 96% 2%, rgba(191, 90, 242, 0.1), transparent 60%)',
+    appGridImage: 'none',
+    appGridSize: 'auto',
+    desktopWallpaper:
+      'radial-gradient(1200px 800px at 15% 18%, rgba(10, 132, 255, 0.42), transparent 60%), radial-gradient(1000px 720px at 82% 8%, rgba(191, 90, 242, 0.32), transparent 58%), radial-gradient(900px 700px at 58% 92%, rgba(255, 90, 140, 0.22), transparent 62%), linear-gradient(160deg, #dfe9f5 0%, #f6e7f0 46%, #e9f2f8 100%)',
+    desktopVignette: 'linear-gradient(180deg, rgba(255,255,255,0.18), transparent 26%, rgba(0,0,0,0.08))',
+  },
+  desktop: {
+    text: '#ffffff',
+    textMuted: 'rgba(255, 255, 255, 0.74)',
+    textShadow: '0 1px 4px rgba(0, 0, 0, 0.42)',
+  },
+  icon: { stroke: '1.6px', linecap: 'round', linejoin: 'round' },
+};
+
+const macosDark: ThemeTokens = {
+  id: 'macos-dark',
+  label: 'macOS 深色',
+  description: 'macOS 深色：冷灰半透明材质与交通灯窗口',
+  mode: 'dark',
+  pack: 'macos',
+  color: {
+    bg: '#1c1c1e',
+    bgSoft: '#161618',
+    surface: '#242426',
+    surface2: '#2c2c2e',
+    surface3: '#3a3a3c',
+    surfaceGlass: 'rgba(36, 36, 38, 0.72)',
+    border: 'rgba(255, 255, 255, 0.12)',
+    borderStrong: 'rgba(255, 255, 255, 0.24)',
+    borderWidth: '1px',
+    hover: 'rgba(255, 255, 255, 0.06)',
+    pressed: 'rgba(255, 255, 255, 0.1)',
+    text: '#f5f5f7',
+    textSecondary: '#c7c7cc',
+    textMuted: '#8e8e93',
+    primary: '#0a84ff',
+    primaryHover: '#409cff',
+    primaryPressed: '#006edb',
+    primarySoft: 'rgba(10, 132, 255, 0.16)',
+    onPrimary: '#ffffff',
+    success: '#30d158',
+    successSoft: 'rgba(48, 209, 88, 0.14)',
+    accent: '#bf5af2',
+    accentSoft: 'rgba(191, 90, 242, 0.14)',
+    warning: '#ffd60a',
+    warningSoft: 'rgba(255, 214, 10, 0.14)',
+    danger: '#ff453a',
+    dangerSoft: 'rgba(255, 69, 58, 0.16)',
+    info: '#64d2ff',
+    infoSoft: 'rgba(100, 210, 255, 0.14)',
+    focus: '#409cff',
+    chartGrid: 'rgba(255, 255, 255, 0.09)',
+  },
+  radius: { sm: '7px', md: '10px', lg: '14px', xl: '18px', full: '999px' },
+  shadow: {
+    sm: '0 1px 3px rgba(0, 0, 0, 0.4)',
+    lg: '0 24px 60px rgba(0, 0, 0, 0.56)',
+    hard: 'none',
+    color: 'rgba(0, 0, 0, 0.6)',
+  },
+  font: { sans: MAC_SANS, mono: MAC_MONO, display: MAC_SANS },
+  motion: macMotion,
+  surface: {
+    panelBlur: '30px',
+    texture: 'none',
+    textureSize: 'auto',
+    textureOpacity: '0',
+    appBgImage:
+      'radial-gradient(900px 540px at 12% -10%, rgba(10, 132, 255, 0.16), transparent 62%), radial-gradient(760px 460px at 96% 2%, rgba(191, 90, 242, 0.12), transparent 60%)',
+    appGridImage: 'none',
+    appGridSize: 'auto',
+    desktopWallpaper:
+      'radial-gradient(1200px 800px at 16% 16%, rgba(10, 132, 255, 0.45), transparent 60%), radial-gradient(1000px 720px at 84% 6%, rgba(191, 90, 242, 0.36), transparent 58%), radial-gradient(900px 700px at 58% 94%, rgba(255, 69, 58, 0.2), transparent 62%), linear-gradient(160deg, #090d16 0%, #151125 46%, #0a1520 100%)',
+    desktopVignette: 'linear-gradient(180deg, rgba(255,255,255,0.06), transparent 24%, rgba(0,0,0,0.22))',
+  },
+  desktop: {
+    text: '#f5f5f7',
+    textMuted: 'rgba(245, 245, 247, 0.72)',
+    textShadow: '0 1px 4px rgba(0, 0, 0, 0.55)',
+  },
+  icon: { stroke: '1.6px', linecap: 'round', linejoin: 'round' },
+};
+
 export const themes: Record<ThemeName, ThemeTokens> = {
   dark,
   light,
@@ -611,6 +761,8 @@ export const themes: Record<ThemeName, ThemeTokens> = {
   tech,
   win11,
   'win11-dark': win11Dark,
+  macos,
+  'macos-dark': macosDark,
 };
 
 export const themeOptions: Array<{

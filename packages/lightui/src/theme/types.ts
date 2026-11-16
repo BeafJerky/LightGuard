@@ -6,10 +6,12 @@ export type ThemeName =
   | 'nes'
   | 'tech'
   | 'win11'
-  | 'win11-dark';
+  | 'win11-dark'
+  | 'macos'
+  | 'macos-dark';
 export type ThemeId = 'system' | ThemeName;
 export type ThemeMode = 'dark' | 'light';
-export type ThemePack = 'default' | 'claude' | 'pixel' | 'nes' | 'tech' | 'win11';
+export type ThemePack = 'default' | 'claude' | 'pixel' | 'nes' | 'tech' | 'win11' | 'macos';
 export type ThemeScope = 'console' | 'desktop';
 
 export interface ThemeColors {
@@ -101,6 +103,25 @@ export interface ThemeTokens {
     linecap: string;
     linejoin: string;
   };
+  /** 外壳差异；缺省按 Windows 外壳解析。 */
+  chrome?: ThemeChrome;
+}
+
+export interface ThemeChromeMetrics {
+  menuBarHeight: string;
+  windowRadius: string;
+  windowBarHeight: string;
+  trafficLightSize: string;
+  dockHeight: string;
+  dockMagnification: string;
+}
+
+export interface ThemeChrome {
+  windowControls: 'windows' | 'macos';
+  menuBar: boolean;
+  dock: 'windows' | 'macos';
+  material: 'solid' | 'sidebar-blur';
+  metrics: ThemeChromeMetrics;
 }
 
 export interface ThemeScopeContext {
